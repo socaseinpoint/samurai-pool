@@ -692,8 +692,8 @@ export class Target {
     
     if (dist < 0.5) return vec3(0, 0, 0);
     
-    // Сила притяжения - сильнее когда ближе
-    const pullStrength = Math.max(0, 1 - dist / 20) * 15;
+    // Сила притяжения - сильнее когда ближе (ослаблена в 2 раза)
+    const pullStrength = Math.max(0, 1 - dist / 20) * 7.5;
     
     return vec3(
       (dx / dist) * pullStrength,

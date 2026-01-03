@@ -213,14 +213,16 @@ export class CollisionSystem implements ICollisionSystem {
       if (Math.sqrt(dx * dx + dz * dz) < 0.7 + radius) return true;
     }
 
-    // Все платформы
+    // Все платформы - блокируем только если враг рядом по высоте
     const allPlatforms = [...this.jumpPlatforms, this.topPlatform];
     for (const plat of allPlatforms) {
       const dx = pos.x - plat.x;
       const dz = pos.z - plat.z;
       const dist = Math.sqrt(dx * dx + dz * dz);
       
-      if (dist < plat.radius + radius && pos.y < plat.height + 0.5) {
+      // Блокируем только если враг в пределах 1.5м от уровня платформы
+      // (как для игрока в checkCollision)
+      if (dist < plat.radius + radius && pos.y < plat.height + 1.5 && pos.y > plat.height - 1.5) {
         return true;
       }
     }
