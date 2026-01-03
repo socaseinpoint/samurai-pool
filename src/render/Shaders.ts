@@ -317,33 +317,33 @@ float map(vec3 p) {
   colD = min(colD, sdCylinder(p - vec3(-22.0, 4.0, 0.0), 0.5, 4.0));
   d = min(d, colD);
   
-  // === КРУГЛЫЕ ПЛАТФОРМЫ ДЛЯ ПАРКУРА (по центру арены) ===
-  // Платформа 1 (низкая, Z=12) - обычный прыжок с земли
-  float plat1 = sdCylinder(p - vec3(0.0, 2.5, 12.0), 2.0, 0.3);
-  if (plat1 < d) {
-    d = plat1;
+  // === КРУГЛЫЕ ПЛАТФОРМЫ ДЛЯ ПАРКУРА (спираль по кругу) ===
+  // 6 платформ по кругу с радиусом 10м
+  float jp1 = sdCylinder(p - vec3(10.0, 1.8, 0.0), 1.5, 0.25);
+  float jp2 = sdCylinder(p - vec3(5.0, 3.0, 8.66), 1.4, 0.25);
+  float jp3 = sdCylinder(p - vec3(-5.0, 4.2, 8.66), 1.4, 0.25);
+  float jp4 = sdCylinder(p - vec3(-10.0, 5.4, 0.0), 1.3, 0.25);
+  float jp5 = sdCylinder(p - vec3(-5.0, 6.6, -8.66), 1.3, 0.25);
+  float jp6 = sdCylinder(p - vec3(5.0, 7.8, -8.66), 1.2, 0.25);
+  
+  float jumpPlats = min(jp1, min(jp2, min(jp3, min(jp4, min(jp5, jp6)))));
+  if (jumpPlats < d) {
+    d = jumpPlats;
     materialId = 16;
   }
   
-  // Платформа 2 (средняя, Z=6) - нужен двойной прыжок
-  float plat2 = sdCylinder(p - vec3(0.0, 5.5, 6.0), 1.8, 0.3);
-  if (plat2 < d) {
-    d = plat2;
+  // Верхняя платформа с бафом (в центре над фонтаном)
+  float topPlat = sdCylinder(p - vec3(0.0, 9.5, 0.0), 2.5, 0.35);
+  if (topPlat < d) {
+    d = topPlat;
     materialId = 16;
   }
   
-  // Платформа 3 (верхняя с бафом, Z=0 центр) - нужен двойной прыжок
-  float plat3 = sdCylinder(p - vec3(0.0, 9.0, 0.0), 3.0, 0.4);
-  if (plat3 < d) {
-    d = plat3;
-    materialId = 16;
-  }
-  
-  // Свечение под верхней платформой (подсветка)
-  float glowRing = sdTorus(p - vec3(0.0, 8.5, 0.0), vec2(2.5, 0.1));
+  // Свечение под верхней платформой
+  float glowRing = sdTorus(p - vec3(0.0, 9.0, 0.0), vec2(2.0, 0.12));
   if (glowRing < d) {
     d = glowRing;
-    materialId = 17; // Светящееся кольцо
+    materialId = 17;
   }
   
   // === ВОДА ===

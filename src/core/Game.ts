@@ -20,10 +20,10 @@ const DEFAULT_CONFIG: GameConfig = {
   movement: {
     walkSpeed: 9.0,
     runSpeed: 16.0,
-    jumpForce: 8.0,
+    jumpForce: 12.0,
     gravity: 25.0,
     groundFriction: 12.0,
-    airControl: 0.3,
+    airControl: 0.85,
     mouseSensitivity: 0.002,
   },
   weapon: {
@@ -174,6 +174,14 @@ export class Game {
         // Босс роняет много аптечек
         for (let i = 0; i < 3; i++) {
           this.pickupManager.spawnAfterKill(target.position);
+        }
+        // Респавн заряда катаны после босса
+        this.pickupManager.respawnChargeAfterBoss();
+        
+        // После первого босса (волна 5) - разблокируем тройной прыжок!
+        if (this.targetManager.wave === 5 && this.player.maxAirJumps < 2) {
+          this.player.unlockTripleJump();
+          this.hud.showMessage('🦘 ТРОЙНОЙ ПРЫЖОК РАЗБЛОКИРОВАН! 🦘', 'cyan');
         }
       }
     };

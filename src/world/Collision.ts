@@ -21,13 +21,18 @@ export class CollisionSystem implements ICollisionSystem {
   // Мосты
   private bridgeWidth = 3.5;
   
-  // === КРУГЛЫЕ ПЛАТФОРМЫ ДЛЯ ПАРКУРА (по центру) ===
-  // Платформа 1: низкая - обычный прыжок с земли
-  private plat1 = { x: 0, z: 12, height: 2.5, radius: 2.0 };
-  // Платформа 2: средняя - нужен двойной прыжок
-  private plat2 = { x: 0, z: 6, height: 5.5, radius: 1.8 };
-  // Платформа 3: верхняя с бафом - нужен двойной прыжок
-  private plat3 = { x: 0, z: 0, height: 9.0, radius: 3.0 };
+  // === КРУГЛЫЕ ПЛАТФОРМЫ ДЛЯ ПАРКУРА (спираль по кругу) ===
+  // 6 платформ по кругу с радиусом 10м, высота растёт по спирали
+  private jumpPlatforms = [
+    { x: 10.0, z: 0.0, height: 1.8, radius: 1.5 },   // 1 - старт (0°)
+    { x: 5.0, z: 8.66, height: 3.0, radius: 1.4 },   // 2 - (60°)
+    { x: -5.0, z: 8.66, height: 4.2, radius: 1.4 },  // 3 - (120°)
+    { x: -10.0, z: 0.0, height: 5.4, radius: 1.3 },  // 4 - (180°)
+    { x: -5.0, z: -8.66, height: 6.6, radius: 1.3 }, // 5 - (240°)
+    { x: 5.0, z: -8.66, height: 7.8, radius: 1.2 },  // 6 - (300°)
+  ];
+  // Верхняя платформа с бафом - в центре над фонтаном
+  private topPlatform = { x: 0, z: 0, height: 9.5, radius: 2.5 };
 
   /** Проверить коллизию в точке */
   public checkCollision(pos: Vec3): boolean {
@@ -56,6 +61,20 @@ export class CollisionSystem implements ICollisionSystem {
 
     // Бассейн теперь проходим - можно ходить по воде
 
+    // Коллизия с круглыми платформами (сбоку)
+    const allPlatforms = [...this.jumpPlatforms, this.topPlatform];
+    for (const plat of allPlatforms) {
+      const dx = pos.x - plat.x;
+      const dz = pos.z - plat.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      const feetY = pos.y - 1.7;
+      
+      // Если игрок на уровне платформы или ниже - блокируем вход в радиус
+      if (dist < plat.radius + r && feetY < plat.height - 0.1) {
+        return true;
+      }
+    }
+
     // Края платформ (перила)
     // Левая платформа
     if (pos.x < -this.platformX + 3.5 && pos.x > -this.platformX - 3.5 &&
@@ -82,8 +101,11 @@ export class CollisionSystem implements ICollisionSystem {
     const dx = pos.x - plat.x;
     const dz = pos.z - plat.z;
     const dist = Math.sqrt(dx * dx + dz * dz);
-    // Игрок должен быть над платформой (не снизу!) и в радиусе
-    return dist < plat.radius && pos.y >= plat.height - 0.5;
+    // Игрок должен быть СТРОГО выше платформы (минимум на уровне верха) и в радиусе
+    // pos.y - это позиция глаз, eyeHeight = 1.7, значит ноги на pos.y - 1.7
+    // Ноги должны быть выше или на уровне платформы
+    const feetY = pos.y - 1.7;
+    return dist < plat.radius && feetY >= plat.height - 0.1;
   }
 
   /** Получить высоту пола в точке */
@@ -130,22 +152,17 @@ export class CollisionSystem implements ICollisionSystem {
       }
     }
 
-    // === КРУГЛЫЕ ПЛАТФОРМЫ ДЛЯ ПАРКУРА (по центру) ===
-    // Проверяем сверху вниз (сначала высшие платформы)
-    
-    // Платформа 3 (верхняя с бафом) - высота 9м
-    if (this.isOverCirclePlatform(pos, this.plat3)) {
-      return this.plat3.height;
+    // === КРУГЛЫЕ ПЛАТФОРМЫ ДЛЯ ПАРКУРА (спираль) ===
+    // Верхняя платформа с бафом
+    if (this.isOverCirclePlatform(pos, this.topPlatform)) {
+      return this.topPlatform.height;
     }
     
-    // Платформа 2 (средняя) - высота 5.5м
-    if (this.isOverCirclePlatform(pos, this.plat2)) {
-      return this.plat2.height;
-    }
-    
-    // Платформа 1 (низкая) - высота 2.5м
-    if (this.isOverCirclePlatform(pos, this.plat1)) {
-      return this.plat1.height;
+    // 6 платформ по кругу (проверяем сверху вниз)
+    for (let i = this.jumpPlatforms.length - 1; i >= 0; i--) {
+      if (this.isOverCirclePlatform(pos, this.jumpPlatforms[i])) {
+        return this.jumpPlatforms[i].height;
+      }
     }
 
     // Основной пол
@@ -154,21 +171,21 @@ export class CollisionSystem implements ICollisionSystem {
 
   /** Получить высоту потолка */
   public getCeilingHeight(pos: Vec3): number {
-    // Проверяем, не находимся ли мы под платформой (блокируем прыжок снизу)
-    const platforms = [this.plat1, this.plat2, this.plat3];
+    // Проверяем все платформы
+    const allPlatforms = [...this.jumpPlatforms, this.topPlatform];
     
-    for (const plat of platforms) {
+    for (const plat of allPlatforms) {
       const dx = pos.x - plat.x;
       const dz = pos.z - plat.z;
       const dist = Math.sqrt(dx * dx + dz * dz);
       
       // Если под платформой - потолок = низ платформы
       if (dist < plat.radius && pos.y < plat.height - 0.5) {
-        return plat.height - 0.3; // Низ платформы
+        return plat.height - 0.3;
       }
     }
     
-    return 18.0; // Общий потолок
+    return 18.0;
   }
 
   /** Проверить коллизию для врага (упрощённая версия без перил) */
@@ -194,14 +211,13 @@ export class CollisionSystem implements ICollisionSystem {
       if (Math.sqrt(dx * dx + dz * dz) < 0.7 + radius) return true;
     }
 
-    // Круглые платформы - враги не могут пройти сквозь них
-    const platforms = [this.plat1, this.plat2, this.plat3];
-    for (const plat of platforms) {
+    // Все платформы
+    const allPlatforms = [...this.jumpPlatforms, this.topPlatform];
+    for (const plat of allPlatforms) {
       const dx = pos.x - plat.x;
       const dz = pos.z - plat.z;
       const dist = Math.sqrt(dx * dx + dz * dz);
       
-      // Если враг на уровне платформы или ниже - блокируем
       if (dist < plat.radius + radius && pos.y < plat.height + 0.5) {
         return true;
       }
@@ -212,18 +228,15 @@ export class CollisionSystem implements ICollisionSystem {
 
   /** Получить высоту препятствия перед врагом (для прыжков) */
   public getObstacleHeight(pos: Vec3, dirX: number, dirZ: number, checkDist: number = 1.5): number {
-    // Точка проверки перед врагом
     const checkX = pos.x + dirX * checkDist;
     const checkZ = pos.z + dirZ * checkDist;
     
-    // Проверяем круглые платформы
-    const platforms = [this.plat1, this.plat2, this.plat3];
-    for (const plat of platforms) {
+    const allPlatforms = [...this.jumpPlatforms, this.topPlatform];
+    for (const plat of allPlatforms) {
       const dx = checkX - plat.x;
       const dz = checkZ - plat.z;
       const dist = Math.sqrt(dx * dx + dz * dz);
       
-      // Если точка проверки внутри платформы
       if (dist < plat.radius && pos.y < plat.height) {
         return plat.height;
       }

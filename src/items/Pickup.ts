@@ -204,19 +204,19 @@ export class PickupManager {
 
   /** Спавн заряда катаны на верхней платформе */
   private spawnChargeOnBalcony(): void {
-    // Позиция на верхней круглой платформе (центр, высота 9)
-    const pos = vec3(0, 9.8, 0);
+    // Позиция на верхней круглой платформе (центр, высота 9.5)
+    const pos = vec3(0, 10.3, 0);
     this.chargeOnBalcony = new Pickup(pos, 'charge');
     this.chargeOnBalcony.lifetime = 999999; // Не исчезает
     this.pickups.push(this.chargeOnBalcony);
   }
 
-  /** Проверка подбора заряда (только на балконе!) */
+  /** Проверка подбора заряда (только на верхней платформе!) */
   public checkChargePickup(playerPos: Vec3): boolean {
     if (!this.chargeOnBalcony || !this.chargeOnBalcony.active) return false;
     
-    // Заряд можно подобрать только если игрок на верхнем балконе (высота > 11)
-    if (playerPos.y < 11.0) return false;
+    // Заряд можно подобрать только если игрок на верхней платформе (высота 9.5 + eyeHeight 1.7 ≈ 11+)
+    if (playerPos.y < 10.5) return false;
     
     if (this.chargeOnBalcony.checkPickup(playerPos)) {
       this.chargeOnBalcony = null;
@@ -224,6 +224,18 @@ export class PickupManager {
       return true;
     }
     return false;
+  }
+
+  /** Респавн заряда после убийства босса */
+  public respawnChargeAfterBoss(): void {
+    // Если заряда нет - спавним сразу
+    if (!this.chargeOnBalcony || !this.chargeOnBalcony.active) {
+      // Удаляем старый из списка если есть
+      this.pickups = this.pickups.filter(p => p !== this.chargeOnBalcony);
+      this.chargeOnBalcony = null;
+      this.chargeRespawnTimer = 0;
+      this.spawnChargeOnBalcony();
+    }
   }
 
   /** Обновление респавна заряда */

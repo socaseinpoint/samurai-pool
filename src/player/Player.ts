@@ -5,10 +5,10 @@ import { vec3, clamp } from '@/utils/math';
 const DEFAULT_CONFIG: MovementConfig = {
   walkSpeed: 8.0,
   runSpeed: 20.0,
-  jumpForce: 8.0,
+  jumpForce: 12.0,
   gravity: 25.0,
   groundFriction: 12.0,
-  airControl: 0.3,
+  airControl: 0.85,
   mouseSensitivity: 0.002, // Высокая чувствительность
 };
 
@@ -37,14 +37,20 @@ export class Player {
   private targetYaw = 0;
   private targetPitch = -0.05;
 
-  /** Кулдаун двойного прыжка (секунды) */
-  private doubleJumpCooldown = 0;
+  /** Кулдаун воздушных прыжков (секунды) */
+  private airJumpCooldown = 0;
   
-  /** Время кулдауна двойного прыжка */
-  private readonly DOUBLE_JUMP_COOLDOWN = 2.5;
+  /** Время кулдауна воздушных прыжков */
+  private readonly AIR_JUMP_COOLDOWN = 2.0;
 
-  /** Можно ли делать двойной прыжок (отпустили ли Space после первого) */
-  private canDoubleJump = false;
+  /** Сколько воздушных прыжков осталось */
+  private airJumpsLeft = 0;
+  
+  /** Максимум воздушных прыжков (1 = двойной, 2 = тройной) */
+  public maxAirJumps = 1;
+
+  /** Можно ли делать воздушный прыжок (отпустили ли Space) */
+  private canAirJump = false;
 
   /** Режим буйства */
   public rageMode = false;
@@ -90,9 +96,9 @@ export class Player {
       }
     }
     
-    // Обновляем кулдаун двойного прыжка
-    if (this.doubleJumpCooldown > 0) {
-      this.doubleJumpCooldown -= dt;
+    // Обновляем кулдаун воздушных прыжков
+    if (this.airJumpCooldown > 0) {
+      this.airJumpCooldown -= dt;
     }
 
     // Обновляем камеру
@@ -110,44 +116,59 @@ export class Player {
     this.speedBoostTimer = 8.0;
   }
 
-  /** Попытка двойного прыжка - возвращает true если выполнен */
+  /** Попытка воздушного прыжка - возвращает true если выполнен */
   public tryDoubleJump(): boolean {
-    // Нужно отпустить Space после первого прыжка
-    if (!this.canDoubleJump) return false;
+    // Нужно отпустить Space после предыдущего прыжка
+    if (!this.canAirJump) return false;
+    
+    // Проверяем есть ли воздушные прыжки
+    if (this.airJumpsLeft <= 0) return false;
     
     // В режиме буйства - без кулдауна!
     if (this.rageMode) {
-      this.state.velocity.y = this.config.jumpForce * 0.85;
-      this.canDoubleJump = false; // Требуем отпустить Space
+      this.state.velocity.y = this.config.jumpForce * 0.9;
+      this.airJumpsLeft--;
+      this.canAirJump = false;
       return true;
     }
     
-    // Обычный двойной прыжок с кулдауном
-    if (this.doubleJumpCooldown <= 0) {
-      this.doubleJumpCooldown = this.DOUBLE_JUMP_COOLDOWN;
-      this.state.velocity.y = this.config.jumpForce * 0.95;
-      this.canDoubleJump = false; // Требуем отпустить Space
+    // Обычный воздушный прыжок с кулдауном
+    if (this.airJumpCooldown <= 0) {
+      this.airJumpCooldown = this.AIR_JUMP_COOLDOWN;
+      this.state.velocity.y = this.config.jumpForce;
+      this.airJumpsLeft--;
+      this.canAirJump = false;
       return true;
     }
     
     return false;
   }
 
-  /** Сообщить что Space отпущен - можно делать двойной прыжок */
+  /** Сообщить что Space отпущен - можно делать воздушный прыжок */
   public onJumpReleased(): void {
     if (!this.state.grounded) {
-      this.canDoubleJump = true;
+      this.canAirJump = true;
     }
   }
 
-  /** Получить оставшийся кулдаун двойного прыжка */
+  /** Получить оставшийся кулдаун воздушного прыжка */
   public getDoubleJumpCooldown(): number {
-    return Math.max(0, this.doubleJumpCooldown);
+    return Math.max(0, this.airJumpCooldown);
   }
 
-  /** Готов ли двойной прыжок */
+  /** Готов ли воздушный прыжок */
   public isDoubleJumpReady(): boolean {
-    return this.doubleJumpCooldown <= 0 || this.rageMode;
+    return (this.airJumpCooldown <= 0 && this.airJumpsLeft > 0) || this.rageMode;
+  }
+
+  /** Разблокировать тройной прыжок */
+  public unlockTripleJump(): void {
+    this.maxAirJumps = 2;
+  }
+
+  /** Получить количество оставшихся воздушных прыжков */
+  public getAirJumpsLeft(): number {
+    return this.airJumpsLeft;
   }
 
   /** Обновление камеры - быстрое и лёгкое */
@@ -212,6 +233,8 @@ export class Player {
       if (input.jump) {
         state.velocity.y = config.jumpForce;
         state.grounded = false;
+        this.airJumpsLeft = this.maxAirJumps; // Даём воздушные прыжки
+        this.canAirJump = false; // Нужно отпустить Space
       } else {
         // Плавное следование за полом (лестницы)
         const heightDiff = targetY - state.position.y;
@@ -233,9 +256,11 @@ export class Player {
         }
       }
     } else {
-      // В воздухе — ограниченный контроль
-      state.velocity.x += (targetVx - state.velocity.x) * config.airControl * dt;
-      state.velocity.z += (targetVz - state.velocity.z) * config.airControl * dt;
+      // В воздухе — почти полный контроль (сохраняем скорость)
+      // Быстро приближаемся к целевой скорости
+      const airFriction = 8.0 * dt;
+      state.velocity.x += (targetVx - state.velocity.x) * Math.min(airFriction, 1);
+      state.velocity.z += (targetVz - state.velocity.z) * Math.min(airFriction, 1);
 
       // Гравитация
       state.velocity.y -= config.gravity * dt;
@@ -274,7 +299,8 @@ export class Player {
         state.position.y = minY;
         state.velocity.y = 0;
         state.grounded = true;
-        this.canDoubleJump = false; // Сброс разрешения на двойной прыжок
+        this.canAirJump = false;
+        this.airJumpsLeft = 0; // Сброс воздушных прыжков
       } else {
         // Ещё летим
         const testPosY = { x: state.position.x, y: newPosY, z: state.position.z };
