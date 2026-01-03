@@ -26,6 +26,7 @@ uniform float u_muzzleFlash;
 uniform vec4 u_pools[8]; // Токсичные лужи [x, z, radius, lifetime]
 uniform int u_poolCount;
 uniform int u_era; // Эпоха: 1=кислотная, 2=чёрная дыра, 3=космическая
+uniform int u_wave; // Текущая волна (для эффекта дождя на 15+)
 uniform vec4 u_pickups[8]; // Пикапы [x, y, z, type] type: 9=health, 10=stimpack, 11=charge
 uniform int u_pickupCount;
 
@@ -564,6 +565,142 @@ vec3 renderSky(vec3 rd) {
   return color;
 }
 
+// === ЭФФЕКТ ДОЖДЯ И МОЛНИЙ ===
+
+// Функция для вертикальных линий дождя
+float rainStreak(vec2 uv, float speed, float density, float seed) {
+  vec2 st = uv * vec2(density, 1.0);
+  st.y = st.y * 0.1 - u_time * speed;
+  
+  float id = floor(st.x);
+  float x = fract(st.x);
+  float y = fract(st.y + fract(sin(id * seed) * 1000.0));
+  
+  // Тонкая вертикальная линия
+  float streak = smoothstep(0.45, 0.5, x) * smoothstep(0.55, 0.5, x);
+  // Ограничиваем длину капли
+  streak *= smoothstep(0.0, 0.02, y) * smoothstep(0.15, 0.08, y);
+  // Случайность появления
+  streak *= step(0.7, fract(sin(id * 127.1 + seed) * 43758.5453));
+  
+  return streak;
+}
+
+// Функция молнии
+float lightning(vec2 uv, float time, float seed) {
+  // Позиция молнии по X (меняется каждые несколько секунд)
+  float strikeTime = floor(time * 0.3 + seed);
+  float strikeX = fract(sin(strikeTime * 127.1 + seed) * 43758.5453) * 2.0 - 1.0;
+  
+  // Фаза молнии (0-1 в пределах удара)
+  float phase = fract(time * 0.3 + seed);
+  
+  // Молния видна только короткое время
+  float visible = smoothstep(0.7, 0.75, phase) * smoothstep(0.95, 0.85, phase);
+  
+  // Основной канал молнии с зигзагами
+  float bolt = 0.0;
+  float x = strikeX;
+  float segments = 8.0;
+  
+  for (float i = 0.0; i < segments; i++) {
+    float segY = 1.0 - i / segments;
+    float nextY = 1.0 - (i + 1.0) / segments;
+    
+    // Случайное смещение для зигзага
+    float nextX = x + (fract(sin((strikeTime + i) * 73.7) * 43758.5453) - 0.5) * 0.3;
+    
+    // Проверяем попадает ли пиксель в сегмент
+    if (uv.y < segY && uv.y > nextY) {
+      float t = (segY - uv.y) / (segY - nextY);
+      float lineX = mix(x, nextX, t);
+      float dist = abs(uv.x - lineX);
+      
+      // Яркое ядро + свечение
+      bolt += smoothstep(0.02, 0.0, dist) * 2.0;
+      bolt += smoothstep(0.08, 0.0, dist) * 0.5;
+    }
+    x = nextX;
+  }
+  
+  return bolt * visible;
+}
+
+// Предупреждающее свечение перед молнией
+float lightningWarning(vec2 uv, float time, float seed) {
+  float strikeTime = floor(time * 0.3 + seed);
+  float strikeX = fract(sin(strikeTime * 127.1 + seed) * 43758.5453) * 2.0 - 1.0;
+  float phase = fract(time * 0.3 + seed);
+  
+  // Свечение появляется перед ударом (фаза 0.5-0.7)
+  float warning = smoothstep(0.5, 0.6, phase) * smoothstep(0.75, 0.65, phase);
+  
+  // Пульсация
+  warning *= 0.5 + 0.5 * sin(time * 20.0);
+  
+  // Область свечения сверху
+  float glow = smoothstep(0.3, 1.0, uv.y);
+  glow *= smoothstep(0.5, 0.0, abs(uv.x - strikeX));
+  
+  return glow * warning;
+}
+
+vec3 renderRain(vec2 uv, vec3 color, float time) {
+  // Нормализуем UV для эффектов
+  vec2 screenUV = uv;
+  
+  // === ДОЖДЬ ===
+  float rain = 0.0;
+  
+  // Слой 1 - крупные яркие капли (передний план)
+  rain += rainStreak(screenUV, 3.0, 80.0, 1.0) * 0.8;
+  rain += rainStreak(screenUV + vec2(0.1, 0.0), 3.5, 90.0, 2.0) * 0.7;
+  
+  // Слой 2 - средние капли
+  rain += rainStreak(screenUV, 2.5, 120.0, 3.0) * 0.5;
+  rain += rainStreak(screenUV + vec2(0.05, 0.0), 2.8, 140.0, 4.0) * 0.4;
+  
+  // Слой 3 - мелкие капли (задний план)
+  rain += rainStreak(screenUV, 2.0, 200.0, 5.0) * 0.3;
+  
+  // Цвет дождя - яркий голубой
+  vec3 rainColor = vec3(0.6, 0.8, 1.0);
+  color += rainColor * rain;
+  
+  // === МОЛНИИ ===
+  // Несколько независимых молний с разным таймингом
+  float bolt1 = lightning(screenUV, time, 0.0);
+  float bolt2 = lightning(screenUV, time, 3.7);
+  float bolt3 = lightning(screenUV, time, 7.3);
+  
+  float totalBolt = bolt1 + bolt2 + bolt3;
+  
+  // Цвет молнии - яркий бело-голубой
+  vec3 boltColor = vec3(0.8, 0.9, 1.0);
+  color += boltColor * totalBolt;
+  
+  // Вспышка освещения при ударе молнии
+  float flash = max(bolt1, max(bolt2, bolt3));
+  color = mix(color, vec3(0.9, 0.95, 1.0), flash * 0.3);
+  
+  // === ПРЕДУПРЕЖДАЮЩЕЕ СВЕЧЕНИЕ ===
+  float warn1 = lightningWarning(screenUV, time, 0.0);
+  float warn2 = lightningWarning(screenUV, time, 3.7);
+  float warn3 = lightningWarning(screenUV, time, 7.3);
+  
+  float totalWarning = warn1 + warn2 + warn3;
+  
+  // Жёлто-белое свечение предупреждения
+  vec3 warningColor = vec3(1.0, 0.95, 0.7);
+  color += warningColor * totalWarning * 0.4;
+  
+  // === АТМОСФЕРА ШТОРМА ===
+  // Тёмное грозовое небо
+  color = mix(color, vec3(0.08, 0.1, 0.15), 0.2);
+  
+  return color;
+}
+
 // === ГЛАВНАЯ ===
 void main() {
   vec2 uv = (v_uv - 0.5) * 2.0;
@@ -904,6 +1041,11 @@ void main() {
     // Туман по эпохе
     float fog = 1.0 - exp(-d * 0.02);
     color = mix(color, fogColor, fog * 0.5);
+  }
+  
+  // Эффект дождя на волне 15+
+  if (u_wave >= 15) {
+    color = renderRain(v_uv, color, u_time);
   }
   
   // Тонмаппинг

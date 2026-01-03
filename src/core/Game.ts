@@ -718,6 +718,7 @@ export class Game {
       poolsData,
       poolCount,
       this.currentEra,
+      this.targetManager.wave,
       pickupsData,
       pickupCount
     );

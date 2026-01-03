@@ -200,6 +200,8 @@ export interface ShaderUniforms {
   poolCount: WebGLUniformLocation | null;
   /** Текущая эпоха (1-3) */
   era: WebGLUniformLocation | null;
+  /** Текущая волна (для эффектов) */
+  wave: WebGLUniformLocation | null;
   /** Пикапы */
   pickups: WebGLUniformLocation | null;
   /** Количество пикапов */

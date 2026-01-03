@@ -956,11 +956,24 @@ export class AudioManager {
   /** Текущая эпоха (1-3) */
   private currentEra = 1;
 
+  /** Звук дождя и грома */
+  private rainGain: GainNode | null = null;
+  private rainSource: AudioBufferSourceNode | null = null;
+  private isRainPlaying = false;
+  private thunderInterval: number | null = null;
+
   /** Установить эпоху музыки */
   public setEra(wave: number): void {
     let newEra = 1;
     if (wave > 10) newEra = 3;
     else if (wave > 5) newEra = 2;
+
+    // Включаем дождь на волне 15+
+    if (wave >= 15 && !this.isRainPlaying) {
+      this.startRain();
+    } else if (wave < 15 && this.isRainPlaying) {
+      this.stopRain();
+    }
 
     if (newEra !== this.currentEra && this.currentMusicMode === 'normal') {
       this.currentEra = newEra;
@@ -974,6 +987,181 @@ export class AudioManager {
     } else {
       this.currentEra = newEra;
     }
+  }
+
+  /** Запуск звука дождя */
+  private startRain(): void {
+    if (!this.ctx || !this.masterGain || this.isRainPlaying) return;
+
+    this.isRainPlaying = true;
+
+    // Создаём gain для дождя
+    this.rainGain = this.ctx.createGain();
+    this.rainGain.gain.value = 0;
+    this.rainGain.connect(this.masterGain);
+
+    // Создаём буфер с шумом дождя (белый шум + фильтр)
+    const sampleRate = this.ctx.sampleRate;
+    const duration = 4; // 4 секунды зациклированного шума
+    const bufferSize = sampleRate * duration;
+    const buffer = this.ctx.createBuffer(2, bufferSize, sampleRate);
+
+    // Заполняем буфер шумом капель
+    for (let channel = 0; channel < 2; channel++) {
+      const data = buffer.getChannelData(channel);
+      for (let i = 0; i < bufferSize; i++) {
+        // Базовый шум
+        let sample = (Math.random() * 2 - 1) * 0.3;
+        
+        // Добавляем случайные "капли" - короткие щелчки
+        if (Math.random() < 0.001) {
+          sample += (Math.random() * 2 - 1) * 0.8;
+        }
+        
+        // Добавляем низкочастотный гул ветра
+        sample += Math.sin(i / sampleRate * 2 * Math.PI * 0.5) * 0.05;
+        
+        data[i] = sample;
+      }
+    }
+
+    // Создаём источник
+    this.rainSource = this.ctx.createBufferSource();
+    this.rainSource.buffer = buffer;
+    this.rainSource.loop = true;
+
+    // Низкочастотный фильтр для реалистичного звука дождя
+    const lowpass = this.ctx.createBiquadFilter();
+    lowpass.type = 'lowpass';
+    lowpass.frequency.value = 3000;
+    lowpass.Q.value = 0.5;
+
+    // Highpass для убирания низкого гула
+    const highpass = this.ctx.createBiquadFilter();
+    highpass.type = 'highpass';
+    highpass.frequency.value = 200;
+    highpass.Q.value = 0.5;
+
+    this.rainSource.connect(highpass);
+    highpass.connect(lowpass);
+    lowpass.connect(this.rainGain);
+
+    this.rainSource.start();
+
+    // Плавное нарастание громкости
+    this.rainGain.gain.linearRampToValueAtTime(0.25, this.ctx.currentTime + 2);
+
+    // Запускаем периодические раскаты грома
+    this.startThunder();
+  }
+
+  /** Запуск звуков грома */
+  private startThunder(): void {
+    if (!this.ctx || !this.masterGain) return;
+
+    const playThunder = () => {
+      if (!this.ctx || !this.masterGain || !this.isRainPlaying) return;
+
+      const now = this.ctx.currentTime;
+
+      // Создаём gain для грома
+      const thunderGain = this.ctx.createGain();
+      thunderGain.gain.value = 0;
+      thunderGain.connect(this.masterGain);
+
+      // === НИЗКИЙ РАСКАТ ГРОМА ===
+      // Шум для грома
+      const noiseBuffer = this.ctx.createBuffer(1, this.ctx.sampleRate * 3, this.ctx.sampleRate);
+      const noiseData = noiseBuffer.getChannelData(0);
+      for (let i = 0; i < noiseData.length; i++) {
+        noiseData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (this.ctx.sampleRate * 0.8));
+      }
+
+      const noiseSource = this.ctx.createBufferSource();
+      noiseSource.buffer = noiseBuffer;
+
+      // Низкочастотный фильтр для грома
+      const lowpass = this.ctx.createBiquadFilter();
+      lowpass.type = 'lowpass';
+      lowpass.frequency.value = 150 + Math.random() * 100;
+      lowpass.Q.value = 1;
+
+      noiseSource.connect(lowpass);
+      lowpass.connect(thunderGain);
+
+      // === ТРЕСК МОЛНИИ ===
+      const crackOsc = this.ctx.createOscillator();
+      crackOsc.type = 'sawtooth';
+      crackOsc.frequency.value = 80 + Math.random() * 40;
+
+      const crackGain = this.ctx.createGain();
+      crackGain.gain.value = 0;
+
+      const crackFilter = this.ctx.createBiquadFilter();
+      crackFilter.type = 'bandpass';
+      crackFilter.frequency.value = 2000;
+      crackFilter.Q.value = 2;
+
+      crackOsc.connect(crackFilter);
+      crackFilter.connect(crackGain);
+      crackGain.connect(thunderGain);
+
+      // Огибающая грома - нарастание и долгий спад
+      thunderGain.gain.setValueAtTime(0, now);
+      thunderGain.gain.linearRampToValueAtTime(0.6, now + 0.1);
+      thunderGain.gain.exponentialRampToValueAtTime(0.01, now + 2.5);
+
+      // Огибающая треска - короткий резкий
+      crackGain.gain.setValueAtTime(0, now);
+      crackGain.gain.linearRampToValueAtTime(0.4, now + 0.02);
+      crackGain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+
+      noiseSource.start(now);
+      crackOsc.start(now);
+      noiseSource.stop(now + 3);
+      crackOsc.stop(now + 0.3);
+    };
+
+    // Первый гром через 2-4 секунды
+    setTimeout(playThunder, 2000 + Math.random() * 2000);
+
+    // Периодические раскаты каждые 3-6 секунд
+    this.thunderInterval = setInterval(() => {
+      if (this.isRainPlaying) {
+        playThunder();
+      }
+    }, 3000 + Math.random() * 3000) as unknown as number;
+  }
+
+  /** Остановка звука дождя */
+  private stopRain(): void {
+    if (!this.ctx || !this.isRainPlaying) return;
+
+    this.isRainPlaying = false;
+
+    // Останавливаем грозу
+    if (this.thunderInterval) {
+      clearInterval(this.thunderInterval);
+      this.thunderInterval = null;
+    }
+
+    // Плавное затухание
+    if (this.rainGain) {
+      this.rainGain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 1);
+    }
+
+    // Останавливаем источник через секунду
+    setTimeout(() => {
+      if (this.rainSource) {
+        try {
+          this.rainSource.stop();
+        } catch (e) {
+          // Уже остановлен
+        }
+        this.rainSource = null;
+      }
+      this.rainGain = null;
+    }, 1100);
   }
 
   /** Запустить synthwave музыку */

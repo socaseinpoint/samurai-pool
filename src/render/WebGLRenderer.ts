@@ -34,6 +34,7 @@ export class WebGLRenderer {
       pools: null,
       poolCount: null,
       era: null,
+      wave: null,
       pickups: null,
       pickupCount: null,
     };
@@ -75,6 +76,7 @@ export class WebGLRenderer {
     this.uniforms.pools = gl.getUniformLocation(this.program, 'u_pools');
     this.uniforms.poolCount = gl.getUniformLocation(this.program, 'u_poolCount');
     this.uniforms.era = gl.getUniformLocation(this.program, 'u_era');
+    this.uniforms.wave = gl.getUniformLocation(this.program, 'u_wave');
     this.uniforms.pickups = gl.getUniformLocation(this.program, 'u_pickups');
     this.uniforms.pickupCount = gl.getUniformLocation(this.program, 'u_pickupCount');
 
@@ -154,6 +156,7 @@ export class WebGLRenderer {
     poolsData?: Float32Array,
     poolCount?: number,
     era?: number,
+    wave?: number,
     pickupsData?: Float32Array,
     pickupCount?: number
   ): void {
@@ -184,6 +187,9 @@ export class WebGLRenderer {
     
     // Эпоха (1-3)
     gl.uniform1i(this.uniforms.era, era || 1);
+    
+    // Волна (для дождя на 15+)
+    gl.uniform1i(this.uniforms.wave, wave || 1);
     
     // Пикапы
     if (pickupsData && pickupCount !== undefined) {
