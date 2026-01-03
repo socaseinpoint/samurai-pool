@@ -183,12 +183,14 @@ export class Target {
       this.maxHp = 20;
     } else if (type === 'boss_black') {
       // ЧЁРНЫЙ БОСС - искривляет пространство
+      // HP = 10 базовых (половина зелёного) + 60 от 6 кристаллей (по 10 каждый)
+      // Без уничтожения кристаллей его невозможно убить!
       this.isBoss = true;
       this.speed = speed * 0.8;
       this.damage = 30;
       this.radius = 2.0;
-      this.hp = 30;
-      this.maxHp = 30;
+      this.hp = 70;    // 10 базовых + 6*10 от кристаллей
+      this.maxHp = 70;
       this.distortionPower = 1.0;
     } else if (type === 'boss_blue') {
       // СИНИЙ БОСС - телепортируется
@@ -1566,13 +1568,14 @@ export class TargetManager {
       // Спавним фантома из разбитого кристалла
       this.spawnPhantomFromBoss(vec3(crystal.x, crystal.height, crystal.z));
 
-      // Если все кристаллы уничтожены - босс теряет 90% HP
-      if (remaining === 0) {
-        for (const target of this.targets) {
-          if (target.active && target.enemyType === 'boss_black') {
-            // Оставляем 10% HP (3 из 30)
-            const newHp = Math.max(3, Math.floor(target.maxHp * 0.1));
-            target.hp = Math.min(target.hp, newHp);
+      // Каждый кристалл = 10 HP босса (половина HP зелёного босса)
+      // Уничтожение кристалла уменьшает maxHp босса на 10
+      for (const target of this.targets) {
+        if (target.active && target.enemyType === 'boss_black') {
+          target.maxHp -= 10; // Убираем защиту кристалла
+          // HP не может быть больше maxHp
+          if (target.hp > target.maxHp) {
+            target.hp = target.maxHp;
           }
         }
       }
