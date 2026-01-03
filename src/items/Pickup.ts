@@ -204,8 +204,8 @@ export class PickupManager {
 
   /** Спавн заряда катаны на балконе */
   private spawnChargeOnBalcony(): void {
-    // Позиция на балконе (центр)
-    const pos = vec3(0, 6.5, -24);
+    // Позиция на верхнем балконе (высота 12)
+    const pos = vec3(0, 12.5, -23);
     this.chargeOnBalcony = new Pickup(pos, 'charge');
     this.chargeOnBalcony.lifetime = 999999; // Не исчезает
     this.pickups.push(this.chargeOnBalcony);
@@ -215,8 +215,8 @@ export class PickupManager {
   public checkChargePickup(playerPos: Vec3): boolean {
     if (!this.chargeOnBalcony || !this.chargeOnBalcony.active) return false;
     
-    // Заряд можно подобрать только если игрок на балконе (высота > 5.5)
-    if (playerPos.y < 5.5) return false;
+    // Заряд можно подобрать только если игрок на верхнем балконе (высота > 11)
+    if (playerPos.y < 11.0) return false;
     
     if (this.chargeOnBalcony.checkPickup(playerPos)) {
       this.chargeOnBalcony = null;

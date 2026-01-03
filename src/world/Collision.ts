@@ -126,26 +126,26 @@ export class CollisionSystem implements ICollisionSystem {
       }
     }
 
-    // === ВЕРХНИЙ БАЛКОН (Z = -24, высота 6) ===
-    const balconyHeight = 6.0;
+    // === ВЕРХНИЙ БАЛКОН (Z = -24, высота 12) - требует двойной прыжок ===
+    const balconyHeight = 12.0;
     
-    // Ступень 1 (X от -7.5 до -4.5, Z от -26 до -24, высота 1)
-    if (pos.x >= -7.5 && pos.x <= -4.5 && pos.z >= -26 && pos.z <= -24) {
-      return 1.0;
+    // Платформа 1 (высота 3) - первый прыжок
+    if (pos.x >= -8.0 && pos.x <= -5.0 && pos.z >= -26 && pos.z <= -22) {
+      return 3.0;
     }
     
-    // Ступень 2 (X от -4.5 до -1.5, Z от -26.5 до -24.5, высота 2.5)
-    if (pos.x >= -4.5 && pos.x <= -1.5 && pos.z >= -26.5 && pos.z <= -24.5) {
-      return 2.5;
+    // Платформа 2 (высота 6) - нужен двойной прыжок
+    if (pos.x >= -4.0 && pos.x <= -1.0 && pos.z >= -26 && pos.z <= -22) {
+      return 6.0;
     }
     
-    // Ступень 3 (X от -1.5 до 1.5, Z от -26.5 до -24.5, высота 4)
-    if (pos.x >= -1.5 && pos.x <= 1.5 && pos.z >= -26.5 && pos.z <= -24.5) {
-      return 4.0;
+    // Платформа 3 (высота 9) - нужен двойной прыжок
+    if (pos.x >= 0.0 && pos.x <= 3.0 && pos.z >= -26 && pos.z <= -22) {
+      return 9.0;
     }
     
-    // Сам балкон (X от -4 до 4, Z от -26.5 до -21.5, высота 6)
-    if (pos.x >= -4.0 && pos.x <= 4.0 && pos.z >= -26.5 && pos.z <= -21.5) {
+    // Сам балкон (высота 12) - нужен двойной прыжок
+    if (pos.x >= -4.0 && pos.x <= 4.0 && pos.z >= -26 && pos.z <= -20) {
       return balconyHeight;
     }
 
@@ -155,6 +155,6 @@ export class CollisionSystem implements ICollisionSystem {
 
   /** Получить высоту потолка */
   public getCeilingHeight(_pos: Vec3): number {
-    return 12.0;
+    return 18.0; // Выше балкона (12м)
   }
 }

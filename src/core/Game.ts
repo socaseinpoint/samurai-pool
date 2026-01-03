@@ -490,6 +490,7 @@ export class Game {
     this.hud.updateAmmo(this.targetManager.wave, this.targetManager.getActiveCount());
     this.hud.updateFrags(this.state.frags);
     this.hud.updateSplashCharges(this.weapon.splashCharges);
+    this.hud.updateDoubleJump(this.player.getDoubleJumpCooldown(), this.player.isDoubleJumpReady());
     
     // Проверка низкого HP для тревожной музыки (меньше 30%)
     const hpPercent = this.player.state.health / this.player.state.maxHealth;

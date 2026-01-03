@@ -40,7 +40,7 @@ out vec4 fragColor;
 
 // === РАЗМЕРЫ АРЕНЫ ===
 #define ARENA_RADIUS 28.0
-#define DOME_HEIGHT 12.0
+#define DOME_HEIGHT 18.0
 #define POOL_RADIUS 8.0
 #define POOL_DEPTH 2.0
 // Малые бассейны удалены для упрощения
@@ -317,33 +317,42 @@ float map(vec3 p) {
   colD = min(colD, sdCylinder(p - vec3(-22.0, 4.0, 0.0), 0.5, 4.0));
   d = min(d, colD);
   
-  // === ВЕРХНИЙ БАЛКОН С ТОПОРОМ ===
-  // Балкон наверху (у задней стены, Z = -25)
-  float balconyHeight = 6.0;
-  float balcony = sdBox(p - vec3(0.0, balconyHeight, -24.0), vec3(4.0, 0.3, 2.5));
+  // === ВЕРХНИЙ БАЛКОН С ЗАРЯДОМ (требует двойной прыжок) ===
+  // Балкон наверху (высота 12)
+  float balconyHeight = 12.0;
+  float balcony = sdBox(p - vec3(0.0, balconyHeight, -23.0), vec3(4.0, 0.3, 3.0));
   if (balcony < d) {
     d = balcony;
     materialId = 16; // Балкон (особый материал)
   }
   
   // Перила балкона
-  float balcRail1 = sdBox(p - vec3(-4.0, balconyHeight + 0.8, -24.0), vec3(0.15, 0.8, 2.5));
-  float balcRail2 = sdBox(p - vec3(4.0, balconyHeight + 0.8, -24.0), vec3(0.15, 0.8, 2.5));
-  float balcRail3 = sdBox(p - vec3(0.0, balconyHeight + 0.8, -21.6), vec3(4.0, 0.8, 0.15));
+  float balcRail1 = sdBox(p - vec3(-4.0, balconyHeight + 0.8, -23.0), vec3(0.15, 0.8, 3.0));
+  float balcRail2 = sdBox(p - vec3(4.0, balconyHeight + 0.8, -23.0), vec3(0.15, 0.8, 3.0));
+  float balcRail3 = sdBox(p - vec3(0.0, balconyHeight + 0.8, -20.0), vec3(4.0, 0.8, 0.15));
   d = min(d, min(balcRail1, min(balcRail2, balcRail3)));
   
-  // Ступени для подъёма на балкон (по стене Z = -26)
-  // Ступень 1 (высота 2)
-  float step1 = sdBox(p - vec3(-6.0, 1.0, -25.0), vec3(1.5, 0.3, 1.0));
-  d = min(d, step1);
+  // Платформы для прыжков (требуют двойной прыжок)
+  // Платформа 1 (высота 3) - обычный прыжок
+  float plat1 = sdBox(p - vec3(-6.5, 3.0, -24.0), vec3(1.5, 0.3, 2.0));
+  if (plat1 < d) {
+    d = plat1;
+    materialId = 16;
+  }
   
-  // Ступень 2 (высота 3.5)
-  float step2 = sdBox(p - vec3(-3.0, 2.5, -25.5), vec3(1.5, 0.3, 1.0));
-  d = min(d, step2);
+  // Платформа 2 (высота 6) - двойной прыжок
+  float plat2 = sdBox(p - vec3(-2.5, 6.0, -24.0), vec3(1.5, 0.3, 2.0));
+  if (plat2 < d) {
+    d = plat2;
+    materialId = 16;
+  }
   
-  // Ступень 3 (высота 4.5)
-  float step3 = sdBox(p - vec3(0.0, 4.0, -25.5), vec3(1.5, 0.3, 1.0));
-  d = min(d, step3);
+  // Платформа 3 (высота 9) - двойной прыжок
+  float plat3 = sdBox(p - vec3(1.5, 9.0, -24.0), vec3(1.5, 0.3, 2.0));
+  if (plat3 < d) {
+    d = plat3;
+    materialId = 16;
+  }
   
   // === ВОДА ===
   // Центральный бассейн (только визуально, не пройти - коллизия блокирует)

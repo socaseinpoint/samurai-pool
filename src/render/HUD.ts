@@ -340,6 +340,9 @@ export class HUD {
   /** Создать элемент зарядов */
   private splashChargesEl: HTMLElement | null = null;
   
+  /** Элемент кулдауна двойного прыжка */
+  private doubleJumpEl: HTMLElement | null = null;
+  
   private createSplashChargesElement(): void {
     this.splashChargesEl = document.createElement('div');
     this.splashChargesEl.style.cssText = `
@@ -355,6 +358,42 @@ export class HUD {
       z-index: 1000;
     `;
     document.body.appendChild(this.splashChargesEl);
+  }
+
+  /** Обновить индикатор двойного прыжка */
+  public updateDoubleJump(cooldown: number, isReady: boolean): void {
+    if (!this.doubleJumpEl) {
+      this.createDoubleJumpElement();
+    }
+    
+    if (this.doubleJumpEl) {
+      if (isReady) {
+        this.doubleJumpEl.innerHTML = '⬆️⬆️ ГОТОВ';
+        this.doubleJumpEl.style.color = '#00ff88';
+        this.doubleJumpEl.style.textShadow = '0 0 10px #00ff88';
+      } else {
+        const cd = Math.ceil(cooldown * 10) / 10;
+        this.doubleJumpEl.innerHTML = `⬆️⬆️ ${cd.toFixed(1)}s`;
+        this.doubleJumpEl.style.color = '#ff8800';
+        this.doubleJumpEl.style.textShadow = '0 0 10px #ff8800';
+      }
+    }
+  }
+
+  private createDoubleJumpElement(): void {
+    this.doubleJumpEl = document.createElement('div');
+    this.doubleJumpEl.style.cssText = `
+      position: fixed;
+      bottom: 120px;
+      left: 20px;
+      font-family: 'Orbitron', 'Audiowide', monospace;
+      font-size: 16px;
+      color: #00ff88;
+      text-shadow: 0 0 10px #00ff88;
+      letter-spacing: 2px;
+      z-index: 1000;
+    `;
+    document.body.appendChild(this.doubleJumpEl);
   }
 
   /** Обновить врагов */

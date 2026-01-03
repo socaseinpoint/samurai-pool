@@ -37,8 +37,11 @@ export class Player {
   private targetYaw = 0;
   private targetPitch = -0.05;
 
-  /** Двойной прыжок использован? */
-  private doubleJumpUsed = false;
+  /** Кулдаун двойного прыжка (секунды) */
+  private doubleJumpCooldown = 0;
+  
+  /** Время кулдауна двойного прыжка */
+  private readonly DOUBLE_JUMP_COOLDOWN = 2.5;
 
   /** Режим буйства */
   public rageMode = false;
@@ -83,6 +86,11 @@ export class Player {
         this.speedBoost = 1.0;
       }
     }
+    
+    // Обновляем кулдаун двойного прыжка
+    if (this.doubleJumpCooldown > 0) {
+      this.doubleJumpCooldown -= dt;
+    }
 
     // Обновляем камеру
     this.updateCamera(mouseDelta);
@@ -101,20 +109,30 @@ export class Player {
 
   /** Попытка двойного прыжка - возвращает true если выполнен */
   public tryDoubleJump(): boolean {
-    if (!this.state.grounded) {
-      // В режиме буйства - бесконечные прыжки!
-      if (this.rageMode) {
-        this.state.velocity.y = this.config.jumpForce * 0.85;
-        return true;
-      }
-      // Обычный двойной прыжок
-      if (!this.doubleJumpUsed) {
-        this.doubleJumpUsed = true;
-        this.state.velocity.y = this.config.jumpForce * 0.9;
-        return true;
-      }
+    // В режиме буйства - без кулдауна!
+    if (this.rageMode) {
+      this.state.velocity.y = this.config.jumpForce * 0.85;
+      return true;
     }
+    
+    // Обычный двойной прыжок с кулдауном
+    if (this.doubleJumpCooldown <= 0) {
+      this.doubleJumpCooldown = this.DOUBLE_JUMP_COOLDOWN;
+      this.state.velocity.y = this.config.jumpForce * 0.95; // Немного слабее обычного
+      return true;
+    }
+    
     return false;
+  }
+
+  /** Получить оставшийся кулдаун двойного прыжка */
+  public getDoubleJumpCooldown(): number {
+    return Math.max(0, this.doubleJumpCooldown);
+  }
+
+  /** Готов ли двойной прыжок */
+  public isDoubleJumpReady(): boolean {
+    return this.doubleJumpCooldown <= 0 || this.rageMode;
   }
 
   /** Обновление камеры - быстрое и лёгкое */
@@ -241,7 +259,6 @@ export class Player {
         state.position.y = minY;
         state.velocity.y = 0;
         state.grounded = true;
-        this.doubleJumpUsed = false; // Сброс двойного прыжка
       } else {
         // Ещё летим
         const testPosY = { x: state.position.x, y: newPosY, z: state.position.z };
