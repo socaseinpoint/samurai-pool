@@ -170,7 +170,8 @@ export type SFXType =
   | 'hopper_hit'
   | 'katana_swing'
   | 'splash_wave'
-  | 'charge_pickup';
+  | 'charge_pickup'
+  | 'acid_spit';
 
 // ========== РЕНДЕРИНГ ==========
 
@@ -198,6 +199,14 @@ export interface ShaderUniforms {
   pools: WebGLUniformLocation | null;
   /** Количество луж */
   poolCount: WebGLUniformLocation | null;
+  /** Летящие снаряды кислоты */
+  acidProjectiles: WebGLUniformLocation | null;
+  /** Количество снарядов */
+  acidProjectileCount: WebGLUniformLocation | null;
+  /** Зоны кислотного дождя */
+  acidRainZones: WebGLUniformLocation | null;
+  /** Количество зон дождя */
+  acidRainZoneCount: WebGLUniformLocation | null;
   /** Текущая эпоха (1-3) */
   era: WebGLUniformLocation | null;
   /** Текущая волна (для эффектов) */
@@ -208,6 +217,8 @@ export interface ShaderUniforms {
   pickupCount: WebGLUniformLocation | null;
   /** Кристаллы силы (для чёрного босса) */
   crystals: WebGLUniformLocation | null;
+  /** Количество кристаллов */
+  crystalCount: WebGLUniformLocation | null;
 }
 
 // ========== КОЛЛИЗИИ ==========

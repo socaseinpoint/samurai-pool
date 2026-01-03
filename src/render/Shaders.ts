@@ -25,6 +25,10 @@ uniform int u_targetCount;
 uniform float u_muzzleFlash;
 uniform vec4 u_pools[8]; // Токсичные лужи [x, z, radius, lifetime]
 uniform int u_poolCount;
+uniform vec4 u_acidProjectiles[4]; // Летящие снаряды кислоты [x, y, z, progress]
+uniform int u_acidProjectileCount;
+uniform vec4 u_acidRainZones[4]; // Зоны кислотного дождя [x, z, radius, state]
+uniform int u_acidRainZoneCount;
 uniform int u_era; // Эпоха: 1=кислотная, 2=чёрная дыра, 3=космическая
 uniform int u_wave; // Текущая волна (для эффекта дождя на 15+)
 uniform vec4 u_pickups[8]; // Пикапы [x, y, z, type] type: 9=health, 10=stimpack, 11=charge
@@ -192,18 +196,68 @@ float map(vec3 p) {
   float floor_d = p.y;
   d = min(d, floor_d);
   
-  // === ТОКСИЧНЫЕ ЛУЖИ ===
+  // === ТОКСИЧНЫЕ ЛУЖИ (оптимизировано) ===
   for (int i = 0; i < u_poolCount; i++) {
     if (i >= 8) break;
     vec4 pool = u_pools[i];
-    if (pool.w > 0.0) { // lifetime > 0
+    if (pool.w > 0.0 && p.y < 0.15 && p.y > -0.1) {
       float distToPool = length(p.xz - pool.xy);
-      if (distToPool < pool.z && p.y < 0.15 && p.y > -0.1) {
-        // Внутри лужи
+      if (distToPool < pool.z) {
         float poolSurface = p.y - 0.08;
         if (poolSurface < d) {
           d = poolSurface;
-          materialId = 13; // Токсичная лужа
+          materialId = 13;
+        }
+      }
+    }
+  }
+  
+  // === ЗОНЫ КИСЛОТНОГО ДОЖДЯ (оптимизировано) ===
+  for (int i = 0; i < u_acidRainZoneCount; i++) {
+    if (i >= 4) break;
+    vec4 zone = u_acidRainZones[i];
+    float state = zone.w;
+    
+    if (state < 1.0 && p.y < 0.1 && p.y > -0.05) {
+      float distToZone = length(p.xz - zone.xy);
+      float markRadius = zone.z * (0.3 + state * 1.4);
+      
+      if (distToZone < markRadius) {
+        // Простые кольца + пульсация
+        float ring = smoothstep(0.2, 0.0, abs(distToZone - markRadius * 0.85));
+        float pulse = sin(u_time * 10.0) * 0.5 + 0.5;
+        float center = step(distToZone, markRadius * 0.3) * pulse;
+        
+        if (ring + center > 0.3) {
+          d = p.y - 0.02;
+          materialId = 20;
+        }
+      }
+    }
+  }
+  
+  // === ЛЕТЯЩИЕ СНАРЯДЫ КИСЛОТЫ ===
+  for (int i = 0; i < u_acidProjectileCount; i++) {
+    if (i >= 4) break;
+    vec4 proj = u_acidProjectiles[i];
+    vec3 projPos = proj.xyz;
+    float progress = proj.w;
+    
+    if (progress > 0.0 && progress < 1.0) {
+      // Основная сфера кислоты
+      float projSphere = length(p - projPos) - 0.5;
+      if (projSphere < d) {
+        d = projSphere;
+        materialId = 19; // Снаряд кислоты
+      }
+      
+      // Хвост из капель
+      for (int j = 1; j <= 3; j++) {
+        vec3 tailPos = projPos - vec3(0.0, float(j) * 0.4, 0.0);
+        float tailDrop = length(p - tailPos) - (0.3 - float(j) * 0.08);
+        if (tailDrop < d) {
+          d = tailDrop;
+          materialId = 19;
         }
       }
     }
@@ -691,6 +745,44 @@ float lightningWarning(vec2 uv, float time, float seed) {
   return glow * warning;
 }
 
+// Кислотный дождь - ОПТИМИЗИРОВАНО
+vec3 renderAcidRain(vec2 uv, vec3 color, float time, vec3 camPos) {
+  if (u_acidRainZoneCount == 0) return color;
+  
+  vec3 result = color;
+  float totalIntensity = 0.0;
+  
+  // Проверяем только ближайшую активную зону
+  for (int i = 0; i < u_acidRainZoneCount; i++) {
+    if (i >= 4) break;
+    vec4 zone = u_acidRainZones[i];
+    if (zone.w >= 1.0) {
+      float dist = length(camPos.xz - zone.xy);
+      float intensity = 1.0 - smoothstep(0.0, zone.z * 2.0, dist);
+      totalIntensity = max(totalIntensity, intensity);
+    }
+  }
+  
+  if (totalIntensity > 0.01) {
+    // Простые быстрые капли (один расчёт)
+    float dropY1 = fract(uv.y * 6.0 - time * 30.0);
+    float dropX1 = fract(uv.x * 6.0);
+    float streak1 = step(0.1, dropY1) * step(dropY1, 0.5) * step(0.45, dropX1) * step(dropX1, 0.55);
+    
+    float dropY2 = fract(uv.y * 10.0 - time * 25.0 + 0.3);
+    float dropX2 = fract(uv.x * 10.0 + 0.1);
+    float streak2 = step(0.15, dropY2) * step(dropY2, 0.4) * step(0.47, dropX2) * step(dropX2, 0.53);
+    
+    float drops = (streak1 + streak2 * 0.6) * totalIntensity;
+    
+    // Зелёное свечение
+    result += vec3(0.2, 1.0, 0.3) * drops * 2.0;
+    result = mix(result, result * vec3(0.7, 1.2, 0.8), totalIntensity * 0.3);
+  }
+  
+  return result;
+}
+
 vec3 renderRain(vec2 uv, vec3 color, float time) {
   // Нормализуем UV для эффектов
   vec2 screenUV = uv;
@@ -1092,6 +1184,36 @@ void main() {
       // Общее свечение
       color *= 2.5;
       
+    } else if (mat == 19) {
+      // === СНАРЯД КИСЛОТЫ ===
+      vec3 acidCore = vec3(0.2, 1.0, 0.3);
+      vec3 acidGlow = vec3(0.5, 1.0, 0.2);
+      vec3 acidDark = vec3(0.1, 0.4, 0.1);
+      
+      float bubble = sin(p.x * 20.0 + u_time * 15.0) * 
+                    sin(p.y * 20.0 + u_time * 12.0) * 
+                    sin(p.z * 20.0 + u_time * 18.0);
+      bubble = bubble * 0.5 + 0.5;
+      
+      float veins = sin(p.x * 10.0 + p.y * 15.0 + u_time * 5.0);
+      veins = smoothstep(0.7, 1.0, veins);
+      
+      float fresnel = pow(1.0 - abs(dot(n, -rd)), 2.0);
+      
+      color = mix(acidDark, acidCore, bubble);
+      color += acidGlow * veins * 0.5;
+      color += acidGlow * fresnel * 2.0;
+      
+      float drip = sin(u_time * 8.0 + p.y * 10.0);
+      color *= 0.8 + 0.2 * drip;
+      color *= 3.0;
+      
+    } else if (mat == 20) {
+      // === МЕТКА ДОЖДЯ (оптимизировано) ===
+      float pulse = sin(u_time * 10.0) * 0.5 + 0.5;
+      color = mix(vec3(1.0, 0.2, 0.0), vec3(0.3, 1.0, 0.2), pulse);
+      color *= 4.0;
+      
     } else {
       // === ПОЛ / СТЕНЫ ===
       vec3 baseColor = vec3(0.15, 0.14, 0.12);
@@ -1117,6 +1239,11 @@ void main() {
     // Туман по эпохе
     float fog = 1.0 - exp(-d * 0.02);
     color = mix(color, fogColor, fog * 0.5);
+  }
+  
+  // Кислотный дождь от зелёного босса (всегда когда есть зоны)
+  if (u_acidRainZoneCount > 0) {
+    color = renderAcidRain(v_uv, color, u_time, u_cameraPos);
   }
   
   // Эффект дождя на волне 15+

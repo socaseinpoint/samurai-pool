@@ -171,6 +171,9 @@ export class AudioManager {
       case 'charge_pickup':
         this.playChargePickup();
         break;
+      case 'acid_spit':
+        this.playAcidSpit();
+        break;
     }
   }
 
@@ -1246,6 +1249,278 @@ export class AudioManager {
     noiseSource2.connect(noiseFilter2);
     noiseFilter2.connect(noiseGain2);
     noiseGain2.connect(this.sfxGain);
+  }
+
+  /** Кислотный плевок - звук выплёвывания */
+  private playAcidSpit(): void {
+    if (!this.ctx || !this.sfxGain) return;
+
+    const now = this.ctx.currentTime;
+
+    // Хлюпающий звук плевка
+    const spit = this.ctx.createOscillator();
+    const spitGain = this.ctx.createGain();
+
+    spit.type = 'sawtooth';
+    spit.frequency.setValueAtTime(150, now);
+    spit.frequency.exponentialRampToValueAtTime(80, now + 0.15);
+
+    spitGain.gain.setValueAtTime(0.25, now);
+    spitGain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+
+    spit.connect(spitGain);
+    spitGain.connect(this.sfxGain);
+
+    spit.start(now);
+    spit.stop(now + 0.2);
+
+    // Свистящий звук летящей кислоты
+    const swoosh = this.ctx.createOscillator();
+    const swooshGain = this.ctx.createGain();
+    const swooshFilter = this.ctx.createBiquadFilter();
+
+    swoosh.type = 'sawtooth';
+    swoosh.frequency.setValueAtTime(500, now + 0.1);
+    swoosh.frequency.exponentialRampToValueAtTime(150, now + 1.2);
+
+    swooshFilter.type = 'bandpass';
+    swooshFilter.frequency.setValueAtTime(400, now);
+    swooshFilter.frequency.exponentialRampToValueAtTime(200, now + 1.0);
+    swooshFilter.Q.value = 3;
+
+    swooshGain.gain.setValueAtTime(0, now);
+    swooshGain.gain.linearRampToValueAtTime(0.15, now + 0.1);
+    swooshGain.gain.exponentialRampToValueAtTime(0.01, now + 1.2);
+
+    swoosh.connect(swooshFilter);
+    swooshFilter.connect(swooshGain);
+    swooshGain.connect(this.sfxGain);
+
+    swoosh.start(now);
+    swoosh.stop(now + 1.2);
+  }
+
+  /** Всплеск кислоты - приземление снаряда */
+  public playAcidSplash(): void {
+    if (!this.ctx || !this.sfxGain) return;
+
+    const now = this.ctx.currentTime;
+
+    // Мощный плюх
+    const splash = this.createNoise(0.8);
+    const splashGain = this.ctx.createGain();
+    const splashFilter = this.ctx.createBiquadFilter();
+
+    splashFilter.type = 'lowpass';
+    splashFilter.frequency.setValueAtTime(1200, now);
+    splashFilter.frequency.exponentialRampToValueAtTime(400, now + 0.3);
+
+    splashGain.gain.setValueAtTime(0.4, now);
+    splashGain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+
+    splash.connect(splashFilter);
+    splashFilter.connect(splashGain);
+    splashGain.connect(this.sfxGain);
+
+    // Шипение кислоты
+    const hiss = this.createNoise(2.0);
+    const hissGain = this.ctx.createGain();
+    const hissFilter = this.ctx.createBiquadFilter();
+
+    hissFilter.type = 'highpass';
+    hissFilter.frequency.value = 3500;
+
+    hissGain.gain.setValueAtTime(0, now + 0.1);
+    hissGain.gain.linearRampToValueAtTime(0.2, now + 0.2);
+    hissGain.gain.exponentialRampToValueAtTime(0.01, now + 2.0);
+
+    hiss.connect(hissFilter);
+    hissFilter.connect(hissGain);
+    hissGain.connect(this.sfxGain);
+
+    // Низкочастотный удар
+    const impact = this.ctx.createOscillator();
+    const impactGain = this.ctx.createGain();
+
+    impact.type = 'sine';
+    impact.frequency.setValueAtTime(80, now);
+    impact.frequency.exponentialRampToValueAtTime(40, now + 0.2);
+
+    impactGain.gain.setValueAtTime(0.35, now);
+    impactGain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+
+    impact.connect(impactGain);
+    impactGain.connect(this.sfxGain);
+
+    impact.start(now);
+    impact.stop(now + 0.3);
+  }
+
+  /** Звук установки метки для кислотного дождя - зловещее предупреждение */
+  public playAcidRainMark(): void {
+    if (!this.ctx || !this.sfxGain) return;
+
+    const now = this.ctx.currentTime;
+
+    // Нарастающий тревожный тон
+    const warn = this.ctx.createOscillator();
+    const warnGain = this.ctx.createGain();
+    const warnFilter = this.ctx.createBiquadFilter();
+
+    warn.type = 'sawtooth';
+    warn.frequency.setValueAtTime(200, now);
+    warn.frequency.exponentialRampToValueAtTime(600, now + 1.0);
+
+    warnFilter.type = 'bandpass';
+    warnFilter.frequency.setValueAtTime(400, now);
+    warnFilter.Q.value = 5;
+
+    warnGain.gain.setValueAtTime(0.1, now);
+    warnGain.gain.linearRampToValueAtTime(0.25, now + 0.8);
+    warnGain.gain.exponentialRampToValueAtTime(0.01, now + 1.2);
+
+    warn.connect(warnFilter);
+    warnFilter.connect(warnGain);
+    warnGain.connect(this.sfxGain);
+
+    warn.start(now);
+    warn.stop(now + 1.2);
+
+    // Пульсирующий сигнал тревоги
+    for (let i = 0; i < 3; i++) {
+      const beep = this.ctx.createOscillator();
+      const beepGain = this.ctx.createGain();
+
+      beep.type = 'square';
+      beep.frequency.value = 800;
+
+      beepGain.gain.setValueAtTime(0, now + i * 0.3);
+      beepGain.gain.linearRampToValueAtTime(0.1, now + i * 0.3 + 0.05);
+      beepGain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.3 + 0.15);
+
+      beep.connect(beepGain);
+      beepGain.connect(this.sfxGain);
+
+      beep.start(now + i * 0.3);
+      beep.stop(now + i * 0.3 + 0.2);
+    }
+  }
+
+  /** Звук начала кислотного дождя - шипение и хлещущий звук */
+  public playAcidRainStart(): void {
+    if (!this.ctx || !this.sfxGain) return;
+
+    const now = this.ctx.currentTime;
+
+    // Мощный шум падающей жидкости
+    const rain = this.createNoise(3.0);
+    const rainGain = this.ctx.createGain();
+    const rainFilter = this.ctx.createBiquadFilter();
+
+    rainFilter.type = 'bandpass';
+    rainFilter.frequency.value = 2000;
+    rainFilter.Q.value = 1;
+
+    rainGain.gain.setValueAtTime(0, now);
+    rainGain.gain.linearRampToValueAtTime(0.3, now + 0.2);
+    rainGain.gain.setValueAtTime(0.25, now + 2.5);
+    rainGain.gain.exponentialRampToValueAtTime(0.01, now + 3.0);
+
+    rain.connect(rainFilter);
+    rainFilter.connect(rainGain);
+    rainGain.connect(this.sfxGain);
+
+    // Шипение кислоты
+    const hiss = this.createNoise(3.0);
+    const hissGain = this.ctx.createGain();
+    const hissFilter = this.ctx.createBiquadFilter();
+
+    hissFilter.type = 'highpass';
+    hissFilter.frequency.value = 5000;
+
+    hissGain.gain.setValueAtTime(0, now + 0.1);
+    hissGain.gain.linearRampToValueAtTime(0.15, now + 0.3);
+    hissGain.gain.exponentialRampToValueAtTime(0.01, now + 3.0);
+
+    hiss.connect(hissFilter);
+    hissFilter.connect(hissGain);
+    hissGain.connect(this.sfxGain);
+
+    // Низкий гул
+    const rumble = this.ctx.createOscillator();
+    const rumbleGain = this.ctx.createGain();
+
+    rumble.type = 'sine';
+    rumble.frequency.value = 50;
+
+    rumbleGain.gain.setValueAtTime(0.2, now);
+    rumbleGain.gain.exponentialRampToValueAtTime(0.01, now + 2.0);
+
+    rumble.connect(rumbleGain);
+    rumbleGain.connect(this.sfxGain);
+
+    rumble.start(now);
+    rumble.stop(now + 2.0);
+  }
+
+  /** Звук предупреждения о боссе */
+  public playBossWarning(): void {
+    if (!this.ctx || !this.sfxGain) return;
+
+    const now = this.ctx.currentTime;
+
+    // Эпичный гонг
+    const gong = this.ctx.createOscillator();
+    const gongGain = this.ctx.createGain();
+
+    gong.type = 'sine';
+    gong.frequency.setValueAtTime(120, now);
+    gong.frequency.exponentialRampToValueAtTime(80, now + 2.0);
+
+    gongGain.gain.setValueAtTime(0.5, now);
+    gongGain.gain.exponentialRampToValueAtTime(0.01, now + 2.5);
+
+    gong.connect(gongGain);
+    gongGain.connect(this.sfxGain);
+    gongGain.connect(this.reverb!);
+
+    gong.start(now);
+    gong.stop(now + 2.5);
+
+    // Второй гонг повыше
+    const gong2 = this.ctx.createOscillator();
+    const gong2Gain = this.ctx.createGain();
+
+    gong2.type = 'sine';
+    gong2.frequency.setValueAtTime(180, now + 0.5);
+    gong2.frequency.exponentialRampToValueAtTime(100, now + 2.5);
+
+    gong2Gain.gain.setValueAtTime(0.3, now + 0.5);
+    gong2Gain.gain.exponentialRampToValueAtTime(0.01, now + 3.0);
+
+    gong2.connect(gong2Gain);
+    gong2Gain.connect(this.sfxGain);
+    gong2Gain.connect(this.reverb!);
+
+    gong2.start(now + 0.5);
+    gong2.stop(now + 3.0);
+
+    // Зловещий шёпот (шум)
+    const whisper = this.createNoise(2.0);
+    const whisperGain = this.ctx.createGain();
+    const whisperFilter = this.ctx.createBiquadFilter();
+
+    whisperFilter.type = 'bandpass';
+    whisperFilter.frequency.value = 800;
+    whisperFilter.Q.value = 5;
+
+    whisperGain.gain.setValueAtTime(0, now + 1.0);
+    whisperGain.gain.linearRampToValueAtTime(0.1, now + 1.5);
+    whisperGain.gain.exponentialRampToValueAtTime(0.01, now + 2.5);
+
+    whisper.connect(whisperFilter);
+    whisperFilter.connect(whisperGain);
+    whisperGain.connect(this.reverb!);
   }
 
   // ==================== SYNTHWAVE МУЗЫКА ====================
@@ -2479,123 +2754,128 @@ export class AudioManager {
     }, 1100);
   }
 
-  /** Музыка Зелёного Босса - КИСЛОТНОЕ ТЕХНО (Acid Techno) */
+  /** Музыка Зелёного Босса - ЖЁСТКОЕ ACID TECHNO */
   private playBossGreenMusic(): void {
     if (!this.ctx || !this.musicGain) return;
 
-    // === TB-303 ACID BASSLINE ===
-    // Классические кислотные ноты
-    const acidNotes = [55, 55, 82.4, 55, 73.4, 55, 98, 73.4]; // A1, A1, E2, A1, D2, A1, G2, D2
-    let noteIndex = 0;
-    let filterMod = 0;
+    // === АГРЕССИВНЫЙ 303 ACID ===
+    const acidPattern = [55, 55, 110, 55, 82.4, 110, 73.4, 55]; // Более агрессивный паттерн
+    const slidePattern = [0, 0, 1, 0, 1, 1, 0, 1]; // Глайды
+    let step = 0;
+    let acidFilter: BiquadFilterNode | null = null;
 
     const playAcidBass = () => {
       if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'boss_green') return;
-
       const now = this.ctx.currentTime;
 
       const osc = this.ctx.createOscillator();
+      const osc2 = this.ctx.createOscillator();
       const filter = this.ctx.createBiquadFilter();
       const gain = this.ctx.createGain();
-      const distortion = this.ctx.createWaveShaper();
 
-      // Классический 303 sawtooth
+      // Два осциллятора для жирности
       osc.type = 'sawtooth';
-      osc.frequency.value = acidNotes[noteIndex];
+      osc2.type = 'square';
+      const freq = acidPattern[step];
+      osc.frequency.value = freq;
+      osc2.frequency.value = freq * 1.01; // Лёгкая расстройка
 
-      // КИСЛОТНЫЙ ФИЛЬТР - высокий резонанс!
+      // ОЧЕНЬ резонансный фильтр - главная фишка ACID!
       filter.type = 'lowpass';
-      filter.Q.value = 15; // Высокий резонанс для "квакающего" звука
+      filter.Q.value = 22; // МАКСИМАЛЬНЫЙ резонанс!
       
-      // Модуляция фильтра - главная фишка acid
-      const filterBase = 200 + Math.sin(filterMod) * 150;
-      filter.frequency.setValueAtTime(filterBase, now);
-      filter.frequency.exponentialRampToValueAtTime(800 + Math.random() * 600, now + 0.05);
-      filter.frequency.exponentialRampToValueAtTime(filterBase * 0.5, now + 0.15);
+      // Агрессивная модуляция фильтра
+      const isSlide = slidePattern[step] === 1;
+      const filterStart = 150 + Math.random() * 100;
+      const filterPeak = 1200 + Math.random() * 800;
+      
+      filter.frequency.setValueAtTime(filterStart, now);
+      filter.frequency.exponentialRampToValueAtTime(filterPeak, now + 0.03);
+      filter.frequency.exponentialRampToValueAtTime(isSlide ? filterPeak * 0.7 : 200, now + 0.1);
 
-      // Дисторшн для грязи
-      const curve = new Float32Array(256);
-      for (let i = 0; i < 256; i++) {
-        const x = (i / 128) - 1;
-        curve[i] = Math.tanh(x * 4);
-      }
-      distortion.curve = curve;
-
-      gain.gain.setValueAtTime(0.2, now);
-      gain.gain.linearRampToValueAtTime(0.15, now + 0.05);
-      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+      // Акцент
+      const accent = step % 4 === 0 ? 0.35 : 0.2;
+      gain.gain.setValueAtTime(accent, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
 
       osc.connect(filter);
-      filter.connect(distortion);
-      distortion.connect(gain);
+      osc2.connect(filter);
+      filter.connect(gain);
       gain.connect(this.musicGain!);
 
       osc.start(now);
-      osc.stop(now + 0.2);
+      osc2.start(now);
+      osc.stop(now + 0.15);
+      osc2.stop(now + 0.15);
 
-      noteIndex = (noteIndex + 1) % acidNotes.length;
-      filterMod += 0.3;
+      step = (step + 1) % acidPattern.length;
+      acidFilter = filter;
     };
 
-    // 145 BPM - быстрый acid темп
-    this.musicIntervals.push(setInterval(playAcidBass, 103) as unknown as number);
+    // 150 BPM 16-е ноты
+    this.musicIntervals.push(setInterval(playAcidBass, 100) as unknown as number);
 
-    // === ТЕХНО КИК ===
+    // === ЖЁСТКИЙ КИК ===
     const playKick = () => {
       if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'boss_green') return;
-
       const now = this.ctx.currentTime;
 
       const osc = this.ctx.createOscillator();
+      const click = this.ctx.createOscillator();
       const gain = this.ctx.createGain();
+      const clickGain = this.ctx.createGain();
 
+      // Основа кика
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(150, now);
-      osc.frequency.exponentialRampToValueAtTime(40, now + 0.1);
+      osc.frequency.setValueAtTime(180, now);
+      osc.frequency.exponentialRampToValueAtTime(35, now + 0.08);
 
-      gain.gain.setValueAtTime(0.4, now);
-      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+      // Клик атаки
+      click.type = 'triangle';
+      click.frequency.value = 1500;
+
+      gain.gain.setValueAtTime(0.5, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+
+      clickGain.gain.setValueAtTime(0.15, now);
+      clickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.02);
 
       osc.connect(gain);
+      click.connect(clickGain);
       gain.connect(this.musicGain!);
+      clickGain.connect(this.musicGain!);
 
       osc.start(now);
-      osc.stop(now + 0.2);
+      click.start(now);
+      osc.stop(now + 0.3);
+      click.stop(now + 0.03);
     };
 
-    // Кик на каждую четверть
-    this.musicIntervals.push(setInterval(playKick, 414) as unknown as number);
+    this.musicIntervals.push(setInterval(playKick, 400) as unknown as number);
 
     // === ХАЙХЭТ ===
+    let hihatStep = 0;
     const playHihat = () => {
       if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'boss_green') return;
-
       const now = this.ctx.currentTime;
 
-      const bufferSize = this.ctx.sampleRate * 0.05;
-      const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-      const data = buffer.getChannelData(0);
-      for (let i = 0; i < bufferSize; i++) {
-        data[i] = Math.random() * 2 - 1;
-      }
-
-      const noise = this.ctx.createBufferSource();
-      noise.buffer = buffer;
-
+      const noise = this.createNoise(0.04);
       const filter = this.ctx.createBiquadFilter();
-      filter.type = 'highpass';
-      filter.frequency.value = 8000;
-
       const gain = this.ctx.createGain();
-      gain.gain.setValueAtTime(0.08, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+
+      filter.type = 'highpass';
+      filter.frequency.value = 9000;
+
+      // Акцент на оффбит
+      const isOffbeat = hihatStep % 2 === 1;
+      gain.gain.setValueAtTime(isOffbeat ? 0.12 : 0.06, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
 
       noise.connect(filter);
       filter.connect(gain);
       gain.connect(this.musicGain!);
 
-      noise.start(now);
-      noise.stop(now + 0.05);
+      hihatStep++;
     };
 
     // Хайхэт на каждую восьмую

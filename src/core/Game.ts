@@ -77,6 +77,7 @@ export class Game {
   private gameTime = 0;
 
   // === СОСТОЯНИЕ ===
+  private isPaused = false;
   private footstepTimer = 0;
   private wasGrounded = true;
   private screenShake = 0;
@@ -243,16 +244,28 @@ export class Game {
       this.audio.setEra(wave);
       this.currentEra = wave > 10 ? 3 : wave > 5 ? 2 : 1;
       
-      // Музыка и предупреждение о боссах
+      // Эпичные заставки боссов!
       if (wave === 5) {
-        this.audio.setBossMusic('boss_green');
-        setTimeout(() => this.hud.showMessage('⚠️ ЗЕЛЁНЫЙ БОСС! ⚠️', 'lime'), 500);
+        this.isPaused = true; // Пауза на время заставки
+        this.audio.playBossWarning();
+        this.hud.showBossIntro('boss_green', () => {
+          this.isPaused = false;
+          this.audio.setBossMusic('boss_green');
+        });
       } else if (wave === 10) {
-        this.audio.setBossMusic('boss_black');
-        setTimeout(() => this.hud.showMessage('☠️ ЧЁРНЫЙ БОСС! ☠️', 'purple'), 500);
+        this.isPaused = true;
+        this.audio.playBossWarning();
+        this.hud.showBossIntro('boss_black', () => {
+          this.isPaused = false;
+          this.audio.setBossMusic('boss_black');
+        });
       } else if (wave === 15) {
-        this.audio.setBossMusic('boss_blue');
-        setTimeout(() => this.hud.showMessage('⚡ СИНИЙ БОСС! ⚡', 'cyan'), 500);
+        this.isPaused = true;
+        this.audio.playBossWarning();
+        this.hud.showBossIntro('boss_blue', () => {
+          this.isPaused = false;
+          this.audio.setBossMusic('boss_blue');
+        });
       }
       
       // Сообщения о смене эпохи
@@ -305,6 +318,29 @@ export class Game {
 
     this.targetManager.onBossVortexEnd = () => {
       this.audio.playVortexSound(false);
+    };
+
+    // Звук плевка кислотой
+    this.targetManager.onAcidSpit = () => {
+      this.audio.playSFX('acid_spit');
+    };
+
+    // Кислотный дождь приземлился
+    this.targetManager.onAcidRain = (_pos) => {
+      this.audio.playAcidSplash();
+      this.screenShake = 0.3;
+    };
+
+    // Звук установки метки для кислотного дождя
+    this.targetManager.onAcidRainMarkSound = () => {
+      this.audio.playAcidRainMark();
+      this.hud.showMessage('☢️ КИСЛОТНЫЙ ДОЖДЬ! УКРОЙСЯ! ☢️', 'lime');
+    };
+
+    // Кислотный дождь начался
+    this.targetManager.onAcidRainStart = (_pos) => {
+      this.audio.playAcidRainStart();
+      this.screenShake = 0.5;
     };
   }
 
@@ -419,7 +455,7 @@ export class Game {
 
   /** Обновление игры */
   private update(dt: number): void {
-    if (this.state.isPaused) return;
+    if (this.state.isPaused || this.isPaused) return;
 
     this.gameTime += dt;
 
@@ -777,6 +813,14 @@ export class Game {
     // Данные кристаллов (для волны 10)
     const crystalsData = this.targetManager.getCrystalsData();
 
+    // Данные летящих снарядов кислоты
+    const acidProjectilesData = this.targetManager.getAcidProjectilesData();
+    const acidProjectileCount = this.targetManager.acidProjectiles.length;
+
+    // Данные зон кислотного дождя
+    const acidRainZonesData = this.targetManager.getAcidRainZonesData();
+    const acidRainZoneCount = this.targetManager.acidRainZones.length;
+
     // Рендерим сцену
     this.renderer.render(
       this.gameTime,
@@ -792,7 +836,11 @@ export class Game {
       this.targetManager.wave,
       pickupsData,
       pickupCount,
-      crystalsData
+      crystalsData,
+      acidProjectilesData,
+      acidProjectileCount,
+      acidRainZonesData,
+      acidRainZoneCount
     );
 
     // Рендерим оружие

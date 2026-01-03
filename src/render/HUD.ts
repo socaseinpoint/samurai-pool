@@ -729,4 +729,157 @@ export class HUD {
       this.bossHealthBar.style.display = 'none';
     }
   }
+
+  /** Эпичная заставка босса */
+  public showBossIntro(bossType: string, onComplete?: () => void): void {
+    // Определяем имя и стиль босса
+    let bossName = 'БОСС';
+    let bossSubtitle = '';
+    let color = '#ff0044';
+    let glowColor = 'rgba(255, 0, 68, 0.5)';
+    let icon = '💀';
+    
+    if (bossType === 'boss_green') {
+      bossName = 'ЯДОВИТЫЕ БЛИЗНЕЦЫ';
+      bossSubtitle = 'Охотник & Загонщик';
+      color = '#00ff44';
+      glowColor = 'rgba(0, 255, 68, 0.5)';
+      icon = '☣️';
+    } else if (bossType === 'boss_black') {
+      bossName = 'ВЛАДЫКА ПУСТОТЫ';
+      bossSubtitle = 'Повелитель Тьмы';
+      color = '#8800ff';
+      glowColor = 'rgba(136, 0, 255, 0.5)';
+      icon = '🌀';
+    } else if (bossType === 'boss_blue') {
+      bossName = 'ФАНТОМ ХАОСА';
+      bossSubtitle = 'Владыка Молний';
+      color = '#00ffff';
+      glowColor = 'rgba(0, 255, 255, 0.5)';
+      icon = '⚡';
+    }
+
+    // Создаём оверлей заставки
+    const overlay = document.createElement('div');
+    overlay.id = 'boss-intro-overlay';
+    overlay.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 9999;
+      pointer-events: none;
+    `;
+
+    // Иконка босса
+    const iconEl = document.createElement('div');
+    iconEl.style.cssText = `
+      font-size: 120px;
+      opacity: 0;
+      transform: scale(3);
+      filter: drop-shadow(0 0 30px ${glowColor});
+    `;
+    iconEl.textContent = icon;
+
+    // Имя босса
+    const nameEl = document.createElement('div');
+    nameEl.style.cssText = `
+      font-family: 'Orbitron', sans-serif;
+      font-size: 72px;
+      font-weight: 900;
+      color: ${color};
+      text-shadow: 
+        0 0 20px ${color},
+        0 0 40px ${glowColor},
+        0 0 60px ${glowColor};
+      opacity: 0;
+      transform: translateY(50px);
+      letter-spacing: 8px;
+      margin-top: 20px;
+    `;
+    nameEl.textContent = bossName;
+
+    // Подзаголовок
+    const subtitleEl = document.createElement('div');
+    subtitleEl.style.cssText = `
+      font-family: 'Orbitron', sans-serif;
+      font-size: 24px;
+      color: ${color};
+      text-shadow: 0 0 10px ${glowColor};
+      opacity: 0;
+      margin-top: 10px;
+      letter-spacing: 4px;
+    `;
+    subtitleEl.textContent = bossSubtitle;
+
+    // Линии по бокам
+    const lineLeft = document.createElement('div');
+    const lineRight = document.createElement('div');
+    const lineStyle = `
+      position: absolute;
+      top: 50%;
+      width: 0;
+      height: 3px;
+      background: linear-gradient(90deg, transparent, ${color});
+    `;
+    lineLeft.style.cssText = lineStyle + 'left: 0; transform: translateY(-50%);';
+    lineRight.style.cssText = lineStyle + 'right: 0; transform: translateY(-50%) scaleX(-1);';
+
+    overlay.appendChild(lineLeft);
+    overlay.appendChild(lineRight);
+    overlay.appendChild(iconEl);
+    overlay.appendChild(nameEl);
+    overlay.appendChild(subtitleEl);
+    document.body.appendChild(overlay);
+
+    // Анимация появления
+    overlay.animate([
+      { background: 'rgba(0, 0, 0, 0)' },
+      { background: 'rgba(0, 0, 0, 0.8)' }
+    ], { duration: 300, fill: 'forwards' });
+
+    iconEl.animate([
+      { opacity: 0, transform: 'scale(3)' },
+      { opacity: 1, transform: 'scale(1)' }
+    ], { duration: 500, delay: 200, fill: 'forwards', easing: 'ease-out' });
+
+    nameEl.animate([
+      { opacity: 0, transform: 'translateY(50px)' },
+      { opacity: 1, transform: 'translateY(0)' }
+    ], { duration: 500, delay: 400, fill: 'forwards', easing: 'ease-out' });
+
+    subtitleEl.animate([
+      { opacity: 0 },
+      { opacity: 0.8 }
+    ], { duration: 400, delay: 600, fill: 'forwards' });
+
+    lineLeft.animate([
+      { width: '0%' },
+      { width: '35%' }
+    ], { duration: 600, delay: 300, fill: 'forwards', easing: 'ease-out' });
+
+    lineRight.animate([
+      { width: '0%' },
+      { width: '35%' }
+    ], { duration: 600, delay: 300, fill: 'forwards', easing: 'ease-out' });
+
+    // Анимация исчезновения и удаление
+    setTimeout(() => {
+      overlay.animate([
+        { opacity: 1 },
+        { opacity: 0 }
+      ], { duration: 500, fill: 'forwards' });
+      
+      setTimeout(() => {
+        overlay.remove();
+        onComplete?.();
+      }, 500);
+    }, 2500);
+  }
 }

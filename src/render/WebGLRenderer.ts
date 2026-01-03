@@ -33,11 +33,16 @@ export class WebGLRenderer {
       muzzleFlash: null,
       pools: null,
       poolCount: null,
+      acidProjectiles: null,
+      acidProjectileCount: null,
+      acidRainZones: null,
+      acidRainZoneCount: null,
       era: null,
       wave: null,
       pickups: null,
       pickupCount: null,
       crystals: null,
+      crystalCount: null,
     };
 
     this.init();
@@ -76,6 +81,10 @@ export class WebGLRenderer {
     this.uniforms.muzzleFlash = gl.getUniformLocation(this.program, 'u_muzzleFlash');
     this.uniforms.pools = gl.getUniformLocation(this.program, 'u_pools');
     this.uniforms.poolCount = gl.getUniformLocation(this.program, 'u_poolCount');
+    this.uniforms.acidProjectiles = gl.getUniformLocation(this.program, 'u_acidProjectiles');
+    this.uniforms.acidProjectileCount = gl.getUniformLocation(this.program, 'u_acidProjectileCount');
+    this.uniforms.acidRainZones = gl.getUniformLocation(this.program, 'u_acidRainZones');
+    this.uniforms.acidRainZoneCount = gl.getUniformLocation(this.program, 'u_acidRainZoneCount');
     this.uniforms.era = gl.getUniformLocation(this.program, 'u_era');
     this.uniforms.wave = gl.getUniformLocation(this.program, 'u_wave');
     this.uniforms.pickups = gl.getUniformLocation(this.program, 'u_pickups');
@@ -161,7 +170,11 @@ export class WebGLRenderer {
     wave?: number,
     pickupsData?: Float32Array,
     pickupCount?: number,
-    crystalsData?: Float32Array
+    crystalsData?: Float32Array,
+    acidProjectilesData?: Float32Array,
+    acidProjectileCount?: number,
+    acidRainZonesData?: Float32Array,
+    acidRainZoneCount?: number
   ): void {
     const gl = this.gl;
 
@@ -186,6 +199,22 @@ export class WebGLRenderer {
       gl.uniform1i(this.uniforms.poolCount, poolCount);
     } else {
       gl.uniform1i(this.uniforms.poolCount, 0);
+    }
+
+    // Снаряды кислоты
+    if (acidProjectilesData && acidProjectileCount !== undefined && acidProjectileCount > 0) {
+      gl.uniform4fv(this.uniforms.acidProjectiles, acidProjectilesData);
+      gl.uniform1i(this.uniforms.acidProjectileCount, acidProjectileCount);
+    } else {
+      gl.uniform1i(this.uniforms.acidProjectileCount, 0);
+    }
+
+    // Зоны кислотного дождя
+    if (acidRainZonesData && acidRainZoneCount !== undefined && acidRainZoneCount > 0) {
+      gl.uniform4fv(this.uniforms.acidRainZones, acidRainZonesData);
+      gl.uniform1i(this.uniforms.acidRainZoneCount, acidRainZoneCount);
+    } else {
+      gl.uniform1i(this.uniforms.acidRainZoneCount, 0);
     }
     
     // Эпоха (1-3)

@@ -18,9 +18,34 @@ export interface Fragment {
 export interface ToxicPool {
   position: Vec3;
   radius: number;
+  maxRadius: number;      // Максимальный радиус после растекания
   lifetime: number;
+  maxLifetime: number;    // Начальное время жизни
   damage: number;
+  spreadProgress: number; // 0-1 прогресс растекания
 }
+
+/** Зона кислотного дождя (метка на земле → дождь сверху) */
+export interface AcidRainZone {
+  position: Vec3;         // Центр зоны
+  radius: number;         // Радиус зоны
+  lifetime: number;       // Время жизни
+  markTime: number;       // Время показа метки перед дождём
+  isRaining: boolean;     // Идёт ли дождь
+  damage: number;         // Урон за тик
+}
+
+/** Снаряд кислоты (летящий плевок) */
+export interface AcidProjectile {
+  position: Vec3;      // Текущая позиция
+  targetPos: Vec3;     // Куда летит
+  startPos: Vec3;      // Откуда летит
+  progress: number;    // 0-1 прогресс полёта
+  flightTime: number;  // Время полёта
+}
+
+/** Роль зелёного босса в паре */
+export type GreenBossRole = 'hunter' | 'blocker';
 
 /**
  * Враг-шар который летит к игроку
@@ -137,6 +162,23 @@ export class Target {
   /** Зелёный босс: таймер создания лужи */
   private poolTimer = 0;
 
+  /** Зелёный босс: таймер плевка */
+  private spitTimer = 0;
+  private spitCooldown = 3.0;
+
+  /** Зелёный босс: роль (охотник/загонщик) */
+  public greenBossRole: GreenBossRole = 'hunter';
+
+  /** Зелёный босс: последняя известная скорость игрока */
+  private lastPlayerPos: Vec3 = vec3();
+  private playerVelocity: Vec3 = vec3();
+
+  /** Callback при плевке (стартовая позиция, целевая позиция) */
+  public onSpit?: (startPos: Vec3, targetPos: Vec3) => void;
+
+  /** Callback при установке метки кислотного дождя */
+  public onAcidRainMark?: (pos: Vec3) => void;
+
   /** Зелёный босс: фаза (1 или 2) */
   public bossPhase = 1;
 
@@ -174,13 +216,14 @@ export class Target {
       this.verticalVelocity = 8;
       this.onGround = false;
     } else if (type === 'boss_green') {
-      // ЗЕЛЁНЫЙ БОСС - огромный и живучий
+      // ЗЕЛЁНЫЙ БОСС - плюётся кислотой!
       this.isBoss = true;
       this.speed = speed * 0.6; // Медленный
       this.damage = 40;
       this.radius = 2.5; // ОГРОМНЫЙ!
-      this.hp = 20;
-      this.maxHp = 20;
+      this.hp = 10;      // В 2 раза меньше HP (их двое!)
+      this.maxHp = 10;
+      this.spitCooldown = 3.0; // Плюёт каждые 3 секунды
     } else if (type === 'boss_black') {
       // ЧЁРНЫЙ БОСС - искривляет пространство
       // HP = 10 базовых (половина зелёного) + 60 от 6 кристаллей (по 10 каждый)
@@ -517,73 +560,115 @@ export class Target {
   /** Callback для создания лужи */
   public onCreatePool?: (pos: Vec3) => void;
 
-  /** Зелёный босс - медленно надвигается, оставляет лужи */
+  /** Зелёный босс - работает в паре: охотник гонит, загонщик отрезает путь */
   private updateBossGreen(dt: number, playerPos: Vec3, time: number): void {
     // Обработка отката от удара
     if (this.knockbackTimer > 0) {
       this.knockbackTimer -= dt;
-      // Применяем инерцию отката
       this.position.x += this.velocity.x * dt;
       this.position.y += this.velocity.y * dt;
       this.position.z += this.velocity.z * dt;
-      // Затухание скорости
       this.velocity.x *= 0.9;
       this.velocity.y *= 0.9;
       this.velocity.z *= 0.9;
-      // Гравитация
       this.velocity.y -= 15 * dt;
       this.position.y = Math.max(this.radius, this.position.y);
       return;
     }
+
+    // Вычисляем скорость игрока (для предсказания)
+    this.playerVelocity.x = (playerPos.x - this.lastPlayerPos.x) / Math.max(dt, 0.001);
+    this.playerVelocity.z = (playerPos.z - this.lastPlayerPos.z) / Math.max(dt, 0.001);
+    this.lastPlayerPos = { ...playerPos };
 
     const dx = playerPos.x - this.position.x;
     const dy = playerPos.y - this.position.y;
     const dz = playerPos.z - this.position.z;
     const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-    if (dist > 0.1) {
-      const dirX = dx / dist;
-      const dirY = dy / dist;
-      const dirZ = dz / dist;
-
-      // Медленно но неуклонно
-      const wobble = Math.sin(time * 2) * 0.5;
-      
-      this.velocity.x = dirX * this.speed + wobble;
-      this.velocity.y = dirY * this.speed * 0.3;
-      this.velocity.z = dirZ * this.speed;
-
-      this.position.x += this.velocity.x * dt;
-      this.position.y += this.velocity.y * dt;
-      this.position.z += this.velocity.z * dt;
-
-      // Не опускается ниже пола
-      this.position.y = Math.max(this.radius, this.position.y);
-    }
-
     // Пульсирующий размер (больше во второй фазе)
     const baseRadius = this.bossPhase === 2 ? 2.8 : 2.5;
     this.radius = baseRadius + Math.sin(time * 3) * 0.3;
 
-    // Создание токсичных луж
-    this.poolTimer -= dt;
-    // Во второй фазе лужи создаются в 2 раза чаще!
-    const poolCooldown = this.bossPhase === 2 ? 1.0 : 2.0;
-    if (this.poolTimer <= 0) {
-      this.poolTimer = poolCooldown;
-      // Лужа под боссом
-      const poolPos = vec3(this.position.x, 0.05, this.position.z);
-      this.onCreatePool?.(poolPos);
+    // === ПОВЕДЕНИЕ ЗАВИСИТ ОТ РОЛИ ===
+    if (this.greenBossRole === 'hunter') {
+      // ОХОТНИК: вызывает КИСЛОТНЫЙ ДОЖДЬ с неба!
+      this.spitTimer -= dt;
+      const spitCooldownActual = this.bossPhase === 2 ? 5.0 : 8.0;
       
-      // Во второй фазе создаёт дополнительные лужи вокруг
-      if (this.bossPhase === 2) {
-        const angle = Math.random() * Math.PI * 2;
-        const extraPool = vec3(
-          this.position.x + Math.cos(angle) * 3,
+      if (this.spitTimer <= 0 && dist < 25) {
+        this.spitTimer = spitCooldownActual;
+        
+        // Ставим метку на позицию игрока
+        const rainTarget = vec3(playerPos.x, 0.05, playerPos.z);
+        this.onAcidRainMark?.(rainTarget);
+        
+        // Во второй фазе - больше меток!
+        if (this.bossPhase === 2) {
+          setTimeout(() => {
+            this.onAcidRainMark?.(vec3(rainTarget.x + 6, 0.05, rainTarget.z));
+            this.onAcidRainMark?.(vec3(rainTarget.x - 6, 0.05, rainTarget.z));
+          }, 800);
+        }
+      }
+      
+      // Охотник идёт медленно, держит дистанцию
+      if (dist > 8) {
+        const dirX = dx / dist;
+        const dirZ = dz / dist;
+        this.velocity.x = dirX * this.speed * 0.5;
+        this.velocity.z = dirZ * this.speed * 0.5;
+        this.position.x += this.velocity.x * dt;
+        this.position.z += this.velocity.z * dt;
+      }
+      this.position.y = Math.max(this.radius, this.position.y);
+      
+    } else {
+      // ЗАГОНЩИК: кидает ЛУЖИ (плевки)!
+      this.spitTimer -= dt;
+      const spitCooldownActual = this.bossPhase === 2 ? 2.0 : 3.5;
+      
+      if (this.spitTimer <= 0 && dist < 20) {
+        this.spitTimer = spitCooldownActual;
+        
+        // Плюём в игрока!
+        const spitTarget = vec3(
+          playerPos.x + (Math.random() - 0.5) * 2,
           0.05,
-          this.position.z + Math.sin(angle) * 3
+          playerPos.z + (Math.random() - 0.5) * 2
         );
-        this.onCreatePool?.(extraPool);
+        const spitStart = vec3(this.position.x, this.position.y + 1, this.position.z);
+        this.onSpit?.(spitStart, spitTarget);
+        
+        // Во второй фазе - серия плевков!
+        if (this.bossPhase === 2) {
+          setTimeout(() => {
+            const extra = vec3(playerPos.x + 3, 0.05, playerPos.z);
+            this.onSpit?.(spitStart, extra);
+          }, 300);
+          setTimeout(() => {
+            const extra = vec3(playerPos.x - 3, 0.05, playerPos.z);
+            this.onSpit?.(spitStart, extra);
+          }, 600);
+        }
+      }
+      
+      // Загонщик быстро бежит к игроку!
+      if (dist > 0.1) {
+        const dirX = dx / dist;
+        const dirY = dy / dist;
+        const dirZ = dz / dist;
+        const wobble = Math.sin(time * 2) * 0.5;
+        
+        const speedMult = this.bossPhase === 2 ? 1.4 : 1.0;
+        this.velocity.x = dirX * this.speed * speedMult + wobble;
+        this.velocity.y = dirY * this.speed * 0.3;
+        this.velocity.z = dirZ * this.speed * speedMult;
+
+        this.position.x += this.velocity.x * dt;
+        this.position.y += this.velocity.y * dt;
+        this.position.z += this.velocity.z * dt;
+        this.position.y = Math.max(this.radius, this.position.y);
       }
     }
   }
@@ -1031,6 +1116,9 @@ export class TargetManager {
   /** Callback при смене фазы босса */
   public onBossPhaseChange?: (bossType: EnemyType, phase: number) => void;
 
+  /** Callback при кислотном дожде (зелёный босс плюнул) */
+  public onAcidRain?: (pos: Vec3) => void;
+
   /** Callback при начале/конце вихря чёрного босса */
   public onBossVortexStart?: () => void;
   public onBossVortexEnd?: () => void;
@@ -1039,7 +1127,13 @@ export class TargetManager {
   /** Токсичные лужи */
   public toxicPools: ToxicPool[] = [];
 
-  /** Таймер урона от луж */
+  /** Зоны кислотного дождя */
+  public acidRainZones: AcidRainZone[] = [];
+
+  /** Летящие снаряды кислоты */
+  public acidProjectiles: AcidProjectile[] = [];
+
+  /** Таймер урона от луж и дождя */
   private poolDamageTimer = 0;
 
   /** Система коллизий */
@@ -1047,6 +1141,16 @@ export class TargetManager {
 
   constructor(collision?: ICollisionSystem) {
     this.collision = collision || null;
+  }
+
+  /** Проверить находится ли игрок под платформой (укрытие от дождя) */
+  private isPlayerUnderPlatform(playerPos: Vec3): boolean {
+    if (!this.collision) return false;
+    
+    // Проверяем есть ли потолок над игроком
+    const ceiling = this.collision.getCeilingHeight(playerPos);
+    // Если есть потолок ниже 15м - игрок под укрытием
+    return ceiling < 15;
   }
 
   /** Начать игру с указанной волны */
@@ -1084,23 +1188,35 @@ export class TargetManager {
 
     // === БОССЫ ===
     if (wave === 5) {
-      // ЗЕЛЁНЫЙ БОСС!
-      const pos = vec3(0, 3.0, -spawnRadius);
-      const boss = new Target(pos, baseSpeed, this.enemyIdCounter++, 'boss_green', this.collision || undefined);
-      // Callback для создания луж
-      boss.onCreatePool = (poolPos) => {
-        this.toxicPools.push({
-          position: { ...poolPos },
-          radius: 2.5,
-          lifetime: 8.0,
-          damage: 5
-        });
-      };
-      // Callback для смены фазы
-      boss.onPhaseChange = (phase) => {
-        this.onBossPhaseChange?.(boss.enemyType, phase);
-      };
-      this.targets.push(boss);
+      // ДВА ЗЕЛЁНЫХ БОССА - охотник и загонщик!
+      const bossConfigs: Array<{ pos: Vec3; role: GreenBossRole }> = [
+        { pos: vec3(-8, 3.0, -spawnRadius), role: 'hunter' },   // Охотник - гонит
+        { pos: vec3(8, 3.0, -spawnRadius), role: 'blocker' },   // Загонщик - плюёт впереди
+      ];
+      
+      for (const config of bossConfigs) {
+        const boss = new Target(config.pos, baseSpeed, this.enemyIdCounter++, 'boss_green', this.collision || undefined);
+        boss.greenBossRole = config.role;
+        
+        if (config.role === 'hunter') {
+          // ОХОТНИК: вызывает кислотный дождь с неба!
+          boss.onAcidRainMark = (pos) => {
+            this.spawnAcidRainZone(pos);
+          };
+        } else {
+          // ЗАГОНЩИК: кидает лужи (плевки)
+          boss.onSpit = (startPos, targetPos) => {
+            this.spawnAcidProjectile(startPos, targetPos);
+          };
+        }
+        
+        // Callback для смены фазы
+        boss.onPhaseChange = (phase) => {
+          this.onBossPhaseChange?.(boss.enemyType, phase);
+        };
+        
+        this.targets.push(boss);
+      }
     } else if (wave === 10) {
       // ЧЁРНЫЙ БОСС!
       const pos = vec3(0, 2.5, -spawnRadius);
@@ -1300,28 +1416,97 @@ export class TargetManager {
     // Удаляем мёртвых
     this.targets = this.targets.filter(t => !t.canRemove());
 
+    // === ЛЕТЯЩИЕ СНАРЯДЫ КИСЛОТЫ ===
+    for (const proj of this.acidProjectiles) {
+      proj.progress += dt / proj.flightTime;
+      
+      // Параболическая траектория
+      const t = proj.progress;
+      proj.position.x = proj.startPos.x + (proj.targetPos.x - proj.startPos.x) * t;
+      proj.position.z = proj.startPos.z + (proj.targetPos.z - proj.startPos.z) * t;
+      // Дуга вверх и вниз
+      proj.position.y = proj.startPos.y + (1 - (2 * t - 1) * (2 * t - 1)) * 8; // Макс высота 8м
+      
+      // Снаряд приземлился
+      if (proj.progress >= 1) {
+        // Создаём растекающуюся лужу
+        this.toxicPools.push({
+          position: { ...proj.targetPos },
+          radius: 0.5,          // Начальный радиус маленький
+          maxRadius: 3.5,       // Растечётся до 3.5м
+          lifetime: 6.0,
+          maxLifetime: 6.0,
+          damage: 8,
+          spreadProgress: 0     // Начинает растекаться
+        });
+        this.onAcidRain?.(proj.targetPos);
+      }
+    }
+    // Удаляем приземлившиеся снаряды
+    this.acidProjectiles = this.acidProjectiles.filter(p => p.progress < 1);
+
     // === ТОКСИЧНЫЕ ЛУЖИ ===
-    // Обновляем время жизни луж
     for (const pool of this.toxicPools) {
       pool.lifetime -= dt;
+      // Растекание: радиус увеличивается в первые 1.5 сек
+      if (pool.spreadProgress < 1) {
+        pool.spreadProgress = Math.min(1, pool.spreadProgress + dt / 1.5);
+        pool.radius = pool.maxRadius * (0.3 + 0.7 * pool.spreadProgress);
+      }
     }
     // Удаляем истёкшие
     this.toxicPools = this.toxicPools.filter(p => p.lifetime > 0);
 
-    // Урон от луж (каждые 0.5 сек)
+    // === ЗОНЫ КИСЛОТНОГО ДОЖДЯ ===
+    for (const zone of this.acidRainZones) {
+      if (!zone.isRaining) {
+        // Ещё показываем метку
+        zone.markTime -= dt;
+        if (zone.markTime <= 0) {
+          zone.isRaining = true;
+          this.onAcidRainStart?.(zone.position);
+        }
+      } else {
+        // Дождь идёт
+        zone.lifetime -= dt;
+      }
+    }
+    // Удаляем истёкшие зоны
+    this.acidRainZones = this.acidRainZones.filter(z => z.lifetime > 0 || !z.isRaining);
+
+    // Урон от луж и дождя (каждые 0.5 сек)
     this.poolDamageTimer -= dt;
     if (this.poolDamageTimer <= 0) {
       this.poolDamageTimer = 0.5;
       
+      // Урон от луж (только на земле)
       for (const pool of this.toxicPools) {
         const dx = playerPos.x - pool.position.x;
         const dz = playerPos.z - pool.position.z;
         const dist = Math.sqrt(dx * dx + dz * dz);
         
-        if (dist < pool.radius) {
-          // Игрок в луже - урон!
+        // Проверяем только если игрок НА ЗЕМЛЕ (не в прыжке)
+        if (dist < pool.radius && playerPos.y < 0.8) {
           this.onPoolDamage?.(pool.damage);
-          break; // Только одна лужа может наносить урон за раз
+          break;
+        }
+      }
+      
+      // Урон от кислотного дождя (если не под платформой)
+      for (const zone of this.acidRainZones) {
+        if (!zone.isRaining) continue;
+        
+        const dx = playerPos.x - zone.position.x;
+        const dz = playerPos.z - zone.position.z;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        
+        if (dist < zone.radius) {
+          // Проверяем есть ли платформа над игроком (укрытие от дождя)
+          const isUnderCover = this.isPlayerUnderPlatform(playerPos);
+          if (!isUnderCover) {
+            this.onPoolDamage?.(zone.damage);
+            break;
+          }
         }
       }
     }
@@ -1487,7 +1672,8 @@ export class TargetManager {
     return new Float32Array(allFragments);
   }
 
-  /** Данные луж для шейдера [x, z, radius, lifetime] */
+  /** Данные луж для шейдера [x, z, radius, animData] */
+  /** animData: старшие биты = lifetime (0-1), младшие = spreadProgress (0-1) */
   public getPoolsShaderData(): Float32Array {
     const data = new Float32Array(this.toxicPools.length * 4);
     for (let i = 0; i < this.toxicPools.length; i++) {
@@ -1495,10 +1681,74 @@ export class TargetManager {
       data[i * 4 + 0] = pool.position.x;
       data[i * 4 + 1] = pool.position.z;
       data[i * 4 + 2] = pool.radius;
-      data[i * 4 + 3] = pool.lifetime / 8.0; // Нормализованное время жизни
+      // Комбинируем lifetime и spreadProgress
+      const lifetimeNorm = pool.lifetime / pool.maxLifetime;
+      data[i * 4 + 3] = lifetimeNorm + pool.spreadProgress * 0.01; // spreadProgress в дробной части
     }
     return data;
   }
+
+  /** Данные снарядов кислоты для шейдера [x, y, z, progress] */
+  public getAcidProjectilesData(): Float32Array {
+    const data = new Float32Array(this.acidProjectiles.length * 4);
+    for (let i = 0; i < this.acidProjectiles.length; i++) {
+      const proj = this.acidProjectiles[i];
+      data[i * 4 + 0] = proj.position.x;
+      data[i * 4 + 1] = proj.position.y;
+      data[i * 4 + 2] = proj.position.z;
+      data[i * 4 + 3] = proj.progress;
+    }
+    return data;
+  }
+
+  /** Данные зон кислотного дождя для шейдера [x, z, radius, isRaining] */
+  public getAcidRainZonesData(): Float32Array {
+    const data = new Float32Array(this.acidRainZones.length * 4);
+    for (let i = 0; i < this.acidRainZones.length; i++) {
+      const zone = this.acidRainZones[i];
+      data[i * 4 + 0] = zone.position.x;
+      data[i * 4 + 1] = zone.position.z;
+      data[i * 4 + 2] = zone.radius;
+      data[i * 4 + 3] = zone.isRaining ? 1.0 : (1.0 - zone.markTime / 1.5) * 0.5; // 0-0.5 = метка, 1 = дождь
+    }
+    return data;
+  }
+
+  /** Создать летящий снаряд кислоты */
+  private spawnAcidProjectile(startPos: Vec3, targetPos: Vec3): void {
+    this.acidProjectiles.push({
+      position: { ...startPos },
+      targetPos: { ...targetPos },
+      startPos: { ...startPos },
+      progress: 0,
+      flightTime: 1.2 // 1.2 секунды полёта
+    });
+    // Звук плевка
+    this.onAcidSpit?.();
+  }
+
+  /** Создать зону кислотного дождя (метка → дождь) */
+  private spawnAcidRainZone(pos: Vec3): void {
+    this.acidRainZones.push({
+      position: { ...pos },
+      radius: 4.0,       // Радиус зоны
+      lifetime: 5.0,     // 5 секунд дождя
+      markTime: 1.5,     // 1.5 секунды предупреждение
+      isRaining: false,
+      damage: 6
+    });
+    // Звук установки метки
+    this.onAcidRainMarkSound?.();
+  }
+
+  /** Callback при плевке (звук) */
+  public onAcidSpit?: () => void;
+
+  /** Callback при установке метки дождя (звук) */
+  public onAcidRainMarkSound?: () => void;
+
+  /** Callback когда дождь начинается */
+  public onAcidRainStart?: (pos: Vec3) => void;
 
   /** Спавн бейнлинга из Зелёного Босса */
   private spawnBanelingFromBoss(bossPos: Vec3): void {
