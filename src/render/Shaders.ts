@@ -25,6 +25,9 @@ uniform int u_targetCount;
 uniform float u_muzzleFlash;
 uniform vec4 u_pools[8]; // Токсичные лужи [x, z, radius, lifetime]
 uniform int u_poolCount;
+uniform int u_era; // Эпоха: 1=кислотная, 2=чёрная дыра, 3=космическая
+uniform vec4 u_pickups[8]; // Пикапы [x, y, z, type] type: 9=health, 10=stimpack
+uniform int u_pickupCount;
 
 in vec2 v_uv;
 out vec4 fragColor;
@@ -193,6 +196,36 @@ float map(vec3 p) {
         if (poolSurface < d) {
           d = poolSurface;
           materialId = 13; // Токсичная лужа
+        }
+      }
+    }
+  }
+  
+  // === ПИКАПЫ ===
+  for (int i = 0; i < u_pickupCount; i++) {
+    if (i >= 8) break;
+    vec4 pickup = u_pickups[i];
+    float pType = pickup.w;
+    
+    if (pType > 0.0) {
+      vec3 pickupPos = pickup.xyz;
+      float pickupDist = length(p - pickupPos);
+      
+      // Парящая сфера/куб
+      if (pType == 9.0) {
+        // Аптечка - красный крест (сфера + кубы)
+        float sphere = length(p - pickupPos) - 0.4;
+        // Простая сфера для производительности
+        if (sphere < d) {
+          d = sphere;
+          materialId = 14; // Аптечка
+        }
+      } else if (pType == 10.0) {
+        // Стимпак - жёлтая звезда (сфера)
+        float sphere = length(p - pickupPos) - 0.35;
+        if (sphere < d) {
+          d = sphere;
+          materialId = 15; // Стимпак
         }
       }
     }
@@ -525,24 +558,46 @@ void main() {
     map(p);
     int mat = materialId;
     
-    // === ПРОСТОЕ ОСВЕЩЕНИЕ (оптимизация) ===
-    vec3 ambient = vec3(0.12, 0.13, 0.16);
+    // === ОСВЕЩЕНИЕ ПО ЭПОХАМ ===
+    vec3 ambient;
+    vec3 mainLight;
+    vec3 accentColor;
+    vec3 fogColor;
     
-    // Лунный свет сверху
-    vec3 moonLight = vec3(0.4, 0.45, 0.55);
-    float moonDot = max(dot(n, vec3(0.3, 0.9, -0.2)), 0.0);
+    if (u_era == 1) {
+      // ЭПОХА 1: Кислотная (зелёная токсичная)
+      ambient = vec3(0.08, 0.15, 0.08);
+      mainLight = vec3(0.3, 0.8, 0.3); // Зелёный свет
+      accentColor = vec3(0.5, 1.0, 0.3); // Кислотный
+      fogColor = vec3(0.02, 0.08, 0.02);
+    } else if (u_era == 2) {
+      // ЭПОХА 2: Чёрная дыра (тёмно-фиолетовая)
+      ambient = vec3(0.06, 0.04, 0.12);
+      mainLight = vec3(0.5, 0.3, 0.8); // Фиолетовый
+      accentColor = vec3(0.8, 0.2, 1.0); // Пурпурный
+      fogColor = vec3(0.03, 0.01, 0.06);
+    } else {
+      // ЭПОХА 3: Космическая (синяя технологичная)
+      ambient = vec3(0.08, 0.12, 0.18);
+      mainLight = vec3(0.4, 0.7, 1.0); // Синий
+      accentColor = vec3(0.2, 0.8, 1.0); // Циан
+      fogColor = vec3(0.01, 0.03, 0.08);
+    }
     
-    // Один тёплый источник (факел)
+    // Основной свет сверху
+    float mainDot = max(dot(n, vec3(0.3, 0.9, -0.2)), 0.0);
+    
+    // Один тёплый источник (факел) - цвет меняется по эпохе
     vec3 torchPos = vec3(0.0, 8.0, 0.0);
     vec3 toTorch = torchPos - p;
     float torchDist = length(toTorch);
     float atten = 25.0 / (1.0 + torchDist * 0.05 + torchDist * torchDist * 0.008);
-    vec3 torchLight = vec3(1.0, 0.8, 0.5) * max(dot(n, normalize(toTorch)), 0.0) * atten;
+    vec3 torchLight = accentColor * max(dot(n, normalize(toTorch)), 0.0) * atten;
     
-    // Подсветка бассейна (простая)
+    // Подсветка бассейна - цвет по эпохе
     float distFromCenter = length(p.xz);
     float poolInfluence = 1.0 - smoothstep(0.0, 15.0, distFromCenter);
-    vec3 poolLight = vec3(0.2, 0.6, 0.8) * poolInfluence * 2.0;
+    vec3 poolLight = accentColor * poolInfluence * 2.0;
     
     // === МАТЕРИАЛЫ (упрощённые) ===
     if (mat == 1) {
@@ -719,6 +774,38 @@ void main() {
       // Яркое свечение
       color *= 2.0;
       
+    } else if (mat == 14) {
+      // === АПТЕЧКА ===
+      // Красный крест с белым свечением
+      vec3 healthRed = vec3(1.0, 0.2, 0.2);
+      vec3 healthWhite = vec3(1.0, 0.9, 0.9);
+      
+      // Пульсация
+      float pulse = 0.7 + 0.3 * sin(u_time * 5.0);
+      color = mix(healthRed, healthWhite, pulse * 0.3);
+      
+      // Яркое свечение
+      color *= 2.5;
+      
+    } else if (mat == 15) {
+      // === СТИМПАК ===
+      // Жёлто-оранжевый энергетический шар
+      vec3 stimYellow = vec3(1.0, 0.8, 0.2);
+      vec3 stimOrange = vec3(1.0, 0.5, 0.1);
+      
+      // Быстрая пульсация
+      float pulse = 0.5 + 0.5 * sin(u_time * 8.0);
+      color = mix(stimOrange, stimYellow, pulse);
+      
+      // Электрические искры
+      float spark = fract(sin(dot(p.xz + u_time * 10.0, vec2(12.9898, 78.233))) * 43758.5453);
+      if (spark > 0.95) {
+        color += vec3(1.0, 1.0, 0.5);
+      }
+      
+      // Яркое свечение
+      color *= 2.5;
+      
     } else {
       // === ПОЛ / СТЕНЫ ===
       vec3 baseColor = vec3(0.15, 0.14, 0.12);
@@ -731,7 +818,7 @@ void main() {
       }
       
       color = baseColor * ambient * 2.0;
-      color += baseColor * moonLight * moonDot * 0.5;
+      color += baseColor * mainLight * mainDot * 0.5;
       color += baseColor * torchLight * 1.2;
       color += baseColor * poolLight * 1.0;
     }
@@ -741,9 +828,9 @@ void main() {
       color += vec3(1.0, 0.7, 0.4) * u_muzzleFlash * 0.4;
     }
     
-    // Туман
+    // Туман по эпохе
     float fog = 1.0 - exp(-d * 0.02);
-    color = mix(color, vec3(0.02, 0.03, 0.06), fog * 0.5);
+    color = mix(color, fogColor, fog * 0.5);
   }
   
   // Тонмаппинг

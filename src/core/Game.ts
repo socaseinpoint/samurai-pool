@@ -81,6 +81,9 @@ export class Game {
   private wasGrounded = true;
   private screenShake = 0;
   private lastSliceTime = 0;
+  
+  /** Текущая эпоха (1-3) для атмосферы */
+  private currentEra = 1;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -205,6 +208,10 @@ export class Game {
     this.targetManager.onWaveStart = (wave) => {
       this.hud.showWave(wave);
       
+      // Обновляем эпоху для музыки и атмосферы
+      this.audio.setEra(wave);
+      this.currentEra = wave > 10 ? 3 : wave > 5 ? 2 : 1;
+      
       // Музыка и предупреждение о боссах
       if (wave === 5) {
         this.audio.setBossMusic('boss_green');
@@ -216,6 +223,13 @@ export class Game {
         this.audio.setBossMusic('boss_blue');
         setTimeout(() => this.hud.showMessage('⚡ СИНИЙ БОСС! ⚡', 'cyan'), 500);
       }
+      
+      // Сообщения о смене эпохи
+      if (wave === 6) {
+        setTimeout(() => this.hud.showMessage('🌀 ЗОНА ЧЁРНОЙ ДЫРЫ 🌀', 'purple'), 1000);
+      } else if (wave === 11) {
+        setTimeout(() => this.hud.showMessage('🚀 КОСМИЧЕСКАЯ ЗОНА 🚀', 'cyan'), 1000);
+      }
     };
 
     this.targetManager.onWaveComplete = (wave) => {
@@ -224,6 +238,8 @@ export class Game {
       // Возврат к обычной музыке после босса
       if (wave === 5 || wave === 10 || wave === 15) {
         this.audio.setBossMusic(null);
+        // Обновляем эпоху после босса
+        this.audio.setEra(wave + 1);
       }
     };
 
@@ -575,6 +591,10 @@ export class Game {
     const poolsData = this.targetManager.getPoolsShaderData();
     const poolCount = this.targetManager.toxicPools.length;
 
+    // Данные пикапов для шейдера
+    const pickupsData = this.pickupManager.getShaderData();
+    const pickupCount = this.pickupManager.pickups.length;
+
     // Тряска камеры
     let yaw = this.player.state.yaw;
     let pitch = this.player.state.pitch;
@@ -597,7 +617,10 @@ export class Game {
       targetCount,
       sliceFlash,
       poolsData,
-      poolCount
+      poolCount,
+      this.currentEra,
+      pickupsData,
+      pickupCount
     );
 
     // Рендерим катану

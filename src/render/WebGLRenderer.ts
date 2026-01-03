@@ -33,6 +33,9 @@ export class WebGLRenderer {
       muzzleFlash: null,
       pools: null,
       poolCount: null,
+      era: null,
+      pickups: null,
+      pickupCount: null,
     };
 
     this.init();
@@ -71,6 +74,9 @@ export class WebGLRenderer {
     this.uniforms.muzzleFlash = gl.getUniformLocation(this.program, 'u_muzzleFlash');
     this.uniforms.pools = gl.getUniformLocation(this.program, 'u_pools');
     this.uniforms.poolCount = gl.getUniformLocation(this.program, 'u_poolCount');
+    this.uniforms.era = gl.getUniformLocation(this.program, 'u_era');
+    this.uniforms.pickups = gl.getUniformLocation(this.program, 'u_pickups');
+    this.uniforms.pickupCount = gl.getUniformLocation(this.program, 'u_pickupCount');
 
     // Создаём fullscreen quad
     this.createQuad();
@@ -146,7 +152,10 @@ export class WebGLRenderer {
     targetCount: number,
     muzzleFlash: number,
     poolsData?: Float32Array,
-    poolCount?: number
+    poolCount?: number,
+    era?: number,
+    pickupsData?: Float32Array,
+    pickupCount?: number
   ): void {
     const gl = this.gl;
 
@@ -171,6 +180,17 @@ export class WebGLRenderer {
       gl.uniform1i(this.uniforms.poolCount, poolCount);
     } else {
       gl.uniform1i(this.uniforms.poolCount, 0);
+    }
+    
+    // Эпоха (1-3)
+    gl.uniform1i(this.uniforms.era, era || 1);
+    
+    // Пикапы
+    if (pickupsData && pickupCount !== undefined) {
+      gl.uniform4fv(this.uniforms.pickups, pickupsData);
+      gl.uniform1i(this.uniforms.pickupCount, pickupCount);
+    } else {
+      gl.uniform1i(this.uniforms.pickupCount, 0);
     }
 
     // Рисуем

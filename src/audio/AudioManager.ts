@@ -809,21 +809,437 @@ export class AudioManager {
   /** Флаг тревожного режима */
   private isLowHpMode = false;
 
+  /** Текущая эпоха (1-3) */
+  private currentEra = 1;
+
+  /** Установить эпоху музыки */
+  public setEra(wave: number): void {
+    let newEra = 1;
+    if (wave > 10) newEra = 3;
+    else if (wave > 5) newEra = 2;
+
+    if (newEra !== this.currentEra && this.currentMusicMode === 'normal') {
+      this.currentEra = newEra;
+      // Перезапускаем музыку для новой эпохи
+      for (const interval of this.musicIntervals) {
+        clearInterval(interval);
+        clearTimeout(interval);
+      }
+      this.musicIntervals = [];
+      this.startSynthwaveMusic();
+    } else {
+      this.currentEra = newEra;
+    }
+  }
+
   /** Запустить synthwave музыку */
   private startSynthwaveMusic(): void {
     if (!this.ctx || !this.musicGain) return;
 
-    // Бас-линия
-    this.playBassline();
+    switch (this.currentEra) {
+      case 1:
+        this.playEra1Music(); // Кислотная
+        break;
+      case 2:
+        this.playEra2Music(); // Чёрная дыра
+        break;
+      case 3:
+        this.playEra3Music(); // Космическая
+        break;
+    }
+  }
 
-    // Арпеджио
-    this.playArpeggio();
+  /** ЭПОХА 1: Кислотная (волны 1-5) */
+  private playEra1Music(): void {
+    if (!this.ctx || !this.musicGain) return;
 
-    // Пэд
-    this.playPad();
+    // Агрессивный acid бас
+    const bassNotes = [55, 55, 73.4, 55, 82.4, 55, 73.4, 65.4];
+    let noteIndex = 0;
 
-    // Драм-машина
-    this.playDrums();
+    const playBass = () => {
+      if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'normal' || this.currentEra !== 1) return;
+
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const filter = this.ctx.createBiquadFilter();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'sawtooth';
+      osc.frequency.value = bassNotes[noteIndex];
+
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(300, now);
+      filter.frequency.exponentialRampToValueAtTime(800, now + 0.05);
+      filter.frequency.exponentialRampToValueAtTime(200, now + 0.2);
+      filter.Q.value = 10;
+
+      gain.gain.setValueAtTime(0.15, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.musicGain!);
+
+      osc.start(now);
+      osc.stop(now + 0.3);
+
+      noteIndex = (noteIndex + 1) % bassNotes.length;
+    };
+
+    this.musicIntervals.push(setInterval(playBass, 250) as unknown as number);
+
+    // Кислотное арпеджио
+    const arpNotes = [220, 277, 330, 440, 330, 277];
+    let arpIndex = 0;
+
+    const playArp = () => {
+      if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'normal' || this.currentEra !== 1) return;
+
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'square';
+      osc.frequency.value = arpNotes[arpIndex];
+
+      gain.gain.setValueAtTime(0.06, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+
+      osc.connect(gain);
+      gain.connect(this.musicGain!);
+
+      osc.start(now);
+      osc.stop(now + 0.12);
+
+      arpIndex = (arpIndex + 1) % arpNotes.length;
+    };
+
+    this.musicIntervals.push(setInterval(playArp, 125) as unknown as number);
+
+    // Кик
+    const playKick = () => {
+      if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'normal' || this.currentEra !== 1) return;
+
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(150, now);
+      osc.frequency.exponentialRampToValueAtTime(40, now + 0.1);
+
+      gain.gain.setValueAtTime(0.25, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+
+      osc.connect(gain);
+      gain.connect(this.musicGain!);
+
+      osc.start(now);
+      osc.stop(now + 0.15);
+    };
+
+    this.musicIntervals.push(setInterval(playKick, 500) as unknown as number);
+  }
+
+  /** ЭПОХА 2: Чёрная дыра (волны 6-10) */
+  private playEra2Music(): void {
+    if (!this.ctx || !this.musicGain) return;
+
+    // Глубокий мрачный дрон
+    const playDrone = () => {
+      if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'normal' || this.currentEra !== 2) return;
+
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const osc2 = this.ctx.createOscillator();
+      const lfo = this.ctx.createOscillator();
+      const lfoGain = this.ctx.createGain();
+      const gain = this.ctx.createGain();
+      const filter = this.ctx.createBiquadFilter();
+
+      osc.type = 'sawtooth';
+      osc.frequency.value = 41; // E1 - очень низкий
+
+      osc2.type = 'triangle';
+      osc2.frequency.value = 41.2; // Биения
+
+      lfo.type = 'sine';
+      lfo.frequency.value = 0.1;
+      lfoGain.gain.value = 20;
+
+      lfo.connect(lfoGain);
+      lfoGain.connect(osc.frequency);
+
+      filter.type = 'lowpass';
+      filter.frequency.value = 150;
+
+      gain.gain.setValueAtTime(0.12, now);
+      gain.gain.linearRampToValueAtTime(0.08, now + 3);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 4);
+
+      osc.connect(filter);
+      osc2.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.musicGain!);
+
+      lfo.start(now);
+      osc.start(now);
+      osc2.start(now);
+      lfo.stop(now + 4);
+      osc.stop(now + 4);
+      osc2.stop(now + 4);
+    };
+
+    playDrone();
+    this.musicIntervals.push(setInterval(playDrone, 4000) as unknown as number);
+
+    // Медленный тяжёлый бит
+    let beat = 0;
+    const playBeat = () => {
+      if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'normal' || this.currentEra !== 2) return;
+
+      const now = this.ctx.currentTime;
+
+      if (beat % 2 === 0) {
+        // Глухой удар
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(80, now);
+        osc.frequency.exponentialRampToValueAtTime(20, now + 0.3);
+
+        gain.gain.setValueAtTime(0.3, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+
+        osc.connect(gain);
+        gain.connect(this.musicGain!);
+
+        osc.start(now);
+        osc.stop(now + 0.4);
+      }
+
+      beat++;
+    };
+
+    this.musicIntervals.push(setInterval(playBeat, 600) as unknown as number);
+
+    // Жуткие высокие тона
+    const playEerie = () => {
+      if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'normal' || this.currentEra !== 2) return;
+
+      const now = this.ctx.currentTime;
+      const freq = 600 + Math.random() * 400;
+
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now);
+      osc.frequency.linearRampToValueAtTime(freq * 0.7, now + 2);
+
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(0.04, now + 0.5);
+      gain.gain.linearRampToValueAtTime(0, now + 2);
+
+      osc.connect(gain);
+      gain.connect(this.musicGain!);
+
+      osc.start(now);
+      osc.stop(now + 2);
+    };
+
+    this.musicIntervals.push(setInterval(playEerie, 3000 + Math.random() * 2000) as unknown as number);
+
+    // Гравитационный шум
+    const playGravity = () => {
+      if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'normal' || this.currentEra !== 2) return;
+
+      const now = this.ctx.currentTime;
+
+      const bufferSize = this.ctx.sampleRate * 0.5;
+      const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.5));
+      }
+
+      const noise = this.ctx.createBufferSource();
+      noise.buffer = buffer;
+
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 200;
+
+      const gain = this.ctx.createGain();
+      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.musicGain!);
+
+      noise.start(now);
+      noise.stop(now + 0.5);
+    };
+
+    this.musicIntervals.push(setInterval(playGravity, 1500) as unknown as number);
+  }
+
+  /** ЭПОХА 3: Космическая технологическая (волны 11-15) */
+  private playEra3Music(): void {
+    if (!this.ctx || !this.musicGain) return;
+
+    // Быстрый синтвейв бас
+    const bassNotes = [110, 110, 146.8, 110, 130.8, 110, 164.8, 146.8];
+    let noteIndex = 0;
+
+    const playBass = () => {
+      if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'normal' || this.currentEra !== 3) return;
+
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const filter = this.ctx.createBiquadFilter();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'sawtooth';
+      osc.frequency.value = bassNotes[noteIndex];
+
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(400, now);
+      filter.frequency.exponentialRampToValueAtTime(150, now + 0.15);
+
+      gain.gain.setValueAtTime(0.12, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.musicGain!);
+
+      osc.start(now);
+      osc.stop(now + 0.22);
+
+      noteIndex = (noteIndex + 1) % bassNotes.length;
+    };
+
+    this.musicIntervals.push(setInterval(playBass, 200) as unknown as number);
+
+    // Космическое арпеджио (высокое)
+    const arpNotes = [880, 1046, 1318, 1760, 1318, 1046, 880, 659];
+    let arpIndex = 0;
+
+    const playArp = () => {
+      if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'normal' || this.currentEra !== 3) return;
+
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      const delay = this.ctx.createDelay();
+      const delayGain = this.ctx.createGain();
+
+      osc.type = 'triangle';
+      osc.frequency.value = arpNotes[arpIndex];
+
+      delay.delayTime.value = 0.15;
+      delayGain.gain.value = 0.3;
+
+      gain.gain.setValueAtTime(0.05, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+
+      osc.connect(gain);
+      osc.connect(delay);
+      delay.connect(delayGain);
+      delayGain.connect(this.musicGain!);
+      gain.connect(this.musicGain!);
+
+      osc.start(now);
+      osc.stop(now + 0.12);
+
+      arpIndex = (arpIndex + 1) % arpNotes.length;
+    };
+
+    this.musicIntervals.push(setInterval(playArp, 100) as unknown as number);
+
+    // Техно кик
+    const playKick = () => {
+      if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'normal' || this.currentEra !== 3) return;
+
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(200, now);
+      osc.frequency.exponentialRampToValueAtTime(50, now + 0.08);
+
+      gain.gain.setValueAtTime(0.2, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
+
+      osc.connect(gain);
+      gain.connect(this.musicGain!);
+
+      osc.start(now);
+      osc.stop(now + 0.12);
+    };
+
+    this.musicIntervals.push(setInterval(playKick, 400) as unknown as number);
+
+    // Космический пэд
+    const playPad = () => {
+      if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'normal' || this.currentEra !== 3) return;
+
+      const now = this.ctx.currentTime;
+      const chord = [220, 277, 330, 440]; // Am7
+
+      for (const freq of chord) {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+
+        gain.gain.setValueAtTime(0, now);
+        gain.gain.linearRampToValueAtTime(0.03, now + 0.5);
+        gain.gain.linearRampToValueAtTime(0.02, now + 2);
+        gain.gain.linearRampToValueAtTime(0, now + 3);
+
+        osc.connect(gain);
+        gain.connect(this.musicGain!);
+
+        osc.start(now);
+        osc.stop(now + 3.5);
+      }
+    };
+
+    playPad();
+    this.musicIntervals.push(setInterval(playPad, 4000) as unknown as number);
+
+    // Электрические разряды
+    const playZap = () => {
+      if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'normal' || this.currentEra !== 3) return;
+
+      const now = this.ctx.currentTime;
+
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(1500 + Math.random() * 1000, now);
+      osc.frequency.exponentialRampToValueAtTime(100, now + 0.1);
+
+      gain.gain.setValueAtTime(0.06, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+
+      osc.connect(gain);
+      gain.connect(this.musicGain!);
+
+      osc.start(now);
+      osc.stop(now + 0.1);
+    };
+
+    this.musicIntervals.push(setInterval(playZap, 800 + Math.random() * 600) as unknown as number);
   }
 
   /** Включить/выключить режим низкого HP */
@@ -1316,95 +1732,91 @@ export class AudioManager {
     this.musicIntervals.push(setInterval(playAcidScream, 1656) as unknown as number);
   }
 
-  /** Музыка Чёрного Босса - мрачный эмбиент с искажениями */
+  /** Музыка Чёрного Босса - Deep Techno */
   private playBossBlackMusic(): void {
     if (!this.ctx || !this.musicGain) return;
 
-    // Глубокий дрон
-    const playDrone = () => {
+    // === DEEP KICK (126 BPM) ===
+    const playKick = () => {
+      if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'boss_black') return;
+
+      const now = this.ctx.currentTime;
+
+      // Основной глубокий кик
+      const osc = this.ctx.createOscillator();
+      const osc2 = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(150, now);
+      osc.frequency.exponentialRampToValueAtTime(35, now + 0.12);
+
+      // Sub-bass слой
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(60, now);
+      osc2.frequency.exponentialRampToValueAtTime(25, now + 0.2);
+
+      gain.gain.setValueAtTime(0.35, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+
+      osc.connect(gain);
+      osc2.connect(gain);
+      gain.connect(this.musicGain!);
+
+      osc.start(now);
+      osc.stop(now + 0.25);
+      osc2.start(now);
+      osc2.stop(now + 0.3);
+    };
+
+    // Кик на каждую четверть (126 BPM = ~476ms)
+    this.musicIntervals.push(setInterval(playKick, 476) as unknown as number);
+
+    // === ГЛУБОКИЙ БАС ===
+    const bassNotes = [36.7, 36.7, 41.2, 36.7, 32.7, 36.7, 41.2, 43.6]; // D1 прогрессия
+    let bassIndex = 0;
+
+    const playBass = () => {
       if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'boss_black') return;
 
       const now = this.ctx.currentTime;
 
       const osc = this.ctx.createOscillator();
-      const osc2 = this.ctx.createOscillator();
-      const lfo = this.ctx.createOscillator();
-      const lfoGain = this.ctx.createGain();
-      const gain = this.ctx.createGain();
       const filter = this.ctx.createBiquadFilter();
+      const gain = this.ctx.createGain();
 
-      osc.type = 'sine';
-      osc.frequency.value = 55; // A1
-
-      osc2.type = 'triangle';
-      osc2.frequency.value = 55.5; // Детюн для биений
-
-      lfo.type = 'sine';
-      lfo.frequency.value = 0.2; // Медленная модуляция
-      lfoGain.gain.value = 30;
-
-      lfo.connect(lfoGain);
-      lfoGain.connect(osc.frequency);
+      osc.type = 'sawtooth';
+      osc.frequency.value = bassNotes[bassIndex];
 
       filter.type = 'lowpass';
-      filter.frequency.value = 300;
-      filter.Q.value = 2;
+      filter.frequency.setValueAtTime(200, now);
+      filter.frequency.exponentialRampToValueAtTime(80, now + 0.4);
+      filter.Q.value = 5;
 
-      gain.gain.setValueAtTime(0.15, now);
-      gain.gain.linearRampToValueAtTime(0.1, now + 2);
-      gain.gain.linearRampToValueAtTime(0, now + 4);
+      gain.gain.setValueAtTime(0.12, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.45);
 
       osc.connect(filter);
-      osc2.connect(filter);
       filter.connect(gain);
       gain.connect(this.musicGain!);
 
-      lfo.start(now);
       osc.start(now);
-      osc2.start(now);
-      lfo.stop(now + 4);
-      osc.stop(now + 4);
-      osc2.stop(now + 4);
+      osc.stop(now + 0.5);
+
+      bassIndex = (bassIndex + 1) % bassNotes.length;
     };
 
-    playDrone();
-    this.musicIntervals.push(setInterval(playDrone, 4000) as unknown as number);
+    this.musicIntervals.push(setInterval(playBass, 476) as unknown as number);
 
-    // Жуткие высокие тона
-    const playEerie = () => {
-      if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'boss_black') return;
-
-      const now = this.ctx.currentTime;
-      const freq = 800 + Math.random() * 400;
-
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(freq, now);
-      osc.frequency.linearRampToValueAtTime(freq * 0.5, now + 2);
-
-      gain.gain.setValueAtTime(0, now);
-      gain.gain.linearRampToValueAtTime(0.05, now + 0.5);
-      gain.gain.linearRampToValueAtTime(0, now + 2);
-
-      osc.connect(gain);
-      gain.connect(this.musicGain!);
-
-      osc.start(now);
-      osc.stop(now + 2);
-    };
-
-    this.musicIntervals.push(setInterval(playEerie, 3000) as unknown as number);
-
-    // Глитчи/искажения
-    const playGlitch = () => {
+    // === ХАЙХЭТЫ (закрытые) ===
+    let hihatCounter = 0;
+    const playHihat = () => {
       if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'boss_black') return;
 
       const now = this.ctx.currentTime;
 
-      // Белый шум
-      const bufferSize = this.ctx.sampleRate * 0.1;
+      // Шум для хайхэта
+      const bufferSize = this.ctx.sampleRate * 0.05;
       const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
       const data = buffer.getChannelData(0);
       for (let i = 0; i < bufferSize; i++) {
@@ -1415,23 +1827,157 @@ export class AudioManager {
       noise.buffer = buffer;
 
       const filter = this.ctx.createBiquadFilter();
-      filter.type = 'bandpass';
-      filter.frequency.value = 1000 + Math.random() * 2000;
-      filter.Q.value = 10;
+      filter.type = 'highpass';
+      filter.frequency.value = 8000;
 
       const gain = this.ctx.createGain();
-      gain.gain.setValueAtTime(0.1, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+      // Акцент на offbeat
+      const vol = hihatCounter % 2 === 1 ? 0.08 : 0.04;
+      gain.gain.setValueAtTime(vol, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
 
       noise.connect(filter);
       filter.connect(gain);
       gain.connect(this.musicGain!);
 
       noise.start(now);
-      noise.stop(now + 0.1);
+      noise.stop(now + 0.05);
+
+      hihatCounter++;
     };
 
-    this.musicIntervals.push(setInterval(playGlitch, 500 + Math.random() * 500) as unknown as number);
+    this.musicIntervals.push(setInterval(playHihat, 119) as unknown as number);
+
+    // === ГИПНОТИЧЕСКИЙ ПЭД ===
+    const playPad = () => {
+      if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'boss_black') return;
+
+      const now = this.ctx.currentTime;
+      const chord = [73.4, 87.3, 110, 146.8]; // Dm минорный аккорд
+
+      for (const freq of chord) {
+        const osc = this.ctx.createOscillator();
+        const filter = this.ctx.createBiquadFilter();
+        const gain = this.ctx.createGain();
+
+        osc.type = 'triangle';
+        osc.frequency.value = freq;
+
+        filter.type = 'lowpass';
+        filter.frequency.value = 400;
+
+        gain.gain.setValueAtTime(0, now);
+        gain.gain.linearRampToValueAtTime(0.025, now + 1);
+        gain.gain.linearRampToValueAtTime(0.02, now + 3);
+        gain.gain.linearRampToValueAtTime(0, now + 4);
+
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.musicGain!);
+
+        osc.start(now);
+        osc.stop(now + 4.5);
+      }
+    };
+
+    playPad();
+    this.musicIntervals.push(setInterval(playPad, 7616) as unknown as number); // 16 тактов
+
+    // === РЕЙВ СТАБ (редкий) ===
+    const playStab = () => {
+      if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'boss_black') return;
+      if (Math.random() > 0.3) return; // Только 30% шанс
+
+      const now = this.ctx.currentTime;
+      const notes = [146.8, 174.6, 220]; // D3, F3, A3
+
+      for (const freq of notes) {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+
+        osc.type = 'sawtooth';
+        osc.frequency.value = freq;
+
+        gain.gain.setValueAtTime(0.06, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+
+        osc.connect(gain);
+        gain.connect(this.musicGain!);
+
+        osc.start(now);
+        osc.stop(now + 0.12);
+      }
+    };
+
+    this.musicIntervals.push(setInterval(playStab, 1904) as unknown as number); // Каждые 4 такта
+
+    // === ТЁМНАЯ АТМОСФЕРА ===
+    const playAtmosphere = () => {
+      if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'boss_black') return;
+
+      const now = this.ctx.currentTime;
+
+      // Низкий rumble
+      const osc = this.ctx.createOscillator();
+      const lfo = this.ctx.createOscillator();
+      const lfoGain = this.ctx.createGain();
+      const filter = this.ctx.createBiquadFilter();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.value = 30;
+
+      lfo.type = 'sine';
+      lfo.frequency.value = 0.5;
+      lfoGain.gain.value = 10;
+
+      lfo.connect(lfoGain);
+      lfoGain.connect(osc.frequency);
+
+      filter.type = 'lowpass';
+      filter.frequency.value = 80;
+
+      gain.gain.setValueAtTime(0.1, now);
+      gain.gain.linearRampToValueAtTime(0.05, now + 3);
+      gain.gain.linearRampToValueAtTime(0, now + 4);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.musicGain!);
+
+      lfo.start(now);
+      osc.start(now);
+      lfo.stop(now + 4);
+      osc.stop(now + 4);
+    };
+
+    playAtmosphere();
+    this.musicIntervals.push(setInterval(playAtmosphere, 4000) as unknown as number);
+
+    // === КОСМИЧЕСКИЙ ЭФФЕКТ ===
+    const playVoid = () => {
+      if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'boss_black') return;
+
+      const now = this.ctx.currentTime;
+
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(300 + Math.random() * 200, now);
+      osc.frequency.exponentialRampToValueAtTime(50, now + 2);
+
+      gain.gain.setValueAtTime(0.03, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 2);
+
+      osc.connect(gain);
+      gain.connect(this.musicGain!);
+
+      osc.start(now);
+      osc.stop(now + 2);
+    };
+
+    this.musicIntervals.push(setInterval(playVoid, 2000 + Math.random() * 1000) as unknown as number);
   }
 
   /** Музыка Синего Босса - быстрый электронный бит */

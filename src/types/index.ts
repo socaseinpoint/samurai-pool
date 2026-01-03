@@ -193,6 +193,12 @@ export interface ShaderUniforms {
   pools: WebGLUniformLocation | null;
   /** Количество луж */
   poolCount: WebGLUniformLocation | null;
+  /** Текущая эпоха (1-3) */
+  era: WebGLUniformLocation | null;
+  /** Пикапы */
+  pickups: WebGLUniformLocation | null;
+  /** Количество пикапов */
+  pickupCount: WebGLUniformLocation | null;
 }
 
 // ========== КОЛЛИЗИИ ==========
