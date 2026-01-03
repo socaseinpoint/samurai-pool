@@ -423,6 +423,9 @@ export class Game {
 
     this.gameTime += dt;
 
+    // Обновляем анимацию платформ (парение)
+    this.collision.updatePlatforms(this.gameTime);
+
     // Обновляем таймер замедления
     if (this.slowdownTimer > 0) {
       this.slowdownTimer -= dt;
@@ -683,6 +686,28 @@ export class Game {
       this.weaponRenderer.showHitEffect();
       this.audio.playSFX('kill');
     }
+
+    // Проверяем попадание по кристаллам (только на волне 10)
+    if (this.targetManager.wave === 10) {
+      const crystalHit = this.targetManager.trySliceCrystal(
+        playerPos,
+        this.player.state.yaw,
+        this.weapon.attackRange
+      );
+      
+      if (crystalHit) {
+        this.weaponRenderer.showHitEffect();
+        this.audio.playSFX('kill');
+        const remaining = this.targetManager.powerCrystals.filter(c => c.active).length;
+        
+        if (remaining === 0) {
+          this.hud.showMessage('💀 КРИСТАЛЛЫ УНИЧТОЖЕНЫ! БОСС ОСЛАБЛЕН! 💀', 'purple');
+          this.screenShake = 2.0;
+        } else {
+          this.hud.showMessage(`🔮 КРИСТАЛЛ РАЗБИТ! (${remaining}/6)`, 'cyan');
+        }
+      }
+    }
   }
 
   /** Проверка сплеш-атаки - горизонтальная волна */
@@ -749,6 +774,9 @@ export class Game {
     // Вспышка при ударе
     const sliceFlash = Math.max(0, 0.3 - (this.gameTime - this.lastSliceTime)) * 3;
 
+    // Данные кристаллов (для волны 10)
+    const crystalsData = this.targetManager.getCrystalsData();
+
     // Рендерим сцену
     this.renderer.render(
       this.gameTime,
@@ -763,7 +791,8 @@ export class Game {
       this.currentEra,
       this.targetManager.wave,
       pickupsData,
-      pickupCount
+      pickupCount,
+      crystalsData
     );
 
     // Рендерим оружие

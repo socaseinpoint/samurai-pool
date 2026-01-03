@@ -976,6 +976,15 @@ export class Target {
   }
 }
 
+/** Кристалл силы чёрного босса */
+export interface PowerCrystal {
+  x: number;
+  z: number;
+  height: number;
+  active: boolean;
+  platformIndex: number; // На какой платформе
+}
+
 /**
  * Менеджер врагов с системой волн
  */
@@ -996,6 +1005,9 @@ export class TargetManager {
   /** Счёт */
   public score = 0;
 
+  /** Кристаллы силы для чёрного босса */
+  public powerCrystals: PowerCrystal[] = [];
+
   /** Callback при уничтожении */
   public onTargetDestroyed?: (target: Target) => void;
 
@@ -1010,6 +1022,9 @@ export class TargetManager {
 
   /** Callback при уроне от лужи */
   public onPoolDamage?: (damage: number) => void;
+
+  /** Callback при уничтожении кристалла */
+  public onCrystalDestroyed?: (remaining: number) => void;
 
   /** Callback при смене фазы босса */
   public onBossPhaseChange?: (bossType: EnemyType, phase: number) => void;
@@ -1106,6 +1121,25 @@ export class TargetManager {
       };
       
       this.targets.push(boss);
+
+      // === КРИСТАЛЛЫ СИЛЫ НА ПЛАТФОРМАХ ===
+      // 6 кристаллов на 6 платформах
+      const platformPositions = [
+        { x: 10.0, z: 0.0, height: 2.3 },     // Платформа 1
+        { x: 5.0, z: 8.66, height: 3.5 },     // Платформа 2
+        { x: -5.0, z: 8.66, height: 4.7 },    // Платформа 3
+        { x: -10.0, z: 0.0, height: 5.9 },    // Платформа 4
+        { x: -5.0, z: -8.66, height: 7.1 },   // Платформа 5
+        { x: 5.0, z: -8.66, height: 8.3 },    // Платформа 6
+      ];
+      
+      this.powerCrystals = platformPositions.map((pos, i) => ({
+        x: pos.x,
+        z: pos.z,
+        height: pos.height,
+        active: true,
+        platformIndex: i
+      }));
     } else if (wave === 15) {
       // СИНИЙ БОСС!
       const pos = vec3(0, 2.0, -spawnRadius);
@@ -1501,6 +1535,69 @@ export class TargetManager {
       }
     }
     return vec3(0, 0, 0);
+  }
+
+  /** Попытка разрубить кристалл */
+  public trySliceCrystal(playerPos: Vec3, playerYaw: number, range: number): boolean {
+    for (const crystal of this.powerCrystals) {
+      if (!crystal.active) continue;
+
+      const dx = crystal.x - playerPos.x;
+      const dy = crystal.height - playerPos.y;
+      const dz = crystal.z - playerPos.z;
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+      if (dist > range + 1.0) continue; // +1 для размера кристалла
+
+      // Угол
+      const angleToTarget = Math.atan2(dx, -dz);
+      let angleDiff = angleToTarget - playerYaw;
+      while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+      while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+
+      if (Math.abs(angleDiff) > Math.PI / 3) continue; // 60° угол атаки
+
+      // Попали по кристаллу!
+      crystal.active = false;
+      
+      const remaining = this.powerCrystals.filter(c => c.active).length;
+      this.onCrystalDestroyed?.(remaining);
+
+      // Спавним фантома из разбитого кристалла
+      this.spawnPhantomFromBoss(vec3(crystal.x, crystal.height, crystal.z));
+
+      // Если все кристаллы уничтожены - босс теряет 90% HP
+      if (remaining === 0) {
+        for (const target of this.targets) {
+          if (target.active && target.enemyType === 'boss_black') {
+            // Оставляем 10% HP (3 из 30)
+            const newHp = Math.max(3, Math.floor(target.maxHp * 0.1));
+            target.hp = Math.min(target.hp, newHp);
+          }
+        }
+      }
+
+      return true;
+    }
+    return false;
+  }
+
+  /** Данные кристаллов для шейдера */
+  public getCrystalsData(): Float32Array {
+    // 6 кристаллов * 4 компонента (x, z, height, active)
+    const data = new Float32Array(24);
+    for (let i = 0; i < 6; i++) {
+      if (i < this.powerCrystals.length) {
+        const c = this.powerCrystals[i];
+        data[i * 4 + 0] = c.x;
+        data[i * 4 + 1] = c.z;
+        data[i * 4 + 2] = c.height;
+        data[i * 4 + 3] = c.active ? 1.0 : 0.0;
+      } else {
+        data[i * 4 + 3] = 0.0; // Неактивен
+      }
+    }
+    return data;
   }
 
   /** Количество активных врагов */

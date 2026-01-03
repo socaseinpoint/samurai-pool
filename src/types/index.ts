@@ -206,6 +206,8 @@ export interface ShaderUniforms {
   pickups: WebGLUniformLocation | null;
   /** Количество пикапов */
   pickupCount: WebGLUniformLocation | null;
+  /** Кристаллы силы (для чёрного босса) */
+  crystals: WebGLUniformLocation | null;
 }
 
 // ========== КОЛЛИЗИИ ==========

@@ -37,6 +37,7 @@ export class WebGLRenderer {
       wave: null,
       pickups: null,
       pickupCount: null,
+      crystals: null,
     };
 
     this.init();
@@ -79,6 +80,7 @@ export class WebGLRenderer {
     this.uniforms.wave = gl.getUniformLocation(this.program, 'u_wave');
     this.uniforms.pickups = gl.getUniformLocation(this.program, 'u_pickups');
     this.uniforms.pickupCount = gl.getUniformLocation(this.program, 'u_pickupCount');
+    this.uniforms.crystals = gl.getUniformLocation(this.program, 'u_crystals');
 
     // Создаём fullscreen quad
     this.createQuad();
@@ -158,7 +160,8 @@ export class WebGLRenderer {
     era?: number,
     wave?: number,
     pickupsData?: Float32Array,
-    pickupCount?: number
+    pickupCount?: number,
+    crystalsData?: Float32Array
   ): void {
     const gl = this.gl;
 
@@ -197,6 +200,11 @@ export class WebGLRenderer {
       gl.uniform1i(this.uniforms.pickupCount, pickupCount);
     } else {
       gl.uniform1i(this.uniforms.pickupCount, 0);
+    }
+
+    // Кристаллы силы
+    if (crystalsData) {
+      gl.uniform4fv(this.uniforms.crystals, crystalsData);
     }
 
     // Рисуем

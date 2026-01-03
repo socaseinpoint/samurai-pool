@@ -29,6 +29,7 @@ uniform int u_era; // Эпоха: 1=кислотная, 2=чёрная дыра,
 uniform int u_wave; // Текущая волна (для эффекта дождя на 15+)
 uniform vec4 u_pickups[8]; // Пикапы [x, y, z, type] type: 9=health, 10=stimpack, 11=charge
 uniform int u_pickupCount;
+uniform vec4 u_crystals[6]; // Кристаллы силы [x, z, height, active]
 
 in vec2 v_uv;
 out vec4 fragColor;
@@ -91,6 +92,12 @@ float sdCylinder(vec3 p, float r, float h) {
 float sdTorus(vec3 p, vec2 t) {
   vec2 q = vec2(length(p.xz) - t.x, p.y);
   return length(q) - t.y;
+}
+
+// Октаэдр (кристалл)
+float sdOctahedron(vec3 p, float s) {
+  p = abs(p);
+  return (p.x + p.y + p.z - s) * 0.57735027;
 }
 
 float sdCappedCone(vec3 p, float h, float r1, float r2) {
@@ -319,13 +326,20 @@ float map(vec3 p) {
   d = min(d, colD);
   
   // === КРУГЛЫЕ ПЛАТФОРМЫ ДЛЯ ПАРКУРА (спираль по кругу) ===
-  // 6 платформ по кругу с радиусом 10м
-  float jp1 = sdCylinder(p - vec3(10.0, 1.8, 0.0), 1.5, 0.25);
-  float jp2 = sdCylinder(p - vec3(5.0, 3.0, 8.66), 1.4, 0.25);
-  float jp3 = sdCylinder(p - vec3(-5.0, 4.2, 8.66), 1.4, 0.25);
-  float jp4 = sdCylinder(p - vec3(-10.0, 5.4, 0.0), 1.3, 0.25);
-  float jp5 = sdCylinder(p - vec3(-5.0, 6.6, -8.66), 1.3, 0.25);
-  float jp6 = sdCylinder(p - vec3(5.0, 7.8, -8.66), 1.2, 0.25);
+  // 6 платформ по кругу с радиусом 10м, парящие вверх-вниз
+  float bob1 = sin(u_time * 1.5 + 0.0) * 0.3;
+  float bob2 = sin(u_time * 1.5 + 0.8) * 0.3;
+  float bob3 = sin(u_time * 1.5 + 1.6) * 0.3;
+  float bob4 = sin(u_time * 1.5 + 2.4) * 0.3;
+  float bob5 = sin(u_time * 1.5 + 3.2) * 0.3;
+  float bob6 = sin(u_time * 1.5 + 4.0) * 0.3;
+  
+  float jp1 = sdCylinder(p - vec3(10.0, 1.8 + bob1, 0.0), 1.5, 0.25);
+  float jp2 = sdCylinder(p - vec3(5.0, 3.0 + bob2, 8.66), 1.4, 0.25);
+  float jp3 = sdCylinder(p - vec3(-5.0, 4.2 + bob3, 8.66), 1.4, 0.25);
+  float jp4 = sdCylinder(p - vec3(-10.0, 5.4 + bob4, 0.0), 1.3, 0.25);
+  float jp5 = sdCylinder(p - vec3(-5.0, 6.6 + bob5, -8.66), 1.3, 0.25);
+  float jp6 = sdCylinder(p - vec3(5.0, 7.8 + bob6, -8.66), 1.2, 0.25);
   
   float jumpPlats = min(jp1, min(jp2, min(jp3, min(jp4, min(jp5, jp6)))));
   if (jumpPlats < d) {
@@ -333,8 +347,9 @@ float map(vec3 p) {
     materialId = 16;
   }
   
-  // Верхняя платформа с бафом (в центре над фонтаном)
-  float topPlat = sdCylinder(p - vec3(0.0, 9.5, 0.0), 2.5, 0.35);
+  // Верхняя платформа с бафом (в центре над фонтаном), парит медленнее
+  float topBob = sin(u_time * 1.0) * 0.2;
+  float topPlat = sdCylinder(p - vec3(0.0, 9.5 + topBob, 0.0), 2.5, 0.35);
   if (topPlat < d) {
     d = topPlat;
     materialId = 16;
@@ -345,6 +360,37 @@ float map(vec3 p) {
   if (glowRing < d) {
     d = glowRing;
     materialId = 17;
+  }
+
+  // === КРИСТАЛЛЫ СИЛЫ (только на волне 10) ===
+  if (u_wave == 10) {
+    for (int i = 0; i < 6; i++) {
+      if (u_crystals[i].w > 0.5) { // active
+        float cx = u_crystals[i].x;
+        float cz = u_crystals[i].y;
+        float ch = u_crystals[i].z;
+        
+        // Кристалл парит и вращается
+        float bobOffset = sin(u_time * 2.0 + float(i)) * 0.15;
+        float rotation = u_time * 1.5 + float(i) * 1.047; // Вращение
+        
+        vec3 crystalPos = vec3(cx, ch + bobOffset, cz);
+        vec3 lp = p - crystalPos;
+        
+        // Вращаем вокруг Y
+        float cosR = cos(rotation);
+        float sinR = sin(rotation);
+        lp.xz = mat2(cosR, -sinR, sinR, cosR) * lp.xz;
+        
+        // Октаэдр (кристалл)
+        float crystal = sdOctahedron(lp, 0.5);
+        
+        if (crystal < d) {
+          d = crystal;
+          materialId = 18; // Чёрный кристалл
+        }
+      }
+    }
   }
   
   // === ВОДА ===
@@ -1015,6 +1061,36 @@ void main() {
       
       // Очень яркое свечение
       color *= 4.0;
+      
+    } else if (mat == 18) {
+      // === ЧЁРНЫЙ КРИСТАЛЛ СИЛЫ ===
+      vec3 crystalBase = vec3(0.05, 0.02, 0.1); // Очень тёмный фиолетовый
+      vec3 crystalGlow = vec3(0.3, 0.0, 0.5); // Фиолетовое свечение
+      vec3 crystalEdge = vec3(0.8, 0.2, 1.0); // Яркие края
+      
+      // Пульсация
+      float pulse = 0.5 + 0.5 * sin(u_time * 3.0);
+      
+      // Эффект внутреннего свечения
+      float fresnel = pow(1.0 - abs(dot(n, -rd)), 3.0);
+      
+      // Энергетические линии на гранях
+      float edge = fract(p.x * 5.0 + p.y * 5.0 + u_time * 2.0);
+      edge = smoothstep(0.8, 1.0, edge);
+      
+      color = crystalBase;
+      color += crystalGlow * fresnel * 2.0;
+      color += crystalEdge * edge * 0.5;
+      color += crystalGlow * pulse * 0.3;
+      
+      // Искры внутри
+      float spark = fract(sin(dot(p.xyz + u_time * 5.0, vec3(12.9898, 78.233, 45.164))) * 43758.5453);
+      if (spark > 0.95) {
+        color += vec3(1.0, 0.5, 1.0); // Розовые искры
+      }
+      
+      // Общее свечение
+      color *= 2.5;
       
     } else {
       // === ПОЛ / СТЕНЫ ===

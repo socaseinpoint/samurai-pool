@@ -23,6 +23,10 @@ export class CollisionSystem implements ICollisionSystem {
   
   // === КРУГЛЫЕ ПЛАТФОРМЫ ДЛЯ ПАРКУРА (спираль по кругу) ===
   // 6 платформ по кругу с радиусом 10м, высота растёт по спирали
+  // Базовые высоты (без анимации)
+  private baseHeights = [1.8, 3.0, 4.2, 5.4, 6.6, 7.8];
+  private topBaseHeight = 9.5;
+  
   private jumpPlatforms = [
     { x: 10.0, z: 0.0, height: 1.8, radius: 1.5 },   // 1 - старт (0°)
     { x: 5.0, z: 8.66, height: 3.0, radius: 1.4 },   // 2 - (60°)
@@ -33,6 +37,37 @@ export class CollisionSystem implements ICollisionSystem {
   ];
   // Верхняя платформа с бафом - в центре над фонтаном
   private topPlatform = { x: 0, z: 0, height: 9.5, radius: 2.5 };
+
+  /** Обновить высоту платформ (анимация парения) */
+  public updatePlatforms(time: number): void {
+    // Каждая платформа парит с разной фазой
+    for (let i = 0; i < this.jumpPlatforms.length; i++) {
+      const phase = i * 0.8; // Разная фаза для каждой платформы
+      const bobAmount = Math.sin(time * 1.5 + phase) * 0.3; // ±0.3м
+      this.jumpPlatforms[i].height = this.baseHeights[i] + bobAmount;
+    }
+    // Верхняя платформа тоже парит, но медленнее
+    this.topPlatform.height = this.topBaseHeight + Math.sin(time * 1.0) * 0.2;
+  }
+
+  /** Получить данные платформ для шейдера */
+  public getPlatformData(): Float32Array {
+    // 7 платформ * 4 компонента (x, z, height, radius)
+    const data = new Float32Array(28);
+    for (let i = 0; i < this.jumpPlatforms.length; i++) {
+      const p = this.jumpPlatforms[i];
+      data[i * 4 + 0] = p.x;
+      data[i * 4 + 1] = p.z;
+      data[i * 4 + 2] = p.height;
+      data[i * 4 + 3] = p.radius;
+    }
+    // Верхняя платформа
+    data[24] = this.topPlatform.x;
+    data[25] = this.topPlatform.z;
+    data[26] = this.topPlatform.height;
+    data[27] = this.topPlatform.radius;
+    return data;
+  }
 
   /** Проверить коллизию в точке */
   public checkCollision(pos: Vec3): boolean {
