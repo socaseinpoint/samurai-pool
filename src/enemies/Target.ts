@@ -1041,8 +1041,15 @@ export class TargetManager {
             this.phantomDamageCooldown.set(target['id'] as number, 1.0); // 1 сек кулдаун
           }
           // НЕ деактивируем - фантом летит дальше!
+        } else if (target.isBoss) {
+          // Боссы наносят урон но НЕ умирают при столкновении!
+          const cd = this.phantomDamageCooldown.get(target['id'] as number) || 0;
+          if (cd <= 0) {
+            this.onPlayerHit?.(target);
+            this.phantomDamageCooldown.set(target['id'] as number, 1.5); // 1.5 сек кулдаун для боссов
+          }
         } else {
-          // Бейнлинг взрывается
+          // Обычные враги взрываются
           this.onPlayerHit?.(target);
           target.active = false;
         }
