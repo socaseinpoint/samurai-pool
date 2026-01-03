@@ -189,6 +189,10 @@ export interface ShaderUniforms {
   targetCount: WebGLUniformLocation | null;
   /** Вспышка от выстрела */
   muzzleFlash: WebGLUniformLocation | null;
+  /** Токсичные лужи */
+  pools: WebGLUniformLocation | null;
+  /** Количество луж */
+  poolCount: WebGLUniformLocation | null;
 }
 
 // ========== КОЛЛИЗИИ ==========

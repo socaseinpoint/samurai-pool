@@ -101,10 +101,18 @@ export class Player {
 
   /** Попытка двойного прыжка - возвращает true если выполнен */
   public tryDoubleJump(): boolean {
-    if (!this.state.grounded && !this.doubleJumpUsed) {
-      this.doubleJumpUsed = true;
-      this.state.velocity.y = this.config.jumpForce * 0.9; // Чуть слабее обычного
-      return true;
+    if (!this.state.grounded) {
+      // В режиме буйства - бесконечные прыжки!
+      if (this.rageMode) {
+        this.state.velocity.y = this.config.jumpForce * 0.85;
+        return true;
+      }
+      // Обычный двойной прыжок
+      if (!this.doubleJumpUsed) {
+        this.doubleJumpUsed = true;
+        this.state.velocity.y = this.config.jumpForce * 0.9;
+        return true;
+      }
     }
     return false;
   }

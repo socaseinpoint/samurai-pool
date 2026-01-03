@@ -31,6 +31,8 @@ export class WebGLRenderer {
       targets: null,
       targetCount: null,
       muzzleFlash: null,
+      pools: null,
+      poolCount: null,
     };
 
     this.init();

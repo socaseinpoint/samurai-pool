@@ -801,10 +801,13 @@ export class AudioManager {
   private arpInterval: number | null = null;
 
   /** Текущий режим музыки */
-  private currentMusicMode: 'normal' | 'boss_green' | 'boss_black' | 'boss_blue' = 'normal';
+  private currentMusicMode: 'normal' | 'low_hp' | 'boss_green' | 'boss_black' | 'boss_blue' = 'normal';
   
   /** Интервалы музыки для остановки */
   private musicIntervals: number[] = [];
+
+  /** Флаг тревожного режима */
+  private isLowHpMode = false;
 
   /** Запустить synthwave музыку */
   private startSynthwaveMusic(): void {
@@ -823,6 +826,225 @@ export class AudioManager {
     this.playDrums();
   }
 
+  /** Включить/выключить режим низкого HP */
+  public setLowHpMode(enabled: boolean): void {
+    if (!this.ctx || !this.musicGain) return;
+    
+    // Не переключаем если сейчас босс
+    if (this.currentMusicMode !== 'normal' && this.currentMusicMode !== 'low_hp') return;
+    
+    if (enabled && !this.isLowHpMode) {
+      // Включаем тревожный режим
+      this.isLowHpMode = true;
+      this.currentMusicMode = 'low_hp';
+      
+      // Останавливаем обычную музыку
+      for (const interval of this.musicIntervals) {
+        clearInterval(interval);
+        clearTimeout(interval);
+      }
+      this.musicIntervals = [];
+      
+      this.playLowHpMusic();
+      
+    } else if (!enabled && this.isLowHpMode) {
+      // Выключаем тревожный режим
+      this.isLowHpMode = false;
+      this.currentMusicMode = 'normal';
+      
+      // Останавливаем тревожную музыку
+      for (const interval of this.musicIntervals) {
+        clearInterval(interval);
+        clearTimeout(interval);
+      }
+      this.musicIntervals = [];
+      
+      this.startSynthwaveMusic();
+    }
+  }
+
+  /** Тревожная музыка при низком HP */
+  private playLowHpMusic(): void {
+    if (!this.ctx || !this.musicGain) return;
+
+    // === ТРЕВОЖНЫЙ ПУЛЬС ===
+    const playHeartbeat = () => {
+      if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'low_hp') return;
+
+      const now = this.ctx.currentTime;
+
+      // Двойной удар сердца
+      for (let i = 0; i < 2; i++) {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+
+        osc.type = 'sine';
+        osc.frequency.value = 40;
+
+        const offset = i * 0.15;
+        gain.gain.setValueAtTime(0, now + offset);
+        gain.gain.linearRampToValueAtTime(0.3, now + offset + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + offset + 0.2);
+
+        osc.connect(gain);
+        gain.connect(this.musicGain!);
+
+        osc.start(now + offset);
+        osc.stop(now + offset + 0.25);
+      }
+    };
+
+    this.musicIntervals.push(setInterval(playHeartbeat, 800) as unknown as number);
+
+    // === ТРЕВОЖНЫЙ ДРОН ===
+    const playDrone = () => {
+      if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'low_hp') return;
+
+      const now = this.ctx.currentTime;
+
+      const osc = this.ctx.createOscillator();
+      const osc2 = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      const filter = this.ctx.createBiquadFilter();
+
+      // Низкий тревожный тон
+      osc.type = 'sawtooth';
+      osc.frequency.value = 55;
+
+      osc2.type = 'sawtooth';
+      osc2.frequency.value = 55.5; // Биения для тревожности
+
+      filter.type = 'lowpass';
+      filter.frequency.value = 200;
+      filter.Q.value = 5;
+
+      gain.gain.setValueAtTime(0.1, now);
+      gain.gain.linearRampToValueAtTime(0.15, now + 1);
+      gain.gain.linearRampToValueAtTime(0.05, now + 2);
+
+      osc.connect(filter);
+      osc2.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.musicGain!);
+
+      osc.start(now);
+      osc.stop(now + 2.5);
+      osc2.start(now);
+      osc2.stop(now + 2.5);
+    };
+
+    playDrone();
+    this.musicIntervals.push(setInterval(playDrone, 2500) as unknown as number);
+
+    // === ИСКРЫ ===
+    const playSpark = () => {
+      if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'low_hp') return;
+
+      const now = this.ctx.currentTime;
+
+      // Случайные искры
+      const sparkCount = 1 + Math.floor(Math.random() * 3);
+      for (let i = 0; i < sparkCount; i++) {
+        const bufferSize = Math.floor(this.ctx.sampleRate * (0.02 + Math.random() * 0.03));
+        const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        
+        for (let j = 0; j < bufferSize; j++) {
+          data[j] = (Math.random() * 2 - 1) * Math.exp(-j / (bufferSize * 0.3));
+        }
+
+        const noise = this.ctx.createBufferSource();
+        noise.buffer = buffer;
+
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'highpass';
+        filter.frequency.value = 3000 + Math.random() * 5000;
+
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0.05 + Math.random() * 0.05, now + i * 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.05 + 0.05);
+
+        noise.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.musicGain!);
+
+        noise.start(now + i * 0.05);
+        noise.stop(now + i * 0.05 + 0.05);
+      }
+    };
+
+    this.musicIntervals.push(setInterval(playSpark, 500 + Math.random() * 500) as unknown as number);
+
+    // === ТРЕВОЖНЫЕ НОТЫ ===
+    const playWarning = () => {
+      if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'low_hp') return;
+
+      const now = this.ctx.currentTime;
+
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'square';
+      // Тревожная секунда (минорный интервал)
+      const notes = [220, 233.1]; // A3, Bb3
+      const note = notes[Math.floor(Math.random() * notes.length)];
+      osc.frequency.value = note;
+
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(0.08, now + 0.1);
+      gain.gain.linearRampToValueAtTime(0.06, now + 0.3);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+
+      osc.connect(gain);
+      gain.connect(this.musicGain!);
+
+      osc.start(now);
+      osc.stop(now + 0.5);
+    };
+
+    this.musicIntervals.push(setInterval(playWarning, 1500 + Math.random() * 1000) as unknown as number);
+
+    // === СТАТИЧЕСКИЕ ПОМЕХИ ===
+    const playStatic = () => {
+      if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'low_hp') return;
+
+      const now = this.ctx.currentTime;
+
+      const bufferSize = this.ctx.sampleRate * 0.1;
+      const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      
+      for (let i = 0; i < bufferSize; i++) {
+        // Прерывистый шум
+        data[i] = Math.random() > 0.7 ? (Math.random() * 2 - 1) * 0.5 : 0;
+      }
+
+      const noise = this.ctx.createBufferSource();
+      noise.buffer = buffer;
+
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.value = 2000;
+      filter.Q.value = 3;
+
+      const gain = this.ctx.createGain();
+      gain.gain.setValueAtTime(0.03, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.musicGain!);
+
+      noise.start(now);
+      noise.stop(now + 0.1);
+    };
+
+    this.musicIntervals.push(setInterval(playStatic, 300 + Math.random() * 400) as unknown as number);
+  }
+
+  /** Фаза Зелёного Босса */
+  private bossGreenPhase = 1;
+
   /** Переключить музыку для босса */
   public setBossMusic(bossType: 'boss_green' | 'boss_black' | 'boss_blue' | null): void {
     if (!this.ctx || !this.musicGain) return;
@@ -833,6 +1055,7 @@ export class AudioManager {
       clearTimeout(interval);
     }
     this.musicIntervals = [];
+    this.bossGreenPhase = 1; // Сброс фазы
 
     if (bossType === null) {
       // Обычная музыка
@@ -855,78 +1078,163 @@ export class AudioManager {
     }
   }
 
-  /** Музыка Зелёного Босса - тяжёлый токсичный бас */
-  private playBossGreenMusic(): void {
-    if (!this.ctx || !this.musicGain) return;
+  /** Переход в фазу 2 для Зелёного Босса - добавляем БОЧКУ! */
+  public setBossGreenPhase2(): void {
+    if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'boss_green') return;
+    if (this.bossGreenPhase === 2) return; // Уже во второй фазе
 
-    // Тяжёлый гудящий бас
-    const bassNotes = [41, 41, 36, 32]; // E1, E1, C1, низкий
-    let noteIndex = 0;
+    this.bossGreenPhase = 2;
 
-    const playNote = () => {
+    // === ТЯЖЁЛАЯ БОЧКА (808 стиль) ===
+    const playHeavyKick = () => {
       if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'boss_green') return;
 
       const now = this.ctx.currentTime;
 
-      // Грязный бас
+      // Основной кик
       const osc = this.ctx.createOscillator();
       const osc2 = this.ctx.createOscillator();
       const gain = this.ctx.createGain();
-      const filter = this.ctx.createBiquadFilter();
       const distortion = this.ctx.createWaveShaper();
 
-      osc.type = 'sawtooth';
-      osc.frequency.value = bassNotes[noteIndex];
-      osc2.type = 'square';
-      osc2.frequency.value = bassNotes[noteIndex] * 0.5;
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(200, now);
+      osc.frequency.exponentialRampToValueAtTime(30, now + 0.15);
 
-      // Кривая дисторшна
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(100, now);
+      osc2.frequency.exponentialRampToValueAtTime(20, now + 0.2);
+
+      // Дисторшн для грязи
       const curve = new Float32Array(256);
       for (let i = 0; i < 256; i++) {
         const x = (i / 128) - 1;
-        curve[i] = Math.tanh(x * 3);
+        curve[i] = Math.tanh(x * 5);
       }
       distortion.curve = curve;
 
-      filter.type = 'lowpass';
-      filter.frequency.value = 200;
-      filter.Q.value = 5;
-
-      gain.gain.setValueAtTime(0.25, now);
-      gain.gain.linearRampToValueAtTime(0.2, now + 0.5);
-      gain.gain.linearRampToValueAtTime(0, now + 0.9);
+      gain.gain.setValueAtTime(0.5, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
 
       osc.connect(distortion);
       osc2.connect(distortion);
-      distortion.connect(filter);
-      filter.connect(gain);
+      distortion.connect(gain);
       gain.connect(this.musicGain!);
 
       osc.start(now);
-      osc.stop(now + 1);
+      osc.stop(now + 0.25);
       osc2.start(now);
-      osc2.stop(now + 1);
-
-      noteIndex = (noteIndex + 1) % bassNotes.length;
+      osc2.stop(now + 0.25);
     };
 
-    playNote();
-    this.musicIntervals.push(setInterval(playNote, 800) as unknown as number);
+    // Тяжёлая бочка на каждую восьмую - агрессивнее!
+    this.musicIntervals.push(setInterval(playHeavyKick, 207) as unknown as number);
 
-    // Токсичные булькающие звуки
-    const playBubble = () => {
+    // === СИРЕНА ТРЕВОГИ ===
+    const playAlarm = () => {
       if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'boss_green') return;
 
       const now = this.ctx.currentTime;
+
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(600, now);
+      osc.frequency.linearRampToValueAtTime(800, now + 0.2);
+      osc.frequency.linearRampToValueAtTime(600, now + 0.4);
+
+      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.linearRampToValueAtTime(0.12, now + 0.2);
+      gain.gain.linearRampToValueAtTime(0.0, now + 0.4);
+
+      osc.connect(gain);
+      gain.connect(this.musicGain!);
+
+      osc.start(now);
+      osc.stop(now + 0.4);
+    };
+
+    // Сирена каждые 2 секунды
+    this.musicIntervals.push(setInterval(playAlarm, 2000) as unknown as number);
+  }
+
+  /** Музыка Зелёного Босса - КИСЛОТНОЕ ТЕХНО (Acid Techno) */
+  private playBossGreenMusic(): void {
+    if (!this.ctx || !this.musicGain) return;
+
+    // === TB-303 ACID BASSLINE ===
+    // Классические кислотные ноты
+    const acidNotes = [55, 55, 82.4, 55, 73.4, 55, 98, 73.4]; // A1, A1, E2, A1, D2, A1, G2, D2
+    let noteIndex = 0;
+    let filterMod = 0;
+
+    const playAcidBass = () => {
+      if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'boss_green') return;
+
+      const now = this.ctx.currentTime;
+
+      const osc = this.ctx.createOscillator();
+      const filter = this.ctx.createBiquadFilter();
+      const gain = this.ctx.createGain();
+      const distortion = this.ctx.createWaveShaper();
+
+      // Классический 303 sawtooth
+      osc.type = 'sawtooth';
+      osc.frequency.value = acidNotes[noteIndex];
+
+      // КИСЛОТНЫЙ ФИЛЬТР - высокий резонанс!
+      filter.type = 'lowpass';
+      filter.Q.value = 15; // Высокий резонанс для "квакающего" звука
+      
+      // Модуляция фильтра - главная фишка acid
+      const filterBase = 200 + Math.sin(filterMod) * 150;
+      filter.frequency.setValueAtTime(filterBase, now);
+      filter.frequency.exponentialRampToValueAtTime(800 + Math.random() * 600, now + 0.05);
+      filter.frequency.exponentialRampToValueAtTime(filterBase * 0.5, now + 0.15);
+
+      // Дисторшн для грязи
+      const curve = new Float32Array(256);
+      for (let i = 0; i < 256; i++) {
+        const x = (i / 128) - 1;
+        curve[i] = Math.tanh(x * 4);
+      }
+      distortion.curve = curve;
+
+      gain.gain.setValueAtTime(0.2, now);
+      gain.gain.linearRampToValueAtTime(0.15, now + 0.05);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+
+      osc.connect(filter);
+      filter.connect(distortion);
+      distortion.connect(gain);
+      gain.connect(this.musicGain!);
+
+      osc.start(now);
+      osc.stop(now + 0.2);
+
+      noteIndex = (noteIndex + 1) % acidNotes.length;
+      filterMod += 0.3;
+    };
+
+    // 145 BPM - быстрый acid темп
+    this.musicIntervals.push(setInterval(playAcidBass, 103) as unknown as number);
+
+    // === ТЕХНО КИК ===
+    const playKick = () => {
+      if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'boss_green') return;
+
+      const now = this.ctx.currentTime;
+
       const osc = this.ctx.createOscillator();
       const gain = this.ctx.createGain();
 
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(100 + Math.random() * 200, now);
-      osc.frequency.exponentialRampToValueAtTime(50, now + 0.2);
+      osc.frequency.setValueAtTime(150, now);
+      osc.frequency.exponentialRampToValueAtTime(40, now + 0.1);
 
-      gain.gain.setValueAtTime(0.08, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+      gain.gain.setValueAtTime(0.4, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
 
       osc.connect(gain);
       gain.connect(this.musicGain!);
@@ -935,7 +1243,77 @@ export class AudioManager {
       osc.stop(now + 0.2);
     };
 
-    this.musicIntervals.push(setInterval(playBubble, 300 + Math.random() * 200) as unknown as number);
+    // Кик на каждую четверть
+    this.musicIntervals.push(setInterval(playKick, 414) as unknown as number);
+
+    // === ХАЙХЭТ ===
+    const playHihat = () => {
+      if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'boss_green') return;
+
+      const now = this.ctx.currentTime;
+
+      const bufferSize = this.ctx.sampleRate * 0.05;
+      const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = Math.random() * 2 - 1;
+      }
+
+      const noise = this.ctx.createBufferSource();
+      noise.buffer = buffer;
+
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'highpass';
+      filter.frequency.value = 8000;
+
+      const gain = this.ctx.createGain();
+      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.musicGain!);
+
+      noise.start(now);
+      noise.stop(now + 0.05);
+    };
+
+    // Хайхэт на каждую восьмую
+    this.musicIntervals.push(setInterval(playHihat, 207) as unknown as number);
+
+    // === КИСЛОТНЫЙ СКРИМ (acid scream) ===
+    const playAcidScream = () => {
+      if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'boss_green') return;
+
+      const now = this.ctx.currentTime;
+
+      const osc = this.ctx.createOscillator();
+      const filter = this.ctx.createBiquadFilter();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(200 + Math.random() * 100, now);
+      osc.frequency.exponentialRampToValueAtTime(800 + Math.random() * 400, now + 0.3);
+
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime(500, now);
+      filter.frequency.exponentialRampToValueAtTime(3000, now + 0.3);
+      filter.Q.value = 10;
+
+      gain.gain.setValueAtTime(0.1, now);
+      gain.gain.linearRampToValueAtTime(0.15, now + 0.15);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.musicGain!);
+
+      osc.start(now);
+      osc.stop(now + 0.4);
+    };
+
+    // Скрим каждые 2 такта
+    this.musicIntervals.push(setInterval(playAcidScream, 1656) as unknown as number);
   }
 
   /** Музыка Чёрного Босса - мрачный эмбиент с искажениями */
@@ -1183,7 +1561,8 @@ export class AudioManager {
     let noteIndex = 0;
 
     const playBassNote = () => {
-      if (!this.ctx || !this.musicGain) return;
+      // Останавливаем если переключились на босса
+      if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'normal') return;
 
       const now = this.ctx.currentTime;
 
@@ -1233,7 +1612,8 @@ export class AudioManager {
     let noteIndex = 0;
 
     const playArpNote = () => {
-      if (!this.ctx || !this.musicGain) return;
+      // Останавливаем если переключились на босса
+      if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'normal') return;
 
       const now = this.ctx.currentTime;
 
@@ -1290,7 +1670,8 @@ export class AudioManager {
     let chordIndex = 0;
 
     const playPadChord = () => {
-      if (!this.ctx || !this.musicGain) return;
+      // Останавливаем если переключились на босса
+      if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'normal') return;
 
       const now = this.ctx.currentTime;
       const chord = padChords[chordIndex];
@@ -1344,7 +1725,8 @@ export class AudioManager {
     let beat = 0;
 
     const playBeat = () => {
-      if (!this.ctx || !this.musicGain) return;
+      // Останавливаем если переключились на босса
+      if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'normal') return;
 
       const now = this.ctx.currentTime;
 

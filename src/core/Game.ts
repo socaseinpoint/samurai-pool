@@ -233,6 +233,16 @@ export class Game {
       this.hud.showDamage('green');
       this.screenShake = 0.2;
     };
+
+    // Смена фазы босса
+    this.targetManager.onBossPhaseChange = (bossType, phase) => {
+      if (bossType === 'boss_green' && phase === 2) {
+        // Зелёный босс перешёл во вторую фазу!
+        this.audio.setBossGreenPhase2();
+        this.hud.showMessage('☣️ ФАЗА 2: ЯРОСТЬ! ☣️', 'lime');
+        this.screenShake = 1.5; // Сильная тряска
+      }
+    };
   }
 
   /** Замедление от фантомов */
@@ -444,6 +454,10 @@ export class Game {
     this.hud.updateHealth(this.player.state.health, this.player.state.maxHealth);
     this.hud.updateAmmo(this.targetManager.wave, this.targetManager.getActiveCount());
     this.hud.updateFrags(this.state.frags);
+    
+    // Проверка низкого HP для тревожной музыки (меньше 30%)
+    const hpPercent = this.player.state.health / this.player.state.maxHealth;
+    this.audio.setLowHpMode(hpPercent < 0.3 && hpPercent > 0);
     
     // Показываем HP босса если есть
     const boss = this.targetManager.getActiveBoss();

@@ -84,6 +84,18 @@ export class PickupManager {
   /** Время между спавнами */
   private spawnTimer = 10;
 
+  /** Таймер спавна на возвышенности */
+  private platformSpawnTimer = 30;
+
+  /** Позиции возвышенностей */
+  private platformPositions = [
+    { x: -20, y: 2.5, z: 0 },  // Левая платформа
+    { x: 20, y: 2.5, z: 0 },   // Правая платформа
+  ];
+
+  /** Текущая платформа для спавна */
+  private currentPlatform = 0;
+
   /** Максимум предметов на карте */
   private maxPickups = 5;
 
@@ -99,11 +111,18 @@ export class PickupManager {
     // Удаляем неактивные
     this.pickups = this.pickups.filter(p => p.active);
 
-    // Спавним новые
+    // Спавним новые случайные
     this.spawnTimer -= dt;
     if (this.spawnTimer <= 0 && this.pickups.length < this.maxPickups) {
       this.spawnRandom();
       this.spawnTimer = 8 + Math.random() * 7; // 8-15 сек между спавнами
+    }
+
+    // Спавн аптечки на возвышенности каждые 30 секунд
+    this.platformSpawnTimer -= dt;
+    if (this.platformSpawnTimer <= 0) {
+      this.spawnOnPlatform();
+      this.platformSpawnTimer = 30;
     }
 
     // Проверяем подбор
@@ -132,6 +151,22 @@ export class PickupManager {
     const type: PickupType = Math.random() < 0.7 ? 'health' : 'stimpack';
     
     this.pickups.push(new Pickup(pos, type));
+  }
+
+  /** Спавн аптечки на возвышенности */
+  private spawnOnPlatform(): void {
+    // Чередуем платформы
+    const platform = this.platformPositions[this.currentPlatform];
+    this.currentPlatform = (this.currentPlatform + 1) % this.platformPositions.length;
+
+    const pos = vec3(
+      platform.x + (Math.random() - 0.5) * 4, // Небольшой разброс по X
+      platform.y,
+      platform.z + (Math.random() - 0.5) * 8  // Разброс по Z
+    );
+
+    // На платформе всегда аптечка
+    this.pickups.push(new Pickup(pos, 'health'));
   }
 
   /** Принудительный спавн после убийства */
