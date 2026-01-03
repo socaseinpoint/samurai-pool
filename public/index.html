@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>⚔️ Samurai Pool Arena</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚔️</text></svg>">
+</head>
+<body>
+  <div id="game-container">
+    <!-- WebGL Canvas -->
+    <canvas id="game-canvas"></canvas>
+    
+    <!-- Weapon Canvas (overlay) -->
+    <canvas id="weapon-canvas"></canvas>
+    
+    <!-- HUD -->
+    <div id="hud">
+      <!-- Здоровье -->
+      <div id="health">
+        <div id="health-label">ЗДОРОВЬЕ</div>
+        <span id="health-value">100</span>
+      </div>
+      
+      <!-- Враги -->
+      <div id="ammo">
+        <div id="ammo-label">ВРАГИ</div>
+        <span id="ammo-value">⚔️ 0</span>
+      </div>
+      
+      <!-- Фраги -->
+      <div id="frags">
+        <div id="frags-label">СЧЁТ</div>
+        <span id="frags-value">0</span>
+      </div>
+      
+      <!-- Прицел -->
+      <div id="crosshair"></div>
+      
+      <!-- Хитмаркер -->
+      <div id="hitmarker"></div>
+      
+      <!-- Индикатор перезарядки -->
+      <div id="reload-indicator" style="display: none;"></div>
+      
+      <!-- Эффект урона -->
+      <div id="damage-overlay"></div>
+    </div>
+    
+    <!-- Стартовый экран -->
+    <div id="click-to-start">
+      <h1>⚔️ SAMURAI POOL ⚔️</h1>
+      <p style="color: #ff00ff; text-shadow: 0 0 10px #ff00ff;">Руби врагов катаной!</p>
+      <div id="controls-list">
+        <span>WASD</span> — движение<br>
+        <span>SHIFT</span> — бег<br>
+        <span>SPACE</span> — прыжок<br>
+        <span>LMB</span> — удар катаной<br>
+        <span>F</span> — полный экран<br>
+        <span>M</span> — звук
+      </div>
+    </div>
+  </div>
+  
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
