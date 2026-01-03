@@ -42,8 +42,9 @@ export class CollisionSystem implements ICollisionSystem {
     const distFromCenter = Math.sqrt(pos.x * pos.x + pos.z * pos.z);
     if (distFromCenter > this.arenaRadius - r) return true;
 
-    // Центральная колонна (фонтан)
-    if (distFromCenter < 2.0 + r) return true;
+    // Центральная колонна (фонтан) - блокирует только внизу, не на верхней платформе
+    // Фонтан высотой ~8м, верхняя платформа на 9.5м
+    if (distFromCenter < 2.0 + r && pos.y < 10.0) return true;
 
     // Колонны по периметру (4 основные)
     const columnPositions = [
@@ -61,7 +62,7 @@ export class CollisionSystem implements ICollisionSystem {
 
     // Бассейн теперь проходим - можно ходить по воде
 
-    // Коллизия с круглыми платформами (сбоку)
+    // Коллизия с круглыми платформами (сбоку) - только на уровне платформы
     const allPlatforms = [...this.jumpPlatforms, this.topPlatform];
     for (const plat of allPlatforms) {
       const dx = pos.x - plat.x;
@@ -69,8 +70,9 @@ export class CollisionSystem implements ICollisionSystem {
       const dist = Math.sqrt(dx * dx + dz * dz);
       const feetY = pos.y - 1.7;
       
-      // Если игрок на уровне платформы или ниже - блокируем вход в радиус
-      if (dist < plat.radius + r && feetY < plat.height - 0.1) {
+      // Блокируем только если ноги близко к уровню платформы (в пределах 1м ниже)
+      // Это позволяет ходить под платформами на земле
+      if (dist < plat.radius + r && feetY < plat.height - 0.1 && feetY > plat.height - 1.5) {
         return true;
       }
     }
@@ -171,7 +173,7 @@ export class CollisionSystem implements ICollisionSystem {
 
   /** Получить высоту потолка */
   public getCeilingHeight(pos: Vec3): number {
-    // Проверяем все платформы
+    // Проверяем все платформы - потолок только если близко снизу
     const allPlatforms = [...this.jumpPlatforms, this.topPlatform];
     
     for (const plat of allPlatforms) {
@@ -179,8 +181,8 @@ export class CollisionSystem implements ICollisionSystem {
       const dz = pos.z - plat.z;
       const dist = Math.sqrt(dx * dx + dz * dz);
       
-      // Если под платформой - потолок = низ платформы
-      if (dist < plat.radius && pos.y < plat.height - 0.5) {
+      // Потолок только если игрок прямо под платформой и близко к ней (в пределах 3м)
+      if (dist < plat.radius - 0.3 && pos.y < plat.height - 0.5 && pos.y > plat.height - 4.0) {
         return plat.height - 0.3;
       }
     }

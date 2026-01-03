@@ -161,16 +161,16 @@ export class Target {
       this.speed = speed * 0.6; // Медленный
       this.damage = 40;
       this.radius = 2.5; // ОГРОМНЫЙ!
-      this.hp = 10;
-      this.maxHp = 10;
+      this.hp = 20;
+      this.maxHp = 20;
     } else if (type === 'boss_black') {
       // ЧЁРНЫЙ БОСС - искривляет пространство
       this.isBoss = true;
       this.speed = speed * 0.8;
       this.damage = 30;
       this.radius = 2.0;
-      this.hp = 15;
-      this.maxHp = 15;
+      this.hp = 30;
+      this.maxHp = 30;
       this.distortionPower = 1.0;
     } else if (type === 'boss_blue') {
       // СИНИЙ БОСС - телепортируется
@@ -178,8 +178,8 @@ export class Target {
       this.speed = speed * 1.5; // Быстрый между телепортами
       this.damage = 25;
       this.radius = 1.8;
-      this.hp = 12;
-      this.maxHp = 12;
+      this.hp = 24;
+      this.maxHp = 24;
       this.teleportTimer = 3.0;
     } else {
       this.damage = 25;
