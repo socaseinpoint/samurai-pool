@@ -43,6 +43,9 @@ export class Player {
   /** Время кулдауна двойного прыжка */
   private readonly DOUBLE_JUMP_COOLDOWN = 2.5;
 
+  /** Можно ли делать двойной прыжок (отпустили ли Space после первого) */
+  private canDoubleJump = false;
+
   /** Режим буйства */
   public rageMode = false;
   public rageModeTimer = 0;
@@ -109,20 +112,32 @@ export class Player {
 
   /** Попытка двойного прыжка - возвращает true если выполнен */
   public tryDoubleJump(): boolean {
+    // Нужно отпустить Space после первого прыжка
+    if (!this.canDoubleJump) return false;
+    
     // В режиме буйства - без кулдауна!
     if (this.rageMode) {
       this.state.velocity.y = this.config.jumpForce * 0.85;
+      this.canDoubleJump = false; // Требуем отпустить Space
       return true;
     }
     
     // Обычный двойной прыжок с кулдауном
     if (this.doubleJumpCooldown <= 0) {
       this.doubleJumpCooldown = this.DOUBLE_JUMP_COOLDOWN;
-      this.state.velocity.y = this.config.jumpForce * 0.95; // Немного слабее обычного
+      this.state.velocity.y = this.config.jumpForce * 0.95;
+      this.canDoubleJump = false; // Требуем отпустить Space
       return true;
     }
     
     return false;
+  }
+
+  /** Сообщить что Space отпущен - можно делать двойной прыжок */
+  public onJumpReleased(): void {
+    if (!this.state.grounded) {
+      this.canDoubleJump = true;
+    }
   }
 
   /** Получить оставшийся кулдаун двойного прыжка */

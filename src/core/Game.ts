@@ -81,6 +81,7 @@ export class Game {
   private wasGrounded = true;
   private screenShake = 0;
   private lastSliceTime = 0;
+  private wasJumpPressed = false;
   
   /** Текущая эпоха (1-3) для атмосферы */
   private currentEra = 1;
@@ -450,6 +451,12 @@ export class Game {
 
     // Проверяем прицепившихся раннеров
     this.checkAttachedRunners();
+
+    // Отслеживаем отпускание Space для двойного прыжка
+    if (!this.input.state.jump && this.wasJumpPressed) {
+      this.player.onJumpReleased();
+    }
+    this.wasJumpPressed = this.input.state.jump;
 
     // Двойной прыжок для скидывания раннера
     if (this.input.state.jump && !this.player.state.grounded) {
