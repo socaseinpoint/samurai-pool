@@ -14,6 +14,7 @@ export class Input {
     run: false,
     jump: false,
     fire: false,
+    altFire: false, // ПКМ для сплеш-атаки
     reload: false,
   };
 
@@ -55,6 +56,9 @@ export class Input {
     document.addEventListener('mousemove', this.handleMouseMove.bind(this));
     document.addEventListener('mousedown', this.handleMouseDown.bind(this));
     document.addEventListener('mouseup', this.handleMouseUp.bind(this));
+
+    // Отключаем контекстное меню для ПКМ
+    this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
     // Pointer Lock
     document.addEventListener('pointerlockchange', this.handlePointerLockChange.bind(this));
@@ -131,6 +135,9 @@ export class Input {
   private handleMouseDown(e: MouseEvent): void {
     if (e.button === 0) {
       this.state.fire = true;
+    } else if (e.button === 2) {
+      e.preventDefault();
+      this.state.altFire = true;
     }
   }
 
@@ -138,6 +145,8 @@ export class Input {
   private handleMouseUp(e: MouseEvent): void {
     if (e.button === 0) {
       this.state.fire = false;
+    } else if (e.button === 2) {
+      this.state.altFire = false;
     }
   }
 

@@ -12,6 +12,7 @@ export class HUD {
   private waveEl: HTMLElement | null;
   private messageEl: HTMLElement | null;
   private damageOverlay: HTMLElement | null;
+  private weaponEl: HTMLElement | null;
 
   constructor() {
     this.healthEl = document.getElementById('health-value');
@@ -30,6 +31,7 @@ export class HUD {
     this.waveEl = this.createWaveElement();
     this.messageEl = this.createMessageElement();
     this.damageOverlay = this.createDamageOverlay();
+    this.weaponEl = this.createWeaponElement();
   }
 
   /** Создать элемент волны */
@@ -177,6 +179,55 @@ export class HUD {
     return el;
   }
 
+  /** Создать элемент оружия */
+  private createWeaponElement(): HTMLElement {
+    let el = document.getElementById('weapon-indicator');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'weapon-indicator';
+      el.style.cssText = `
+        position: fixed;
+        bottom: 90px;
+        right: 20px;
+        font-family: 'Orbitron', sans-serif;
+        font-size: 16px;
+        font-weight: 700;
+        color: #00ffff;
+        text-shadow: 0 0 10px currentColor;
+        padding: 8px 15px;
+        border: 1px solid rgba(0, 255, 255, 0.5);
+        border-radius: 4px;
+        background: rgba(0, 0, 0, 0.6);
+        z-index: 100;
+      `;
+      el.textContent = '⚔️ КАТАНА';
+      document.body.appendChild(el);
+    }
+    return el;
+  }
+
+  /** Обновить индикатор оружия */
+  public updateWeapon(weapon: 'katana' | 'axe', charges?: number): void {
+    if (this.weaponEl) {
+      if (weapon === 'katana') {
+        this.weaponEl.textContent = '⚔️ КАТАНА';
+        this.weaponEl.style.color = '#00ffff';
+        this.weaponEl.style.borderColor = 'rgba(0, 255, 255, 0.5)';
+      } else {
+        this.weaponEl.textContent = `🪓 ТОПОР (${charges})`;
+        this.weaponEl.style.color = '#ff8800';
+        this.weaponEl.style.borderColor = 'rgba(255, 136, 0, 0.5)';
+        
+        // Мигание при малом количестве зарядов
+        if (charges !== undefined && charges <= 2) {
+          this.weaponEl.style.animation = 'pulse 0.5s infinite';
+        } else {
+          this.weaponEl.style.animation = 'none';
+        }
+      }
+    }
+  }
+
   /** Оверлей замедления */
   private slowOverlay: HTMLElement | null = null;
 
@@ -266,6 +317,44 @@ export class HUD {
         this.healthEl.style.color = '#ff4444';
       }
     }
+  }
+
+  /** Обновить заряды сплеш-волны */
+  public updateSplashCharges(charges: number): void {
+    if (!this.splashChargesEl) {
+      this.createSplashChargesElement();
+    }
+    
+    if (this.splashChargesEl) {
+      if (charges > 0) {
+        this.splashChargesEl.style.display = 'block';
+        this.splashChargesEl.innerHTML = `⚡ ВОЛНА: ${'●'.repeat(charges)}${'○'.repeat(3 - charges)}`;
+        this.splashChargesEl.style.color = '#00ffff';
+        this.splashChargesEl.style.textShadow = '0 0 10px #00ffff, 0 0 20px #00ffff';
+      } else {
+        this.splashChargesEl.style.display = 'none';
+      }
+    }
+  }
+
+  /** Создать элемент зарядов */
+  private splashChargesEl: HTMLElement | null = null;
+  
+  private createSplashChargesElement(): void {
+    this.splashChargesEl = document.createElement('div');
+    this.splashChargesEl.style.cssText = `
+      position: fixed;
+      bottom: 80px;
+      right: 20px;
+      font-family: 'Orbitron', 'Audiowide', monospace;
+      font-size: 18px;
+      color: #00ffff;
+      text-shadow: 0 0 10px #00ffff;
+      letter-spacing: 2px;
+      display: none;
+      z-index: 1000;
+    `;
+    document.body.appendChild(this.splashChargesEl);
   }
 
   /** Обновить врагов */

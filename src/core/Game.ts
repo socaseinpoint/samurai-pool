@@ -85,6 +85,11 @@ export class Game {
   /** Текущая эпоха (1-3) для атмосферы */
   private currentEra = 1;
 
+  /** Система комбо-убийств для адреналина */
+  private killTimes: number[] = [];
+  private readonly COMBO_WINDOW = 9.0; // 9 секунд
+  private readonly COMBO_KILLS_NEEDED = 3; // 3 убийства для адреналина
+
   constructor(
     canvas: HTMLCanvasElement,
     weaponCanvas: HTMLCanvasElement,
@@ -144,6 +149,23 @@ export class Game {
       
       // Шанс выпадения предмета
       this.pickupManager.spawnAfterKill(target.position);
+      
+      // === СИСТЕМА КОМБО ДЛЯ АДРЕНАЛИНА ===
+      // Добавляем время убийства
+      this.killTimes.push(this.gameTime);
+      
+      // Удаляем старые убийства (старше 9 секунд)
+      this.killTimes = this.killTimes.filter(t => this.gameTime - t < this.COMBO_WINDOW);
+      
+      // Проверяем комбо (3 убийства за 9 секунд)
+      if (this.killTimes.length >= this.COMBO_KILLS_NEEDED && !this.player.rageMode) {
+        this.activateComboAdrenaline();
+      }
+      
+      // Показываем прогресс комбо
+      if (this.killTimes.length > 0 && this.killTimes.length < this.COMBO_KILLS_NEEDED) {
+        this.hud.showMessage(`🔥 КОМБО ${this.killTimes.length}/${this.COMBO_KILLS_NEEDED}`, 'orange');
+      }
       
       // Сообщение при убийстве босса
       if (target.isBoss) {
@@ -395,24 +417,19 @@ export class Game {
     // Звуки движения
     this.updateMovementSounds(dt);
 
-    // Атака катаной (ЛКМ)
+    // Обычная атака катаной (ЛКМ)
     if (this.input.state.fire) {
       if (this.weapon.tryAttack()) {
-        // Проверяем попадание
-        const playerPos = this.player.getEyePosition();
-        const hit = this.targetManager.trySlice(
-          playerPos,
-          this.player.state.yaw,
-          this.weapon.attackRange,
-          this.weapon.attackAngle
-        );
-        
-        if (hit) {
-          this.lastSliceTime = this.gameTime;
-          // Эффект попадания на катане
-          this.weaponRenderer.showHitEffect();
-          this.audio.playSFX('kill');
-        }
+        this.audio.playSFX('katana_swing');
+        this.checkNormalAttack();
+      }
+    }
+
+    // Сплеш-атака (ПКМ) - если есть заряды
+    if (this.input.state.altFire) {
+      if (this.weapon.trySplashAttack()) {
+        this.audio.playSFX('splash_wave');
+        this.checkSplashAttack();
       }
     }
 
@@ -424,6 +441,8 @@ export class Game {
     // Синхронизируем анимацию с рендерером
     this.weaponRenderer.isAttacking = this.weapon.isAttacking;
     this.weaponRenderer.attackProgress = this.weapon.attackProgress;
+    this.weaponRenderer.isSplashAttack = this.weapon.isSplashAttack;
+    this.weaponRenderer.splashCharges = this.weapon.splashCharges;
 
     // Обновляем врагов
     const playerPos = this.player.getEyePosition();
@@ -470,6 +489,7 @@ export class Game {
     this.hud.updateHealth(this.player.state.health, this.player.state.maxHealth);
     this.hud.updateAmmo(this.targetManager.wave, this.targetManager.getActiveCount());
     this.hud.updateFrags(this.state.frags);
+    this.hud.updateSplashCharges(this.weapon.splashCharges);
     
     // Проверка низкого HP для тревожной музыки (меньше 30%)
     const hpPercent = this.player.state.health / this.player.state.maxHealth;
@@ -505,7 +525,7 @@ export class Game {
 
   /** Callback при взмахе катаной */
   private onKatanaSlice(): void {
-    this.audio.playSFX('gunshot'); // Заменим на звук взмаха
+    this.audio.playSFX('katana_swing');
   }
 
   /** Game Over */
@@ -578,7 +598,70 @@ export class Game {
       this.audio.playSFX('kill'); // Временный звук
       this.hud.showMessage('🔥 БУЙСТВО! 🔥', 'red');
       this.hud.showRageOverlay(8.0);
+      
+    } else if (type === 'charge') {
+      // Заряд катаны - 3 сплеш-удара!
+      this.weapon.chargeKatana();
+      this.audio.playSFX('charge_pickup');
+      this.hud.showMessage('⚡ КАТАНА ЗАРЯЖЕНА! (ПКМ x3) ⚡', 'cyan');
+      this.hud.updateSplashCharges(3);
+      this.screenShake = 0.5;
     }
+  }
+
+  /** Проверка обычной атаки */
+  private checkNormalAttack(): void {
+    const playerPos = this.player.getEyePosition();
+    const hit = this.targetManager.trySlice(
+      playerPos,
+      this.player.state.yaw,
+      this.weapon.attackRange,
+      this.weapon.attackAngle
+    );
+    
+    if (hit) {
+      this.lastSliceTime = this.gameTime;
+      this.weaponRenderer.showHitEffect();
+      this.audio.playSFX('kill');
+    }
+  }
+
+  /** Проверка сплеш-атаки - горизонтальная волна */
+  private checkSplashAttack(): void {
+    const playerPos = this.player.getEyePosition();
+    
+    // Сплеш бьёт всех врагов в радиусе
+    const hits = this.targetManager.trySplashWave(
+      playerPos,
+      this.player.state.yaw,
+      this.weapon.splashRadius
+    );
+    
+    if (hits > 0) {
+      this.lastSliceTime = this.gameTime;
+      this.weaponRenderer.showSplashWave(this.player.state.yaw);
+      this.screenShake = 0.4;
+      this.audio.playSFX('kill');
+      
+      // Показываем сколько убито
+      this.hud.showMessage(`🌊 ВОЛНА x${hits}! 🌊`, 'cyan');
+    }
+    
+    // Обновляем HUD с зарядами
+    this.hud.updateSplashCharges(this.weapon.splashCharges);
+  }
+
+  /** Активация адреналина за комбо-убийства */
+  private activateComboAdrenaline(): void {
+    // Сбрасываем счётчик комбо
+    this.killTimes = [];
+    
+    // Активируем буйство
+    this.player.activateStimpack();
+    this.audio.playSFX('kill');
+    this.hud.showMessage('🔥🔥🔥 КОМБО АДРЕНАЛИН! 🔥🔥🔥', 'red');
+    this.hud.showRageOverlay(8.0);
+    this.screenShake = 0.5;
   }
 
   /** Рендеринг */
@@ -623,7 +706,7 @@ export class Game {
       pickupCount
     );
 
-    // Рендерим катану
+    // Рендерим оружие
     this.weaponRenderer.render(this.weapon.state, this.gameTime);
   }
 

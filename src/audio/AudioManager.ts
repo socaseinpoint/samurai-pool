@@ -162,6 +162,15 @@ export class AudioManager {
       case 'kill':
         this.playKill();
         break;
+      case 'katana_swing':
+        this.playKatanaSwing();
+        break;
+      case 'splash_wave':
+        this.playSplashWave();
+        break;
+      case 'charge_pickup':
+        this.playChargePickup();
+        break;
     }
   }
 
@@ -473,72 +482,6 @@ export class AudioManager {
     sparksGain.connect(this.sfxGain);
   }
 
-  /** Звук взмаха катаны - свист + энергия */
-  private playKatanaSwing(): void {
-    if (!this.ctx || !this.sfxGain) return;
-
-    const now = this.ctx.currentTime;
-
-    // Свист (высокочастотный sweep)
-    const swoosh = this.ctx.createOscillator();
-    const swooshGain = this.ctx.createGain();
-    const swooshFilter = this.ctx.createBiquadFilter();
-
-    swoosh.type = 'sawtooth';
-    swoosh.frequency.setValueAtTime(2000, now);
-    swoosh.frequency.exponentialRampToValueAtTime(200, now + 0.15);
-
-    swooshFilter.type = 'bandpass';
-    swooshFilter.frequency.setValueAtTime(3000, now);
-    swooshFilter.frequency.exponentialRampToValueAtTime(500, now + 0.15);
-    swooshFilter.Q.value = 2;
-
-    swooshGain.gain.setValueAtTime(0, now);
-    swooshGain.gain.linearRampToValueAtTime(0.4, now + 0.02);
-    swooshGain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
-
-    swoosh.connect(swooshFilter);
-    swooshFilter.connect(swooshGain);
-    swooshGain.connect(this.sfxGain);
-    swooshGain.connect(this.reverb!);
-
-    swoosh.start(now);
-    swoosh.stop(now + 0.25);
-
-    // Шум ветра
-    const noise = this.createNoise(0.2);
-    const noiseGain = this.ctx.createGain();
-    const noiseFilter = this.ctx.createBiquadFilter();
-
-    noiseFilter.type = 'highpass';
-    noiseFilter.frequency.value = 2000;
-
-    noiseGain.gain.setValueAtTime(0.3, now);
-    noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
-
-    noise.connect(noiseFilter);
-    noiseFilter.connect(noiseGain);
-    noiseGain.connect(this.sfxGain);
-
-    // Энергетический удар
-    const impact = this.ctx.createOscillator();
-    const impactGain = this.ctx.createGain();
-
-    impact.type = 'sine';
-    impact.frequency.setValueAtTime(150, now + 0.05);
-    impact.frequency.exponentialRampToValueAtTime(40, now + 0.15);
-
-    impactGain.gain.setValueAtTime(0, now);
-    impactGain.gain.linearRampToValueAtTime(0.3, now + 0.05);
-    impactGain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
-
-    impact.connect(impactGain);
-    impactGain.connect(this.sfxGain);
-
-    impact.start(now);
-    impact.stop(now + 0.25);
-  }
-
   /** Глитч эффект */
   private playGlitch(): void {
     if (!this.ctx || !this.sfxGain) return;
@@ -794,6 +737,207 @@ export class AudioManager {
     source.start();
 
     return source;
+  }
+
+  /** Взмах катаной */
+  private playKatanaSwing(): void {
+    if (!this.ctx || !this.sfxGain) return;
+
+    const now = this.ctx.currentTime;
+
+    // Свист лезвия
+    const whoosh = this.ctx.createOscillator();
+    const whooshGain = this.ctx.createGain();
+    const whooshFilter = this.ctx.createBiquadFilter();
+
+    whoosh.type = 'sawtooth';
+    whoosh.frequency.setValueAtTime(600, now);
+    whoosh.frequency.exponentialRampToValueAtTime(100, now + 0.12);
+
+    whooshFilter.type = 'bandpass';
+    whooshFilter.frequency.setValueAtTime(800, now);
+    whooshFilter.frequency.exponentialRampToValueAtTime(300, now + 0.12);
+    whooshFilter.Q.value = 4;
+
+    whooshGain.gain.setValueAtTime(0.25, now);
+    whooshGain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+
+    whoosh.connect(whooshFilter);
+    whooshFilter.connect(whooshGain);
+    whooshGain.connect(this.sfxGain);
+
+    whoosh.start(now);
+    whoosh.stop(now + 0.2);
+
+    // Лёгкий металлический звон
+    const metal = this.ctx.createOscillator();
+    const metalGain = this.ctx.createGain();
+
+    metal.type = 'sine';
+    metal.frequency.value = 1800;
+
+    metalGain.gain.setValueAtTime(0.08, now + 0.03);
+    metalGain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+
+    metal.connect(metalGain);
+    metalGain.connect(this.sfxGain);
+
+    metal.start(now + 0.03);
+    metal.stop(now + 0.15);
+  }
+
+  /** Сплеш-волна энергии - МОЩНАЯ! */
+  private playSplashWave(): void {
+    if (!this.ctx || !this.sfxGain) return;
+
+    const now = this.ctx.currentTime;
+
+    // Волна энергии - нарастает и расходится
+    const wave = this.ctx.createOscillator();
+    const waveGain = this.ctx.createGain();
+    const waveFilter = this.ctx.createBiquadFilter();
+
+    wave.type = 'sawtooth';
+    wave.frequency.setValueAtTime(200, now);
+    wave.frequency.exponentialRampToValueAtTime(80, now + 0.4);
+
+    waveFilter.type = 'lowpass';
+    waveFilter.frequency.setValueAtTime(2000, now);
+    waveFilter.frequency.exponentialRampToValueAtTime(400, now + 0.4);
+    waveFilter.Q.value = 10;
+
+    waveGain.gain.setValueAtTime(0.5, now);
+    waveGain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+
+    wave.connect(waveFilter);
+    waveFilter.connect(waveGain);
+    waveGain.connect(this.sfxGain);
+    waveGain.connect(this.reverb!);
+
+    wave.start(now);
+    wave.stop(now + 0.5);
+
+    // Электрический треск
+    const noiseSource = this.createNoise(0.3);
+    const noiseGain = this.ctx.createGain();
+    const noiseFilter = this.ctx.createBiquadFilter();
+
+    noiseFilter.type = 'bandpass';
+    noiseFilter.frequency.value = 3000;
+    noiseFilter.Q.value = 5;
+
+    noiseGain.gain.setValueAtTime(0.2, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+
+    noiseSource.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(this.sfxGain);
+
+    // Высокий тон резонанса
+    const resonance = this.ctx.createOscillator();
+    const resonanceGain = this.ctx.createGain();
+
+    resonance.type = 'sine';
+    resonance.frequency.setValueAtTime(800, now);
+    resonance.frequency.exponentialRampToValueAtTime(400, now + 0.3);
+
+    resonanceGain.gain.setValueAtTime(0.15, now);
+    resonanceGain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+
+    resonance.connect(resonanceGain);
+    resonanceGain.connect(this.sfxGain);
+
+    resonance.start(now);
+    resonance.stop(now + 0.4);
+
+    // Суб-бас удар
+    const subBass = this.ctx.createOscillator();
+    const subGain = this.ctx.createGain();
+
+    subBass.type = 'sine';
+    subBass.frequency.setValueAtTime(60, now);
+    subBass.frequency.exponentialRampToValueAtTime(30, now + 0.3);
+
+    subGain.gain.setValueAtTime(0.6, now);
+    subGain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+
+    subBass.connect(subGain);
+    subGain.connect(this.sfxGain);
+
+    subBass.start(now);
+    subBass.stop(now + 0.45);
+  }
+
+  /** Подбор заряда катаны - электрический эффект */
+  private playChargePickup(): void {
+    if (!this.ctx || !this.sfxGain) return;
+
+    const now = this.ctx.currentTime;
+
+    // Нарастающий электрический звук
+    const charge = this.ctx.createOscillator();
+    const charge2 = this.ctx.createOscillator();
+    const chargeGain = this.ctx.createGain();
+    const chargeFilter = this.ctx.createBiquadFilter();
+
+    charge.type = 'sawtooth';
+    charge.frequency.setValueAtTime(150, now);
+    charge.frequency.exponentialRampToValueAtTime(800, now + 0.3);
+
+    charge2.type = 'square';
+    charge2.frequency.setValueAtTime(152, now);
+    charge2.frequency.exponentialRampToValueAtTime(810, now + 0.3);
+
+    chargeFilter.type = 'bandpass';
+    chargeFilter.frequency.setValueAtTime(500, now);
+    chargeFilter.frequency.exponentialRampToValueAtTime(2000, now + 0.3);
+    chargeFilter.Q.value = 8;
+
+    chargeGain.gain.setValueAtTime(0.15, now);
+    chargeGain.gain.linearRampToValueAtTime(0.35, now + 0.2);
+    chargeGain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+
+    charge.connect(chargeFilter);
+    charge2.connect(chargeFilter);
+    chargeFilter.connect(chargeGain);
+    chargeGain.connect(this.sfxGain);
+    chargeGain.connect(this.reverb!);
+
+    charge.start(now);
+    charge.stop(now + 0.5);
+    charge2.start(now);
+    charge2.stop(now + 0.5);
+
+    // Высокий блеск энергии
+    const shimmer = this.ctx.createOscillator();
+    const shimmerGain = this.ctx.createGain();
+
+    shimmer.type = 'sine';
+    shimmer.frequency.value = 2500;
+
+    shimmerGain.gain.setValueAtTime(0.12, now + 0.15);
+    shimmerGain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+
+    shimmer.connect(shimmerGain);
+    shimmerGain.connect(this.reverb!);
+
+    shimmer.start(now + 0.15);
+    shimmer.stop(now + 0.55);
+
+    // Электрический треск
+    const noiseSource2 = this.createNoise(0.2);
+    const noiseGain2 = this.ctx.createGain();
+    const noiseFilter2 = this.ctx.createBiquadFilter();
+
+    noiseFilter2.type = 'highpass';
+    noiseFilter2.frequency.value = 4000;
+
+    noiseGain2.gain.setValueAtTime(0.1, now + 0.1);
+    noiseGain2.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+
+    noiseSource2.connect(noiseFilter2);
+    noiseFilter2.connect(noiseGain2);
+    noiseGain2.connect(this.sfxGain);
   }
 
   // ==================== SYNTHWAVE МУЗЫКА ====================

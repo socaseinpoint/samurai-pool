@@ -145,8 +145,10 @@ export interface InputState {
   run: boolean;
   /** Прыжок */
   jump: boolean;
-  /** Стрельба */
+  /** Стрельба (ЛКМ) */
   fire: boolean;
+  /** Альт. стрельба (ПКМ) - сплеш */
+  altFire: boolean;
   /** Перезарядка */
   reload: boolean;
 }
@@ -165,7 +167,10 @@ export type SFXType =
   | 'ambient'
   | 'phantom_pass'
   | 'runner_hit'
-  | 'hopper_hit';
+  | 'hopper_hit'
+  | 'katana_swing'
+  | 'splash_wave'
+  | 'charge_pickup';
 
 // ========== РЕНДЕРИНГ ==========
 

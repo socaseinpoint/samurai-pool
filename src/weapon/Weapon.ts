@@ -1,12 +1,22 @@
 import type { WeaponState, Vec3 } from '@/types';
 
+/** Тип оружия */
+export type WeaponType = 'katana' | 'charged';
+
 /**
  * Катана - оружие ближнего боя
- * ЛКМ = взмах, поражает врагов перед игроком
+ * ЛКМ = обычный взмах
+ * ПКМ = сплеш-волна (если заряжена)
  */
 export class Weapon {
   /** Состояние оружия */
   public state: WeaponState;
+
+  /** Текущий тип оружия */
+  public currentWeapon: WeaponType = 'katana';
+
+  /** Заряды сплеш-атаки */
+  public splashCharges = 0;
 
   /** Время до следующего удара */
   private attackCooldown = 0;
@@ -34,6 +44,15 @@ export class Weapon {
 
   /** Callback при ударе */
   public onSlice?: () => void;
+
+  /** Callback при сплеш-атаке */
+  public onSplash?: () => void;
+
+  /** Это сплеш-атака? */
+  public isSplashAttack = false;
+
+  /** Радиус сплеш-волны */
+  public splashRadius = 10.0;
 
   constructor() {
     this.state = {
@@ -80,26 +99,61 @@ export class Weapon {
     this.state.muzzleFlash *= 0.8;
   }
 
-  /** Попытка удара */
+  /** Попытка обычного удара (ЛКМ) */
   public tryAttack(): boolean {
     if (this.attackCooldown > 0) return false;
     if (this.isAttacking) return false;
 
-    this.attack();
+    this.attack(false);
+    return true;
+  }
+
+  /** Попытка сплеш-атаки (ПКМ) */
+  public trySplashAttack(): boolean {
+    if (this.attackCooldown > 0) return false;
+    if (this.isAttacking) return false;
+    if (this.splashCharges <= 0) return false;
+
+    this.attack(true);
     return true;
   }
 
   /** Удар катаной */
-  private attack(): void {
+  private attack(isSplash: boolean): void {
     this.isAttacking = true;
     this.attackProgress = 0;
-    this.attackCooldown = this.attackCooldownTime;
+    this.attackCooldown = isSplash ? 0.6 : this.attackCooldownTime;
+    this.isSplashAttack = isSplash;
     
-    // Эффект взмаха
-    this.state.recoilX = 0.3;
-    this.state.muzzleFlash = 1.0;
+    if (isSplash) {
+      // Сплеш-волна
+      this.splashCharges--;
+      this.state.recoilX = 0.6;
+      this.state.muzzleFlash = 2.0;
+      
+      // Если закончились заряды - возвращаемся к обычной катане
+      if (this.splashCharges <= 0) {
+        this.currentWeapon = 'katana';
+      }
+      
+      this.onSplash?.();
+    } else {
+      // Обычный удар
+      this.state.recoilX = 0.3;
+      this.state.muzzleFlash = 1.0;
+      this.onSlice?.();
+    }
+  }
 
-    this.onSlice?.();
+  /** Зарядить катану (подбор на балконе) */
+  public chargeKatana(): void {
+    this.currentWeapon = 'charged';
+    this.splashCharges = 3; // 3 сплеш-удара
+  }
+
+  /** Проверить заряжена ли */
+  public isCharged(): boolean {
+    return this.splashCharges > 0;
   }
 
   /** Проверка попадания по врагу */
@@ -113,7 +167,12 @@ export class Weapon {
     const dz = targetPos.z - playerPos.z;
     const dist = Math.sqrt(dx * dx + dz * dz);
 
-    // Проверка дистанции
+    // Сплеш-атака топором - бьёт всех в радиусе!
+    if (this.isSplashAttack) {
+      return dist <= this.splashRadius;
+    }
+
+    // Обычная атака катаной - проверка дистанции
     if (dist > this.attackRange) return false;
 
     // Проверка угла

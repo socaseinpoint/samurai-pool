@@ -933,13 +933,35 @@ export class TargetManager {
     const isBossWave = wave === 5 || wave === 10 || wave === 15;
     if (isBossWave) return; // Не спавним обычных врагов на волнах боссов
     
-    const enemyMultiplier = 1.0;
-
-    // Количество каждого типа
-    const banelingCount = Math.floor(wave * enemyMultiplier);
-    const phantomCount = wave >= 3 ? Math.floor((wave - 1) / 2 * enemyMultiplier) : 0;
-    const runnerCount = wave >= 2 ? Math.floor(wave / 2 * enemyMultiplier) : 0;
-    const hopperCount = wave >= 4 ? Math.floor((wave - 2) / 2 * enemyMultiplier) : 0;
+    // === СБАЛАНСИРОВАННОЕ КОЛИЧЕСТВО ВРАГОВ ===
+    // Эпоха 1 (1-5): умеренно
+    // Эпоха 2 (6-10): сложнее, но без раннеров
+    // Эпоха 3 (11-15): максимальная сложность с раннерами
+    
+    let banelingCount: number;
+    let phantomCount: number;
+    let runnerCount: number;
+    let hopperCount: number;
+    
+    if (wave <= 5) {
+      // Эпоха 1: кислотная - простая
+      banelingCount = Math.floor(wave * 1.2);
+      phantomCount = wave >= 3 ? Math.floor((wave - 2) * 0.8) : 0;
+      runnerCount = 0; // Нет раннеров
+      hopperCount = wave >= 4 ? Math.floor((wave - 3) * 0.5) : 0;
+    } else if (wave <= 10) {
+      // Эпоха 2: чёрная дыра - средняя сложность
+      banelingCount = Math.floor(wave * 0.8); // Меньше бейнлингов
+      phantomCount = Math.floor((wave - 3) * 0.6); // Меньше фантомов
+      runnerCount = 0; // Нет раннеров до 11 волны!
+      hopperCount = Math.floor((wave - 4) * 0.6); // Меньше хопперов
+    } else {
+      // Эпоха 3: космическая - с раннерами
+      banelingCount = Math.floor(wave * 0.7);
+      phantomCount = Math.floor((wave - 5) * 0.5);
+      runnerCount = Math.floor((wave - 10) * 1.5); // Раннеры с 11 волны!
+      hopperCount = Math.floor((wave - 6) * 0.5);
+    }
 
     const totalCount = Math.max(1, banelingCount + phantomCount + runnerCount + hopperCount);
     let idx = 0;
@@ -1162,6 +1184,66 @@ export class TargetManager {
     }
 
     return null;
+  }
+
+  /** Сплеш-волна - бьёт всех врагов в радиусе горизонтально */
+  public trySplashWave(playerPos: Vec3, playerYaw: number, radius: number): number {
+    let killCount = 0;
+    
+    for (const target of this.targets) {
+      if (!target.active) continue;
+
+      // Расстояние от игрока
+      const dx = target.position.x - playerPos.x;
+      const dz = target.position.z - playerPos.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      
+      // Учитываем размер врага для радиуса
+      const effectiveRadius = radius + (target.isBoss ? target.radius : target.radius);
+      if (dist > effectiveRadius) continue;
+
+      // Попали!
+      if (target.isBoss) {
+        // Босс - уменьшаем HP (сплеш наносит 2 урона)
+        const killed = target.takeDamage(2);
+        
+        // Зелёный босс выпускает бейнлинга при каждом ударе!
+        if (target.enemyType === 'boss_green' && !killed) {
+          this.spawnBanelingFromBoss(target.position);
+        }
+        
+        if (killed) {
+          // Босс убит!
+          const sliceDir = normalizeVec3({ x: dx, y: 0, z: dz });
+          target.slice(sliceDir);
+          this.score += 1000 * this.wave;
+          this.onTargetDestroyed?.(target);
+          killCount++;
+          
+          // Зелёный босс при смерти выпускает бейнлингов
+          if (target.enemyType === 'boss_green') {
+            for (let i = 0; i < 5; i++) {
+              this.spawnBanelingFromBoss(target.position);
+            }
+          }
+        } else {
+          // Откидываем босса назад (сплеш сильнее)
+          const knockbackForce = (target.enemyType === 'boss_green' ? 12 : 
+                                  target.enemyType === 'boss_black' ? 8 : 18);
+          target.applyKnockback(dx, dz, knockbackForce);
+        }
+      } else {
+        // Обычный враг - убиваем сразу
+        const sliceDir = normalizeVec3({ x: dx, y: 0, z: dz });
+        target.slice(sliceDir);
+        
+        this.score += 100 * this.wave;
+        this.onTargetDestroyed?.(target);
+        killCount++;
+      }
+    }
+
+    return killCount;
   }
 
   /** Данные для шейдера (4 компонента: x, y, z, type) */

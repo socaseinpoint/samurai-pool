@@ -1,4 +1,5 @@
 import type { WeaponState } from '@/types';
+import type { WeaponType } from './Weapon';
 
 /** 2D частица для эффектов */
 interface Particle {
@@ -28,11 +29,26 @@ export class WeaponRenderer {
   /** Сейчас атакуем? */
   public isAttacking = false;
 
+  /** Это сплеш-атака? */
+  public isSplashAttack = false;
+
+  /** Заряды сплеша */
+  public splashCharges = 0;
+
   /** Вспышка попадания */
   private hitFlash = 0;
 
   /** Частицы */
   private particles: Particle[] = [];
+
+  /** Активна сплеш-волна */
+  private splashWaveActive = false;
+  
+  /** Прогресс волны (0-1) */
+  private splashWaveProgress = 0;
+  
+  /** Направление волны (yaw) */
+  private splashWaveYaw = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
@@ -49,6 +65,63 @@ export class WeaponRenderer {
   public showHitEffect(): void {
     this.hitFlash = 1.0;
     this.spawnFragments();
+  }
+
+  /** Показать эффект сплеш-атаки топором! */
+  public showSplashEffect(): void {
+    this.hitFlash = 1.2;
+    this.spawnAxeSplash();
+  }
+
+  /** Показать горизонтальную сплеш-волну! */
+  public showSplashWave(yaw: number): void {
+    this.splashWaveActive = true;
+    this.splashWaveProgress = 0;
+    this.splashWaveYaw = yaw;
+    this.hitFlash = 1.5;
+    this.spawnWaveParticles();
+  }
+
+  /** Создать частицы волны */
+  private spawnWaveParticles(): void {
+    const centerX = this.width / 2;
+    const centerY = this.height / 2;
+    // Голубые/бирюзовые цвета для волны
+    const colors = ['#00ffff', '#00e5ff', '#00bfff', '#40e0d0', '#48d1cc', '#7fffd4'];
+
+    // Частицы расходятся горизонтально веером
+    for (let i = 0; i < 30; i++) {
+      const angle = (i / 30) * Math.PI - Math.PI / 2; // От -90 до +90 градусов (вперёд)
+      const speed = 800 + Math.random() * 400;
+      this.particles.push({
+        x: centerX,
+        y: centerY,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed * 0.3, // Больше горизонтальное движение
+        size: 6 + Math.random() * 8,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        life: 0.6 + Math.random() * 0.4,
+        maxLife: 0.6 + Math.random() * 0.4,
+        type: 'spark',
+      });
+    }
+
+    // Большие капли энергии
+    for (let i = 0; i < 15; i++) {
+      const angle = (Math.random() - 0.5) * Math.PI * 0.8;
+      const speed = 600 + Math.random() * 300;
+      this.particles.push({
+        x: centerX + (Math.random() - 0.5) * 100,
+        y: centerY + (Math.random() - 0.5) * 50,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed * 0.2,
+        size: 12 + Math.random() * 18,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        life: 0.8 + Math.random() * 0.4,
+        maxLife: 0.8 + Math.random() * 0.4,
+        type: 'fragment',
+      });
+    }
   }
 
   /** Создать осколки врага (кислотная жижа!) */
@@ -187,6 +260,14 @@ export class WeaponRenderer {
     // Обновляем частицы
     this.updateParticles(1 / 60);
 
+    // Обновляем сплеш-волну
+    if (this.splashWaveActive) {
+      this.splashWaveProgress += 0.03;
+      if (this.splashWaveProgress >= 1) {
+        this.splashWaveActive = false;
+      }
+    }
+
     const scale = Math.min(this.width, this.height) / 600;
 
     // Покачивание
@@ -198,9 +279,14 @@ export class WeaponRenderer {
       this.hitFlash -= 0.04;
     }
 
+    // Рисуем сплеш-волну на фоне
+    if (this.splashWaveActive) {
+      this.drawSplashWaveEffect(ctx, time);
+    }
+
     ctx.save();
 
-    // Позиция катаны
+    // Позиция оружия
     let baseX = this.width * 0.65;
     let baseY = this.height * 0.8;
     let rotation = -0.4;
@@ -210,29 +296,40 @@ export class WeaponRenderer {
       const t = this.attackProgress;
       // Быстрый взмах с замедлением в конце
       const easeOut = 1 - Math.pow(1 - t, 3);
-      const swingAngle = Math.sin(easeOut * Math.PI) * 2.5;
+      // Сплеш-атака - более мощный горизонтальный взмах
+      const swingAngle = Math.sin(easeOut * Math.PI) * (this.isSplashAttack ? 3.2 : 2.5);
       rotation = -0.4 - swingAngle;
 
-      // Движение к центру и вверх
-      baseX -= Math.sin(t * Math.PI) * this.width * 0.3;
-      baseY -= Math.sin(t * Math.PI) * this.height * 0.2;
+      // Движение к центру и вверх (сплеш движется сильнее)
+      const moveMultiplier = this.isSplashAttack ? 1.5 : 1.0;
+      baseX -= Math.sin(t * Math.PI) * this.width * 0.3 * moveMultiplier;
+      baseY -= Math.sin(t * Math.PI) * this.height * 0.15 * moveMultiplier;
     }
 
     ctx.translate(baseX + bobX, baseY + bobY);
     ctx.rotate(rotation);
     ctx.scale(scale, scale);
 
-    // Эффект следа ПЕРЕД катаной
+    // Эффект следа
     if (this.isAttacking && this.attackProgress > 0.05 && this.attackProgress < 0.8) {
-      this.drawRetrowaveSlash(ctx, this.attackProgress, time);
+      if (this.isSplashAttack) {
+        this.drawSplashSlash(ctx, this.attackProgress, time);
+      } else {
+        this.drawRetrowaveSlash(ctx, this.attackProgress, time);
+      }
     }
 
-    // Катана
+    // Катана (всегда катана теперь)
     this.drawKatana(ctx, state, time);
 
-    // Эффект попадания на катане
+    // Индикатор заряда сверху катаны если есть заряды
+    if (this.splashCharges > 0) {
+      this.drawChargeIndicator(ctx, time);
+    }
+
+    // Эффект попадания
     if (this.hitFlash > 0) {
-      this.drawHitGlow(ctx, this.hitFlash);
+      this.drawHitGlow(ctx, this.hitFlash, this.isSplashAttack ? 'charged' : 'katana');
     }
 
     ctx.restore();
@@ -242,8 +339,148 @@ export class WeaponRenderer {
 
     // Полноэкранная вспышка при попадании
     if (this.hitFlash > 0.5) {
-      this.drawScreenFlash(ctx);
+      this.drawScreenFlash(ctx, this.isSplashAttack ? 'charged' : 'katana');
     }
+  }
+
+  /** Рисуем индикатор заряда */
+  private drawChargeIndicator(ctx: CanvasRenderingContext2D, time: number): void {
+    // 3 точки энергии вдоль лезвия
+    ctx.save();
+    ctx.shadowColor = '#00ffff';
+    ctx.shadowBlur = 15;
+    
+    for (let i = 0; i < 3; i++) {
+      const y = -50 - i * 60;
+      const pulse = 0.7 + 0.3 * Math.sin(time * 5 + i);
+      
+      if (this.splashCharges > i) {
+        ctx.fillStyle = `rgba(0, 255, 255, ${pulse})`;
+        ctx.beginPath();
+        ctx.arc(0, y, 8, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Внешнее кольцо
+        ctx.strokeStyle = `rgba(0, 255, 255, ${pulse * 0.5})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, y, 12 + Math.sin(time * 8 + i) * 3, 0, Math.PI * 2);
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = 'rgba(100, 100, 100, 0.3)';
+        ctx.beginPath();
+        ctx.arc(0, y, 6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    
+    ctx.restore();
+  }
+
+  /** Эффект сплеш-волны на экране */
+  private drawSplashWaveEffect(ctx: CanvasRenderingContext2D, time: number): void {
+    const centerX = this.width / 2;
+    const centerY = this.height / 2;
+    const maxRadius = Math.max(this.width, this.height) * 0.8;
+    const currentRadius = this.splashWaveProgress * maxRadius;
+    
+    ctx.save();
+    
+    // Несколько концентрических волн
+    for (let i = 0; i < 3; i++) {
+      const r = currentRadius - i * 30;
+      if (r > 0) {
+        const alpha = (1 - this.splashWaveProgress) * (0.5 - i * 0.1);
+        
+        // Основная волна
+        ctx.strokeStyle = `rgba(0, 255, 255, ${alpha})`;
+        ctx.lineWidth = 8 - i * 2;
+        ctx.shadowColor = '#00ffff';
+        ctx.shadowBlur = 20;
+        
+        ctx.beginPath();
+        // Рисуем полукруг вперёд (горизонтальная волна)
+        ctx.ellipse(centerX, centerY + 100, r, r * 0.3, 0, Math.PI, 0);
+        ctx.stroke();
+        
+        // Искрящаяся линия
+        if (i === 0) {
+          ctx.strokeStyle = `rgba(255, 255, 255, ${alpha * 0.8})`;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.ellipse(centerX, centerY + 100, r - 5, (r - 5) * 0.3, 0, Math.PI, 0);
+          ctx.stroke();
+        }
+      }
+    }
+    
+    // Добавляем искры на волне
+    const sparkCount = Math.floor((1 - this.splashWaveProgress) * 20);
+    ctx.fillStyle = '#ffffff';
+    for (let i = 0; i < sparkCount; i++) {
+      const angle = Math.PI + Math.random() * Math.PI;
+      const sparkR = currentRadius + (Math.random() - 0.5) * 20;
+      const x = centerX + Math.cos(angle) * sparkR;
+      const y = centerY + 100 + Math.sin(angle) * sparkR * 0.3;
+      const size = 2 + Math.random() * 4;
+      
+      ctx.beginPath();
+      ctx.arc(x, y, size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    
+    ctx.restore();
+  }
+
+  /** След сплеш-атаки (более широкий и яркий) */
+  private drawSplashSlash(ctx: CanvasRenderingContext2D, progress: number, time: number): void {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+
+    // Основной широкий след - бирюзовый
+    const cyanGrad = ctx.createLinearGradient(-200, -350, 50, 0);
+    cyanGrad.addColorStop(0, 'rgba(0, 255, 255, 0)');
+    cyanGrad.addColorStop(0.3, 'rgba(0, 255, 255, 0.8)');
+    cyanGrad.addColorStop(0.6, 'rgba(0, 255, 255, 1)');
+    cyanGrad.addColorStop(1, 'rgba(0, 255, 255, 0)');
+
+    ctx.strokeStyle = cyanGrad;
+    ctx.lineWidth = 30 + Math.sin(progress * Math.PI) * 20; // Шире!
+    ctx.lineCap = 'round';
+    ctx.shadowColor = '#00ffff';
+    ctx.shadowBlur = 40;
+
+    ctx.beginPath();
+    ctx.moveTo(-200, -350);
+    ctx.quadraticCurveTo(
+      -100 + Math.sin(time * 30) * 20,
+      -200,
+      50, 0
+    );
+    ctx.stroke();
+
+    // Внутреннее ядро - белое
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.lineWidth = 6;
+    ctx.shadowBlur = 20;
+    ctx.stroke();
+
+    // Дополнительные волны
+    for (let i = 0; i < 3; i++) {
+      const offset = i * 15;
+      ctx.strokeStyle = `rgba(0, 200, 255, ${0.4 - i * 0.1})`;
+      ctx.lineWidth = 4 - i;
+      ctx.beginPath();
+      ctx.moveTo(-200 - offset, -350 + offset);
+      ctx.quadraticCurveTo(
+        -100 - offset + Math.sin(time * 30 + i) * 15,
+        -200 + offset,
+        50 - offset, 0 + offset
+      );
+      ctx.stroke();
+    }
+
+    ctx.restore();
   }
 
   private drawKatana(ctx: CanvasRenderingContext2D, _state: WeaponState, time: number): void {
@@ -406,32 +643,299 @@ export class WeaponRenderer {
     ctx.restore();
   }
 
-  private drawHitGlow(ctx: CanvasRenderingContext2D, intensity: number): void {
-    ctx.save();
-
-    // Свечение на клинке при попадании
-    ctx.globalAlpha = intensity;
-    ctx.strokeStyle = '#ffffff';
-    ctx.shadowColor = '#00ffff';
-    ctx.shadowBlur = 30 * intensity;
-    ctx.lineWidth = 6;
-
+  /** Рисуем ТОПОР ХАОСА - как катана, но с широким лезвием! */
+  private drawAxe(ctx: CanvasRenderingContext2D, _state: WeaponState, time: number, charges: number): void {
+    // === РУКА ===
+    ctx.fillStyle = '#8a7a6a';
     ctx.beginPath();
-    ctx.moveTo(9, 30);
-    ctx.lineTo(6, -280);
-    ctx.lineTo(0, -320);
+    ctx.ellipse(0, 80, 40, 50, 0.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // === РУКОЯТЬ (как у катаны) ===
+    const tsukaGrad = ctx.createLinearGradient(0, 40, 0, 160);
+    tsukaGrad.addColorStop(0, '#3a2010');
+    tsukaGrad.addColorStop(0.5, '#2a1005');
+    tsukaGrad.addColorStop(1, '#3a2010');
+
+    ctx.fillStyle = tsukaGrad;
+    ctx.beginPath();
+    ctx.moveTo(-14, 40);
+    ctx.lineTo(14, 40);
+    ctx.lineTo(12, 160);
+    ctx.lineTo(-12, 160);
+    ctx.closePath();
+    ctx.fill();
+
+    // Обмотка - огненная (как у катаны но оранжевая)
+    ctx.strokeStyle = '#ff6600';
+    ctx.shadowColor = '#ff6600';
+    ctx.shadowBlur = 10;
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 10; i++) {
+      const y = 50 + i * 11;
+      const glow = 0.5 + 0.5 * Math.sin(time * 4 + i * 0.5);
+      ctx.strokeStyle = `rgba(255, 100, 0, ${glow})`;
+      ctx.beginPath();
+      ctx.moveTo(-12, y);
+      ctx.lineTo(0, y + 5);
+      ctx.lineTo(12, y);
+      ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+
+    // === ГАРДА (как цуба но квадратная) ===
+    ctx.fillStyle = '#2a2020';
+    ctx.beginPath();
+    ctx.rect(-30, 25, 60, 20);
+    ctx.fill();
+
+    // Огненный контур гарды
+    ctx.strokeStyle = '#ff6600';
+    ctx.shadowColor = '#ff6600';
+    ctx.shadowBlur = 15;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(-28, 27, 56, 16);
+    ctx.shadowBlur = 0;
+
+    // === ЛЕЗВИЕ ТОПОРА (широкое, как секира) ===
+    // Основа - широкий клинок
+    const bladeGrad = ctx.createLinearGradient(-40, 0, 40, 0);
+    bladeGrad.addColorStop(0, '#6060a0');
+    bladeGrad.addColorStop(0.2, '#8080b0');
+    bladeGrad.addColorStop(0.4, '#b0b0d0');
+    bladeGrad.addColorStop(0.5, '#e0e0f0');
+    bladeGrad.addColorStop(0.6, '#b0b0d0');
+    bladeGrad.addColorStop(0.8, '#8080b0');
+    bladeGrad.addColorStop(1, '#6060a0');
+
+    ctx.fillStyle = bladeGrad;
+    ctx.beginPath();
+    // Широкое лезвие секиры
+    ctx.moveTo(-12, 20);
+    ctx.lineTo(12, 20);
+    ctx.lineTo(15, -50);
+    // Расширение к голове
+    ctx.lineTo(50, -180);
+    ctx.lineTo(55, -220);
+    // Острие
+    ctx.lineTo(0, -300);
+    // Обратная сторона
+    ctx.lineTo(-55, -220);
+    ctx.lineTo(-50, -180);
+    ctx.lineTo(-15, -50);
+    ctx.closePath();
+    ctx.fill();
+
+    // Огненная кромка (как неоновая у катаны но оранжевая)
+    ctx.strokeStyle = '#ff6600';
+    ctx.shadowColor = '#ff6600';
+    ctx.shadowBlur = 12;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(14, 20);
+    ctx.lineTo(52, -180);
+    ctx.lineTo(57, -220);
+    ctx.lineTo(0, -305);
     ctx.stroke();
 
-    ctx.strokeStyle = '#ff00ff';
-    ctx.shadowColor = '#ff00ff';
-    ctx.shadowBlur = 20 * intensity;
-    ctx.lineWidth = 3;
+    // Вторая кромка
+    ctx.beginPath();
+    ctx.moveTo(-14, 20);
+    ctx.lineTo(-52, -180);
+    ctx.lineTo(-57, -220);
+    ctx.lineTo(0, -305);
     ctx.stroke();
+
+    // Пульсирующая линия по центру (как хамон)
+    ctx.strokeStyle = `rgba(255, 150, 0, ${0.5 + 0.3 * Math.sin(time * 5)})`;
+    ctx.shadowColor = '#ff9900';
+    ctx.shadowBlur = 8;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, 15);
+    for (let i = 0; i < 20; i++) {
+      const y = 15 - i * 15;
+      const wave = Math.sin(i * 0.8 + time * 3) * (3 + i * 0.3);
+      ctx.lineTo(wave, y);
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // Индикатор зарядов - огненные точки вдоль лезвия
+    for (let i = 0; i < 5; i++) {
+      const y = -50 - i * 45;
+      
+      if (i < charges) {
+        ctx.fillStyle = '#ff8800';
+        ctx.shadowColor = '#ff8800';
+        ctx.shadowBlur = 15;
+      } else {
+        ctx.fillStyle = '#333333';
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+      }
+      
+      ctx.beginPath();
+      ctx.arc(0, y, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+
+    // Блик
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.beginPath();
+    ctx.moveTo(5, 15);
+    ctx.lineTo(8, 15);
+    ctx.lineTo(40, -170);
+    ctx.lineTo(37, -170);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  /** След от топора - как у катаны но с разлётом! */
+  private drawAxeSlash(ctx: CanvasRenderingContext2D, progress: number, time: number): void {
+    ctx.save();
+    ctx.translate(0, -150);
+
+    const alpha = Math.sin(progress * Math.PI);
+
+    // Огненные дуги (как у катаны)
+    const colors = [
+      { color: '#ff6600', offset: 0 },
+      { color: '#ff9900', offset: 15 },
+      { color: '#ff3300', offset: 30 },
+      { color: '#ffcc00', offset: 45 },
+    ];
+
+    for (const { color, offset } of colors) {
+      ctx.strokeStyle = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 25;
+      ctx.lineWidth = 12 - offset * 0.15;
+      ctx.lineCap = 'round';
+
+      ctx.beginPath();
+      ctx.arc(0, 100, 200 + offset, -Math.PI * 0.7, Math.PI * 0.15);
+      ctx.globalAlpha = alpha * (1 - offset * 0.015);
+      ctx.stroke();
+    }
+
+    // Искры разлетаются!
+    ctx.globalAlpha = alpha;
+    for (let i = 0; i < 15; i++) {
+      const angle = -Math.PI * 0.7 + (Math.PI * 0.85) * (i / 15) + Math.sin(time * 10 + i) * 0.1;
+      const dist = 200 + Math.random() * 50;
+      const x = Math.cos(angle) * dist;
+      const y = 100 + Math.sin(angle) * dist;
+
+      const sparkColor = i % 2 === 0 ? '#ff6600' : '#ffaa00';
+      ctx.fillStyle = sparkColor;
+      ctx.shadowColor = sparkColor;
+      ctx.shadowBlur = 15;
+      ctx.beginPath();
+      ctx.arc(x, y, 4 + Math.random() * 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+    ctx.restore();
+  }
+
+  /** Создать огненные осколки при сплеше топора! */
+  public spawnAxeSplash(): void {
+    const centerX = this.width / 2;
+    const centerY = this.height / 2;
+    // Огненные цвета
+    const colors = ['#ff6600', '#ff9900', '#ff3300', '#ffcc00', '#ff0000', '#ffaa00'];
+
+    // Крупные огненные осколки - разлетаются во все стороны!
+    for (let i = 0; i < 20; i++) {
+      const angle = (i / 20) * Math.PI * 2 + Math.random() * 0.3;
+      const speed = 500 + Math.random() * 700;
+      this.particles.push({
+        x: centerX + (Math.random() - 0.5) * 100,
+        y: centerY + (Math.random() - 0.5) * 100,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 150,
+        size: 10 + Math.random() * 15,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        life: 0.7 + Math.random() * 0.5,
+        maxLife: 0.7 + Math.random() * 0.5,
+        type: 'fragment',
+      });
+    }
+
+    // Искры
+    for (let i = 0; i < 35; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 300 + Math.random() * 600;
+      this.particles.push({
+        x: centerX + (Math.random() - 0.5) * 50,
+        y: centerY + (Math.random() - 0.5) * 50,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 100,
+        size: 3 + Math.random() * 5,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        life: 0.5 + Math.random() * 0.4,
+        maxLife: 0.5 + Math.random() * 0.4,
+        type: 'spark',
+      });
+    }
+  }
+
+  private drawHitGlow(ctx: CanvasRenderingContext2D, intensity: number, weaponType: WeaponType = 'katana'): void {
+    ctx.save();
+    ctx.globalAlpha = intensity;
+
+    if (weaponType === 'charged') {
+      // Электрическое свечение для заряженной катаны
+      ctx.strokeStyle = '#ffffff';
+      ctx.shadowColor = '#00ffff';
+      ctx.shadowBlur = 50 * intensity;
+      ctx.lineWidth = 10;
+
+      // Обводка всего лезвия
+      ctx.beginPath();
+      ctx.moveTo(9, 30);
+      ctx.lineTo(6, -280);
+      ctx.lineTo(0, -320);
+      ctx.stroke();
+
+      // Дополнительные волны энергии
+      ctx.strokeStyle = '#00ffff';
+      ctx.shadowColor = '#0088ff';
+      ctx.shadowBlur = 30 * intensity;
+      ctx.lineWidth = 4;
+      for (let i = 0; i < 3; i++) {
+        ctx.beginPath();
+        ctx.arc(0, -150, 50 + i * 30, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    } else {
+      // Неоновое свечение для катаны
+      ctx.strokeStyle = '#ffffff';
+      ctx.shadowColor = '#00ffff';
+      ctx.shadowBlur = 30 * intensity;
+      ctx.lineWidth = 6;
+
+      ctx.beginPath();
+      ctx.moveTo(9, 30);
+      ctx.lineTo(6, -280);
+      ctx.lineTo(0, -320);
+      ctx.stroke();
+
+      ctx.strokeStyle = '#ff00ff';
+      ctx.shadowColor = '#ff00ff';
+      ctx.shadowBlur = 20 * intensity;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    }
 
     ctx.restore();
   }
 
-  private drawScreenFlash(ctx: CanvasRenderingContext2D): void {
+  private drawScreenFlash(ctx: CanvasRenderingContext2D, weaponType: WeaponType = 'katana'): void {
     ctx.save();
     ctx.resetTransform();
 
@@ -439,10 +943,21 @@ export class WeaponRenderer {
       this.width / 2, this.height / 2, 0,
       this.width / 2, this.height / 2, this.width
     );
-    gradient.addColorStop(0, `rgba(255, 255, 255, ${this.hitFlash * 0.4})`);
-    gradient.addColorStop(0.3, `rgba(255, 0, 255, ${this.hitFlash * 0.2})`);
-    gradient.addColorStop(0.6, `rgba(0, 255, 255, ${this.hitFlash * 0.1})`);
-    gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    
+    if (weaponType === 'charged') {
+      // Электрическая вспышка для заряженной катаны
+      gradient.addColorStop(0, `rgba(255, 255, 255, ${this.hitFlash * 0.6})`);
+      gradient.addColorStop(0.2, `rgba(0, 255, 255, ${this.hitFlash * 0.4})`);
+      gradient.addColorStop(0.5, `rgba(0, 150, 255, ${this.hitFlash * 0.2})`);
+      gradient.addColorStop(0.8, `rgba(0, 80, 255, ${this.hitFlash * 0.1})`);
+      gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    } else {
+      // Неоновая вспышка для катаны
+      gradient.addColorStop(0, `rgba(255, 255, 255, ${this.hitFlash * 0.4})`);
+      gradient.addColorStop(0.3, `rgba(255, 0, 255, ${this.hitFlash * 0.2})`);
+      gradient.addColorStop(0.6, `rgba(0, 255, 255, ${this.hitFlash * 0.1})`);
+      gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    }
 
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, this.width, this.height);

@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>⚔ Samurai Pool ⚔</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚔</text></svg>">
+  <script type="module" crossorigin src="/assets/index-hK87y9AI.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-Cp7VP2o1.css">
+</head>
+<body>
+  <div id="game-container">
+    <!-- WebGL Canvas -->
+    <canvas id="game-canvas"></canvas>
+    
+    <!-- Weapon Canvas (overlay) -->
+    <canvas id="weapon-canvas"></canvas>
+    
+    <!-- HUD -->
+    <div id="hud">
+      <!-- Здоровье -->
+      <div id="health">
+        <div id="health-label">ЗДОРОВЬЕ</div>
+        <span id="health-value">100</span>
+      </div>
+      
+      <!-- Враги -->
+      <div id="ammo">
+        <div id="ammo-label">ВРАГИ</div>
+        <span id="ammo-value">⚔ 0</span>
+      </div>
+      
+      <!-- Счёт -->
+      <div id="frags">
+        <div id="frags-label">СЧЁТ</div>
+        <span id="frags-value">0</span>
+      </div>
+      
+      <!-- Прицел -->
+      <div id="crosshair"></div>
+      
+      <!-- Хитмаркер -->
+      <div id="hitmarker"></div>
+      
+      <!-- Индикатор перезарядки -->
+      <div id="reload-indicator" style="display: none;"></div>
+      
+      <!-- Эффект урона -->
+      <div id="damage-overlay"></div>
+    </div>
+    
+    <!-- Стартовый экран -->
+    <div id="click-to-start">
+      <h1>⚔ SAMURAI POOL ⚔</h1>
+      <p>Руби врагов катаной!</p>
+      
+      <!-- Настройки -->
+      <div id="settings">
+        <div class="setting">
+          <label>🔊 ГРОМКОСТЬ</label>
+          <input type="range" id="volume-slider" min="0" max="100" value="50">
+          <span id="volume-value">50%</span>
+        </div>
+        <div class="setting">
+          <label>🎯 ЧУВСТВИТЕЛЬНОСТЬ</label>
+          <input type="range" id="sens-slider" min="1" max="100" value="50">
+          <span id="sens-value">50%</span>
+        </div>
+      </div>
+      
+      <div id="controls-list">
+        <span>WASD</span> — движение<br>
+        <span>SHIFT</span> — бег<br>
+        <span>SPACE</span> — прыжок (2x = двойной)<br>
+        <span>LMB</span> — удар катаной<br>
+        <span>F</span> — полный экран<br>
+        <span>M</span> — звук
+      </div>
+      
+      <!-- Кнопки старта -->
+      <div id="start-buttons">
+        <button id="btn-start" class="start-btn">▶ НАЧАТЬ</button>
+        <div id="boss-buttons">
+          <button id="btn-boss5" class="boss-btn green">🟢 БОСС 5</button>
+          <button id="btn-boss10" class="boss-btn purple">⚫ БОСС 10</button>
+          <button id="btn-boss15" class="boss-btn blue">🔵 БОСС 15</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+</body>
+</html>

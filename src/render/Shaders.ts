@@ -26,7 +26,7 @@ uniform float u_muzzleFlash;
 uniform vec4 u_pools[8]; // Токсичные лужи [x, z, radius, lifetime]
 uniform int u_poolCount;
 uniform int u_era; // Эпоха: 1=кислотная, 2=чёрная дыра, 3=космическая
-uniform vec4 u_pickups[8]; // Пикапы [x, y, z, type] type: 9=health, 10=stimpack
+uniform vec4 u_pickups[8]; // Пикапы [x, y, z, type] type: 9=health, 10=stimpack, 11=charge
 uniform int u_pickupCount;
 
 in vec2 v_uv;
@@ -227,6 +227,13 @@ float map(vec3 p) {
           d = sphere;
           materialId = 15; // Стимпак
         }
+      } else if (pType == 11.0) {
+        // Заряд катаны - энергетическая сфера
+        float chargeSphere = length(p - pickupPos) - 0.5;
+        if (chargeSphere < d) {
+          d = chargeSphere;
+          materialId = 17; // Заряд
+        }
       }
     }
   }
@@ -309,6 +316,34 @@ float map(vec3 p) {
   float colD = sdCylinder(p - vec3(22.0, 4.0, 0.0), 0.5, 4.0);
   colD = min(colD, sdCylinder(p - vec3(-22.0, 4.0, 0.0), 0.5, 4.0));
   d = min(d, colD);
+  
+  // === ВЕРХНИЙ БАЛКОН С ТОПОРОМ ===
+  // Балкон наверху (у задней стены, Z = -25)
+  float balconyHeight = 6.0;
+  float balcony = sdBox(p - vec3(0.0, balconyHeight, -24.0), vec3(4.0, 0.3, 2.5));
+  if (balcony < d) {
+    d = balcony;
+    materialId = 16; // Балкон (особый материал)
+  }
+  
+  // Перила балкона
+  float balcRail1 = sdBox(p - vec3(-4.0, balconyHeight + 0.8, -24.0), vec3(0.15, 0.8, 2.5));
+  float balcRail2 = sdBox(p - vec3(4.0, balconyHeight + 0.8, -24.0), vec3(0.15, 0.8, 2.5));
+  float balcRail3 = sdBox(p - vec3(0.0, balconyHeight + 0.8, -21.6), vec3(4.0, 0.8, 0.15));
+  d = min(d, min(balcRail1, min(balcRail2, balcRail3)));
+  
+  // Ступени для подъёма на балкон (по стене Z = -26)
+  // Ступень 1 (высота 2)
+  float step1 = sdBox(p - vec3(-6.0, 1.0, -25.0), vec3(1.5, 0.3, 1.0));
+  d = min(d, step1);
+  
+  // Ступень 2 (высота 3.5)
+  float step2 = sdBox(p - vec3(-3.0, 2.5, -25.5), vec3(1.5, 0.3, 1.0));
+  d = min(d, step2);
+  
+  // Ступень 3 (высота 4.5)
+  float step3 = sdBox(p - vec3(0.0, 4.0, -25.5), vec3(1.5, 0.3, 1.0));
+  d = min(d, step3);
   
   // === ВОДА ===
   // Центральный бассейн (только визуально, не пройти - коллизия блокирует)
@@ -805,6 +840,43 @@ void main() {
       
       // Яркое свечение
       color *= 2.5;
+      
+    } else if (mat == 16) {
+      // === БАЛКОН ===
+      vec3 balconyColor = vec3(0.3, 0.25, 0.4); // Тёмно-фиолетовый
+      
+      // Светящиеся линии
+      float gridX = step(0.9, fract(p.x * 2.0));
+      float gridZ = step(0.9, fract(p.z * 2.0));
+      float grid = max(gridX, gridZ);
+      
+      color = mix(balconyColor, accentColor, grid * 0.5);
+      color += accentColor * 0.1; // Лёгкое свечение
+      
+    } else if (mat == 17) {
+      // === ЗАРЯД КАТАНЫ (энергетическая сфера) ===
+      vec3 chargeColor1 = vec3(0.0, 0.8, 1.0); // Бирюзовый
+      vec3 chargeColor2 = vec3(0.0, 1.0, 1.0); // Циан
+      vec3 chargeColor3 = vec3(0.5, 0.8, 1.0); // Светло-голубой
+      
+      // Интенсивная пульсация
+      float pulse = 0.5 + 0.5 * sin(u_time * 6.0);
+      float pulse2 = 0.5 + 0.5 * sin(u_time * 8.0 + 1.0);
+      color = mix(chargeColor1, chargeColor2, pulse);
+      color = mix(color, chargeColor3, pulse2 * 0.3);
+      
+      // Электрические разряды
+      float spark = fract(sin(dot(p.xy + u_time * 10.0, vec2(12.9898, 78.233))) * 43758.5453);
+      if (spark > 0.85) {
+        color += vec3(1.0, 1.0, 1.0); // Белые искры
+      }
+      
+      // Вращающиеся кольца энергии
+      float ring = sin(atan(p.y, p.x) * 3.0 + u_time * 5.0);
+      color += chargeColor2 * max(0.0, ring) * 0.3;
+      
+      // Очень яркое свечение
+      color *= 4.0;
       
     } else {
       // === ПОЛ / СТЕНЫ ===

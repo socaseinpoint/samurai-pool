@@ -2,7 +2,7 @@ import type { Vec3 } from '@/types';
 import { vec3, distanceVec3 } from '@/utils/math';
 
 /** Тип предмета */
-export type PickupType = 'health' | 'stimpack';
+export type PickupType = 'health' | 'stimpack' | 'charge';
 
 /**
  * Предмет для подбора
@@ -21,7 +21,7 @@ export class Pickup {
   public active = true;
 
   /** Время жизни */
-  private lifetime: number;
+  public lifetime: number;
 
   /** Фаза анимации */
   private phase: number;
@@ -65,10 +65,12 @@ export class Pickup {
 
   /** Данные для шейдера [x, y, z, type] */
   public getShaderData(): [number, number, number, number] {
-    // type: 0 = неактивен, 9 = health, 10 = stimpack
+    // type: 0 = неактивен, 9 = health, 10 = stimpack, 11 = charge
     let w = 0;
     if (this.active) {
-      w = this.type === 'health' ? 9 : 10;
+      if (this.type === 'health') w = 9;
+      else if (this.type === 'stimpack') w = 10;
+      else if (this.type === 'charge') w = 11;
     }
     return [this.position.x, this.position.y, this.position.z, w];
   }
@@ -99,7 +101,16 @@ export class PickupManager {
   /** Максимум предметов на карте */
   private maxPickups = 5;
 
-  constructor() {}
+  /** Заряд катаны на балконе */
+  private chargeOnBalcony: Pickup | null = null;
+  
+  /** Таймер респавна заряда */
+  private chargeRespawnTimer = 0;
+
+  constructor() {
+    // Спавним заряд на балконе сразу
+    this.spawnChargeOnBalcony();
+  }
 
   /** Обновление */
   public update(dt: number, time: number, playerPos: Vec3): PickupType | null {
@@ -125,8 +136,19 @@ export class PickupManager {
       this.platformSpawnTimer = 30;
     }
 
-    // Проверяем подбор
+    // Обновляем респавн заряда
+    this.updateChargeRespawn(dt);
+
+    // Проверяем подбор заряда (только на балконе)
+    if (this.checkChargePickup(playerPos)) {
+      return 'charge';
+    }
+
+    // Проверяем подбор обычных предметов
     for (const pickup of this.pickups) {
+      // Пропускаем заряд, он уже проверен выше
+      if (pickup.type === 'charge') continue;
+      
       if (pickup.checkPickup(playerPos)) {
         return pickup.type;
       }
@@ -147,10 +169,8 @@ export class PickupManager {
       Math.sin(angle) * dist
     );
 
-    // 70% аптечки, 30% стимпаки
-    const type: PickupType = Math.random() < 0.7 ? 'health' : 'stimpack';
-    
-    this.pickups.push(new Pickup(pos, type));
+    // Только аптечки (стимпаки за быстрые убийства)
+    this.pickups.push(new Pickup(pos, 'health'));
   }
 
   /** Спавн аптечки на возвышенности */
@@ -171,15 +191,48 @@ export class PickupManager {
 
   /** Принудительный спавн после убийства */
   public spawnAfterKill(position: Vec3): void {
-    // 30% шанс выпадения предмета
-    if (Math.random() < 0.3) {
-      const type: PickupType = Math.random() < 0.6 ? 'health' : 'stimpack';
+    // 25% шанс выпадения аптечки (стимпаки за быстрые убийства)
+    if (Math.random() < 0.25) {
       const pos = vec3(
         position.x + (Math.random() - 0.5) * 2,
         1.0,
         position.z + (Math.random() - 0.5) * 2
       );
-      this.pickups.push(new Pickup(pos, type));
+      this.pickups.push(new Pickup(pos, 'health'));
+    }
+  }
+
+  /** Спавн заряда катаны на балконе */
+  private spawnChargeOnBalcony(): void {
+    // Позиция на балконе (центр)
+    const pos = vec3(0, 6.5, -24);
+    this.chargeOnBalcony = new Pickup(pos, 'charge');
+    this.chargeOnBalcony.lifetime = 999999; // Не исчезает
+    this.pickups.push(this.chargeOnBalcony);
+  }
+
+  /** Проверка подбора заряда (только на балконе!) */
+  public checkChargePickup(playerPos: Vec3): boolean {
+    if (!this.chargeOnBalcony || !this.chargeOnBalcony.active) return false;
+    
+    // Заряд можно подобрать только если игрок на балконе (высота > 5.5)
+    if (playerPos.y < 5.5) return false;
+    
+    if (this.chargeOnBalcony.checkPickup(playerPos)) {
+      this.chargeOnBalcony = null;
+      this.chargeRespawnTimer = 60; // Респавн через 60 секунд
+      return true;
+    }
+    return false;
+  }
+
+  /** Обновление респавна заряда */
+  public updateChargeRespawn(dt: number): void {
+    if (this.chargeOnBalcony === null && this.chargeRespawnTimer > 0) {
+      this.chargeRespawnTimer -= dt;
+      if (this.chargeRespawnTimer <= 0) {
+        this.spawnChargeOnBalcony();
+      }
     }
   }
 

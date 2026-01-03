@@ -126,6 +126,29 @@ export class CollisionSystem implements ICollisionSystem {
       }
     }
 
+    // === ВЕРХНИЙ БАЛКОН (Z = -24, высота 6) ===
+    const balconyHeight = 6.0;
+    
+    // Ступень 1 (X от -7.5 до -4.5, Z от -26 до -24, высота 1)
+    if (pos.x >= -7.5 && pos.x <= -4.5 && pos.z >= -26 && pos.z <= -24) {
+      return 1.0;
+    }
+    
+    // Ступень 2 (X от -4.5 до -1.5, Z от -26.5 до -24.5, высота 2.5)
+    if (pos.x >= -4.5 && pos.x <= -1.5 && pos.z >= -26.5 && pos.z <= -24.5) {
+      return 2.5;
+    }
+    
+    // Ступень 3 (X от -1.5 до 1.5, Z от -26.5 до -24.5, высота 4)
+    if (pos.x >= -1.5 && pos.x <= 1.5 && pos.z >= -26.5 && pos.z <= -24.5) {
+      return 4.0;
+    }
+    
+    // Сам балкон (X от -4 до 4, Z от -26.5 до -21.5, высота 6)
+    if (pos.x >= -4.0 && pos.x <= 4.0 && pos.z >= -26.5 && pos.z <= -21.5) {
+      return balconyHeight;
+    }
+
     // Основной пол
     return 0.0;
   }
