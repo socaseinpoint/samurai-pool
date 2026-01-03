@@ -41,6 +41,9 @@ export class WeaponRenderer {
   /** Частицы */
   private particles: Particle[] = [];
 
+  /** Максимум частиц для производительности */
+  private static readonly MAX_PARTICLES = 50;
+
   /** Активна сплеш-волна */
   private splashWaveActive = false;
   
@@ -82,32 +85,33 @@ export class WeaponRenderer {
     this.spawnWaveParticles();
   }
 
-  /** Создать частицы волны */
+  /** Создать частицы волны (оптимизировано) */
   private spawnWaveParticles(): void {
+    if (this.particles.length > WeaponRenderer.MAX_PARTICLES) return;
+
     const centerX = this.width / 2;
     const centerY = this.height / 2;
-    // Голубые/бирюзовые цвета для волны
-    const colors = ['#00ffff', '#00e5ff', '#00bfff', '#40e0d0', '#48d1cc', '#7fffd4'];
+    const colors = ['#00ffff', '#00e5ff', '#00bfff', '#40e0d0'];
 
-    // Частицы расходятся горизонтально веером
-    for (let i = 0; i < 30; i++) {
-      const angle = (i / 30) * Math.PI - Math.PI / 2; // От -90 до +90 градусов (вперёд)
-      const speed = 800 + Math.random() * 400;
+    // Частицы расходятся горизонтально (уменьшено с 30 до 12)
+    for (let i = 0; i < 12; i++) {
+      const angle = (i / 12) * Math.PI - Math.PI / 2;
+      const speed = 600 + Math.random() * 300;
       this.particles.push({
         x: centerX,
         y: centerY,
         vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed * 0.3, // Больше горизонтальное движение
-        size: 6 + Math.random() * 8,
-        color: colors[Math.floor(Math.random() * colors.length)],
-        life: 0.6 + Math.random() * 0.4,
-        maxLife: 0.6 + Math.random() * 0.4,
+        vy: Math.sin(angle) * speed * 0.3,
+        size: 5 + Math.random() * 6,
+        color: colors[i % colors.length],
+        life: 0.4 + Math.random() * 0.3,
+        maxLife: 0.4 + Math.random() * 0.3,
         type: 'spark',
       });
     }
 
-    // Большие капли энергии
-    for (let i = 0; i < 15; i++) {
+    // Большие капли энергии (уменьшено с 15 до 6)
+    for (let i = 0; i < 6; i++) {
       const angle = (Math.random() - 0.5) * Math.PI * 0.8;
       const speed = 600 + Math.random() * 300;
       this.particles.push({
@@ -124,133 +128,120 @@ export class WeaponRenderer {
     }
   }
 
-  /** Создать осколки врага (кислотная жижа!) */
+  /** Создать осколки врага (оптимизировано!) */
   private spawnFragments(): void {
+    // Ограничиваем количество частиц
+    if (this.particles.length > WeaponRenderer.MAX_PARTICLES) return;
+
     const centerX = this.width / 2;
     const centerY = this.height / 2;
-    // Зелёные кислотные цвета
-    const colors = ['#00ff00', '#33ff00', '#66ff33', '#00ff66', '#99ff00', '#00ff99'];
+    const colors = ['#00ff00', '#33ff00', '#66ff33', '#00ff66'];
 
-    // Крупные осколки
-    for (let i = 0; i < 12; i++) {
-      const angle = (i / 12) * Math.PI * 2 + Math.random() * 0.5;
-      const speed = 400 + Math.random() * 600;
+    // Крупные осколки (уменьшено с 12 до 6)
+    for (let i = 0; i < 6; i++) {
+      const angle = (i / 6) * Math.PI * 2 + Math.random() * 0.5;
+      const speed = 400 + Math.random() * 400;
       this.particles.push({
-        x: centerX + (Math.random() - 0.5) * 50,
-        y: centerY + (Math.random() - 0.5) * 50,
+        x: centerX + (Math.random() - 0.5) * 40,
+        y: centerY + (Math.random() - 0.5) * 40,
         vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed - 200,
-        size: 8 + Math.random() * 12,
-        color: colors[Math.floor(Math.random() * colors.length)],
-        life: 0.8 + Math.random() * 0.5,
-        maxLife: 0.8 + Math.random() * 0.5,
+        vy: Math.sin(angle) * speed - 150,
+        size: 6 + Math.random() * 8,
+        color: colors[i % colors.length],
+        life: 0.5 + Math.random() * 0.3,
+        maxLife: 0.5 + Math.random() * 0.3,
         type: 'fragment',
       });
     }
 
-    // Искры
-    for (let i = 0; i < 25; i++) {
+    // Искры (уменьшено с 25 до 10)
+    for (let i = 0; i < 10; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const speed = 200 + Math.random() * 500;
+      const speed = 200 + Math.random() * 300;
       this.particles.push({
-        x: centerX + (Math.random() - 0.5) * 30,
-        y: centerY + (Math.random() - 0.5) * 30,
+        x: centerX + (Math.random() - 0.5) * 20,
+        y: centerY + (Math.random() - 0.5) * 20,
         vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed - 100,
-        size: 2 + Math.random() * 4,
-        color: colors[Math.floor(Math.random() * colors.length)],
-        life: 0.4 + Math.random() * 0.4,
-        maxLife: 0.4 + Math.random() * 0.4,
+        vy: Math.sin(angle) * speed - 80,
+        size: 2 + Math.random() * 3,
+        color: colors[i % colors.length],
+        life: 0.3 + Math.random() * 0.2,
+        maxLife: 0.3 + Math.random() * 0.2,
         type: 'spark',
       });
     }
   }
 
-  /** Обновить частицы */
+  /** Обновить частицы (оптимизировано) */
   private updateParticles(dt: number): void {
     const gravity = 800;
+    const heightLimit = this.height + 50;
+    let writeIndex = 0;
 
-    for (let i = this.particles.length - 1; i >= 0; i--) {
+    // Обновляем и фильтруем за один проход (без splice)
+    for (let i = 0; i < this.particles.length; i++) {
       const p = this.particles[i];
 
       // Физика
       p.x += p.vx * dt;
       p.y += p.vy * dt;
       p.vy += gravity * dt;
-
-      // Затухание
       p.vx *= 0.98;
-
-      // Время жизни
       p.life -= dt;
 
-      // Удаляем мёртвые
-      if (p.life <= 0 || p.y > this.height + 50) {
-        this.particles.splice(i, 1);
+      // Сохраняем живые частицы
+      if (p.life > 0 && p.y < heightLimit) {
+        this.particles[writeIndex++] = p;
       }
     }
+
+    // Обрезаем массив
+    this.particles.length = writeIndex;
   }
 
-  /** Рендер частиц */
+  /** Рендер частиц (оптимизировано - без градиентов и теней!) */
   private renderParticles(ctx: CanvasRenderingContext2D): void {
+    // Отключаем тени для производительности
+    ctx.shadowBlur = 0;
+
     for (const p of this.particles) {
       const alpha = Math.min(1, p.life / p.maxLife * 2);
 
-      ctx.save();
       ctx.globalAlpha = alpha;
+      ctx.fillStyle = p.color;
 
       if (p.type === 'fragment') {
-        // Крупный осколок с градиентом
-        const gradient = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size);
-        gradient.addColorStop(0, '#ffffff');
-        gradient.addColorStop(0.3, p.color);
-        gradient.addColorStop(1, 'transparent');
-
-        ctx.fillStyle = gradient;
-        ctx.shadowColor = p.color;
-        ctx.shadowBlur = 20;
-
-        ctx.beginPath();
-        // Неправильная форма осколка
-        const points = 5 + Math.floor(Math.random() * 3);
-        for (let j = 0; j < points; j++) {
-          const angle = (j / points) * Math.PI * 2;
-          const r = p.size * (0.5 + Math.random() * 0.5);
-          const px = p.x + Math.cos(angle) * r;
-          const py = p.y + Math.sin(angle) * r;
-          if (j === 0) ctx.moveTo(px, py);
-          else ctx.lineTo(px, py);
-        }
-        ctx.closePath();
-        ctx.fill();
-
-        // Обводка
-        ctx.strokeStyle = p.color;
-        ctx.lineWidth = 2;
-        ctx.stroke();
-
-      } else {
-        // Искра
-        ctx.fillStyle = p.color;
-        ctx.shadowColor = p.color;
-        ctx.shadowBlur = 10;
-
+        // Простой круг вместо сложной формы
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
         ctx.fill();
 
-        // Хвост
+        // Яркий центр
+        ctx.globalAlpha = alpha * 0.8;
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size * 0.4, 0, Math.PI * 2);
+        ctx.fill();
+
+      } else {
+        // Искра - простой круг
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Короткий хвост
+        ctx.globalAlpha = alpha * 0.5;
         ctx.strokeStyle = p.color;
         ctx.lineWidth = p.size * 0.5;
-        ctx.lineCap = 'round';
         ctx.beginPath();
         ctx.moveTo(p.x, p.y);
         ctx.lineTo(p.x - p.vx * 0.02, p.y - p.vy * 0.02);
         ctx.stroke();
       }
-
-      ctx.restore();
     }
+
+    // Восстанавливаем альфу
+    ctx.globalAlpha = 1;
   }
 
   public render(state: WeaponState, time: number): void {
@@ -842,43 +833,44 @@ export class WeaponRenderer {
     ctx.restore();
   }
 
-  /** Создать огненные осколки при сплеше топора! */
+  /** Создать огненные осколки при сплеше топора (оптимизировано) */
   public spawnAxeSplash(): void {
+    if (this.particles.length > WeaponRenderer.MAX_PARTICLES) return;
+
     const centerX = this.width / 2;
     const centerY = this.height / 2;
-    // Огненные цвета
-    const colors = ['#ff6600', '#ff9900', '#ff3300', '#ffcc00', '#ff0000', '#ffaa00'];
+    const colors = ['#ff6600', '#ff9900', '#ff3300', '#ffcc00'];
 
-    // Крупные огненные осколки - разлетаются во все стороны!
-    for (let i = 0; i < 20; i++) {
-      const angle = (i / 20) * Math.PI * 2 + Math.random() * 0.3;
-      const speed = 500 + Math.random() * 700;
+    // Крупные огненные осколки (уменьшено с 20 до 8)
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2 + Math.random() * 0.3;
+      const speed = 400 + Math.random() * 500;
       this.particles.push({
-        x: centerX + (Math.random() - 0.5) * 100,
-        y: centerY + (Math.random() - 0.5) * 100,
+        x: centerX + (Math.random() - 0.5) * 60,
+        y: centerY + (Math.random() - 0.5) * 60,
         vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed - 150,
-        size: 10 + Math.random() * 15,
-        color: colors[Math.floor(Math.random() * colors.length)],
-        life: 0.7 + Math.random() * 0.5,
-        maxLife: 0.7 + Math.random() * 0.5,
+        vy: Math.sin(angle) * speed - 120,
+        size: 8 + Math.random() * 10,
+        color: colors[i % colors.length],
+        life: 0.5 + Math.random() * 0.3,
+        maxLife: 0.5 + Math.random() * 0.3,
         type: 'fragment',
       });
     }
 
-    // Искры
-    for (let i = 0; i < 35; i++) {
+    // Искры (уменьшено с 35 до 12)
+    for (let i = 0; i < 12; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const speed = 300 + Math.random() * 600;
+      const speed = 250 + Math.random() * 400;
       this.particles.push({
-        x: centerX + (Math.random() - 0.5) * 50,
-        y: centerY + (Math.random() - 0.5) * 50,
+        x: centerX + (Math.random() - 0.5) * 30,
+        y: centerY + (Math.random() - 0.5) * 30,
         vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed - 100,
-        size: 3 + Math.random() * 5,
-        color: colors[Math.floor(Math.random() * colors.length)],
-        life: 0.5 + Math.random() * 0.4,
-        maxLife: 0.5 + Math.random() * 0.4,
+        vy: Math.sin(angle) * speed - 80,
+        size: 2 + Math.random() * 4,
+        color: colors[i % colors.length],
+        life: 0.3 + Math.random() * 0.3,
+        maxLife: 0.3 + Math.random() * 0.3,
         type: 'spark',
       });
     }
