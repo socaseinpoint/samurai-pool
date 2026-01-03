@@ -1,10 +1,10 @@
-import type { GameState, GameConfig, Vec3 } from '@/types';
+import type { GameState, GameConfig } from '@/types';
 import { GameLoop } from './GameLoop';
 import { Input } from './Input';
 import { Player } from '@/player/Player';
 import { Weapon } from '@/weapon/Weapon';
 import { WeaponRenderer } from '@/weapon/WeaponRenderer';
-import { TargetManager, Target } from '@/enemies/Target';
+import { TargetManager } from '@/enemies/Target';
 import { AudioManager } from '@/audio/AudioManager';
 import { WebGLRenderer } from '@/render/WebGLRenderer';
 import { HUD } from '@/render/HUD';
@@ -66,7 +66,6 @@ export class Game {
   private collision: CollisionSystem;
 
   // === CANVAS ===
-  private canvas: HTMLCanvasElement;
   private weaponCanvas: HTMLCanvasElement;
 
   // === UI ===
@@ -86,7 +85,6 @@ export class Game {
     weaponCanvas: HTMLCanvasElement,
     config: Partial<GameConfig> = {}
   ) {
-    this.canvas = canvas;
     this.weaponCanvas = weaponCanvas;
     this.config = { ...DEFAULT_CONFIG, ...config };
 
@@ -131,20 +129,26 @@ export class Game {
 
   /** Настройка callbacks для врагов */
   private setupTargetCallbacks(): void {
-    this.targetManager.onTargetDestroyed = (target) => {
+    this.targetManager.onTargetDestroyed = (_target) => {
       this.state.frags++;
       this.audio.playSFX('kill');
       this.hud.showHitmarker(true);
     };
 
     this.targetManager.onPlayerHit = (target) => {
-      // Урон игроку
-      this.player.takeDamage(25);
-      this.audio.playSFX('hit');
-      this.screenShake = 0.5;
+      // Урон игроку (зависит от типа врага)
+      this.player.takeDamage(target.damage);
       
-      // Красная вспышка
-      this.hud.showDamage();
+      // Разные эффекты для разных врагов
+      if (target.enemyType === 'phantom') {
+        this.audio.playSFX('phantom_pass');
+        this.screenShake = 0.3; // Меньше тряски
+        this.hud.showDamage('purple'); // Фиолетовая вспышка
+      } else {
+        this.audio.playSFX('hit');
+        this.screenShake = 0.5;
+        this.hud.showDamage('green'); // Зелёная вспышка
+      }
     };
 
     this.targetManager.onWaveStart = (wave) => {

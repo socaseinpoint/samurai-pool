@@ -162,7 +162,8 @@ export type SFXType =
   | 'land'
   | 'hit'
   | 'kill'
-  | 'ambient';
+  | 'ambient'
+  | 'phantom_pass';
 
 // ========== РЕНДЕРИНГ ==========
 

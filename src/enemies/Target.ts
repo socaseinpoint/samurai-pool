@@ -94,66 +94,14 @@ export class Target {
 
   /** Обновление - движение к игроку с паттерном */
   public update(dt: number, playerPos: Vec3, time: number): void {
-    // Пульсирующий огонь
+    // Пульсирующий эффект
     this.fireIntensity = 0.6 + Math.sin(time * 8 + this.id) * 0.4;
 
     if (this.active) {
-      // Направление к игроку
-      const dx = playerPos.x - this.position.x;
-      const dy = (playerPos.y - 0.3) - this.position.y;
-      const dz = playerPos.z - this.position.z;
-      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-
-      if (dist > 0.1) {
-        // Базовое направление к игроку
-        const dirX = dx / dist;
-        const dirY = dy / dist;
-        const dirZ = dz / dist;
-
-        // Скорость увеличивается при приближении (агрессия!)
-        const aggression = 1.0 + Math.max(0, (15 - dist) / 15) * 0.8;
-        const currentSpeed = this.speed * aggression;
-
-        // Разные паттерны движения
-        let offsetX = 0, offsetY = 0, offsetZ = 0;
-        const wave = time * 4 + this.phase;
-
-        switch (this.moveType) {
-          case 0: // Спираль
-            offsetX = Math.cos(wave) * 3;
-            offsetZ = Math.sin(wave) * 3;
-            offsetY = Math.sin(wave * 0.5) * 1.5;
-            break;
-          case 1: // Зигзаг горизонтальный
-            offsetX = Math.sin(wave * 2) * 4;
-            offsetY = Math.cos(wave) * 0.5;
-            break;
-          case 2: // Волна вверх-вниз
-            offsetY = Math.sin(wave * 1.5) * 2.5;
-            offsetX = Math.cos(wave * 0.7) * 1;
-            break;
-          case 3: // Рывками
-            const pulse = Math.sin(wave) > 0 ? 1.5 : 0.5;
-            offsetX = Math.cos(wave * 3) * 2 * pulse;
-            offsetZ = Math.sin(wave * 3) * 2 * pulse;
-            break;
-        }
-
-        // Добавляем смещение перпендикулярно направлению
-        const perpX = -dirZ;
-        const perpZ = dirX;
-
-        this.velocity.x = dirX * currentSpeed + perpX * offsetX * 0.3 + offsetX * 0.1;
-        this.velocity.y = dirY * currentSpeed + offsetY * 0.3;
-        this.velocity.z = dirZ * currentSpeed + perpZ * offsetZ * 0.3 + offsetZ * 0.1;
-
-        // Двигаемся
-        this.position.x += this.velocity.x * dt;
-        this.position.y += this.velocity.y * dt;
-        this.position.z += this.velocity.z * dt;
-
-        // Не даём уйти слишком высоко или низко
-        this.position.y = Math.max(0.5, Math.min(4.0, this.position.y));
+      if (this.enemyType === 'phantom') {
+        this.updatePhantom(dt, playerPos, time);
+      } else {
+        this.updateBaneling(dt, playerPos, time);
       }
     }
 
@@ -163,6 +111,125 @@ export class Target {
     // Таймер удаления
     if (!this.active && this.removeTimer > 0) {
       this.removeTimer -= dt;
+    }
+  }
+
+  /** Обновление бейнлинга - медленное преследование с паттернами */
+  private updateBaneling(dt: number, playerPos: Vec3, time: number): void {
+    const dx = playerPos.x - this.position.x;
+    const dy = (playerPos.y - 0.3) - this.position.y;
+    const dz = playerPos.z - this.position.z;
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+    if (dist > 0.1) {
+      const dirX = dx / dist;
+      const dirY = dy / dist;
+      const dirZ = dz / dist;
+
+      // Скорость увеличивается при приближении (агрессия!)
+      const aggression = 1.0 + Math.max(0, (15 - dist) / 15) * 0.8;
+      const currentSpeed = this.speed * aggression;
+
+      // Разные паттерны движения
+      let offsetX = 0, offsetY = 0, offsetZ = 0;
+      const wave = time * 4 + this.phase;
+
+      switch (this.moveType) {
+        case 0: // Спираль
+          offsetX = Math.cos(wave) * 3;
+          offsetZ = Math.sin(wave) * 3;
+          offsetY = Math.sin(wave * 0.5) * 1.5;
+          break;
+        case 1: // Зигзаг горизонтальный
+          offsetX = Math.sin(wave * 2) * 4;
+          offsetY = Math.cos(wave) * 0.5;
+          break;
+        case 2: // Волна вверх-вниз
+          offsetY = Math.sin(wave * 1.5) * 2.5;
+          offsetX = Math.cos(wave * 0.7) * 1;
+          break;
+        case 3: // Рывками
+          const pulse = Math.sin(wave) > 0 ? 1.5 : 0.5;
+          offsetX = Math.cos(wave * 3) * 2 * pulse;
+          offsetZ = Math.sin(wave * 3) * 2 * pulse;
+          break;
+      }
+
+      // Добавляем смещение перпендикулярно направлению
+      const perpX = -dirZ;
+      const perpZ = dirX;
+
+      this.velocity.x = dirX * currentSpeed + perpX * offsetX * 0.3 + offsetX * 0.1;
+      this.velocity.y = dirY * currentSpeed + offsetY * 0.3;
+      this.velocity.z = dirZ * currentSpeed + perpZ * offsetZ * 0.3 + offsetZ * 0.1;
+
+      this.position.x += this.velocity.x * dt;
+      this.position.y += this.velocity.y * dt;
+      this.position.z += this.velocity.z * dt;
+
+      this.position.y = Math.max(0.5, Math.min(4.0, this.position.y));
+    }
+  }
+
+  /** Обновление фантома - разгон и пронзание */
+  private updatePhantom(dt: number, playerPos: Vec3, time: number): void {
+    const dx = playerPos.x - this.position.x;
+    const dy = (playerPos.y - 0.3) - this.position.y;
+    const dz = playerPos.z - this.position.z;
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+    if (this.isCharging) {
+      // Фаза разгона - набираем скорость, направляемся к игроку
+      this.currentSpeed = Math.min(this.currentSpeed + dt * 15, this.speed);
+
+      // Обновляем направление пока разгоняемся
+      if (dist > 0.1) {
+        this.chargeDirection.x = dx / dist;
+        this.chargeDirection.y = dy / dist;
+        this.chargeDirection.z = dz / dist;
+      }
+
+      // Слегка покачиваемся пока набираем разгон
+      const wobble = Math.sin(time * 10) * 0.3;
+      
+      this.velocity.x = this.chargeDirection.x * this.currentSpeed + wobble;
+      this.velocity.y = this.chargeDirection.y * this.currentSpeed;
+      this.velocity.z = this.chargeDirection.z * this.currentSpeed;
+
+      // Когда набрали полную скорость - фиксируем направление
+      if (this.currentSpeed >= this.speed * 0.9) {
+        this.isCharging = false;
+      }
+    } else {
+      // Фаза атаки - летим по инерции в зафиксированном направлении
+      this.passedThroughTimer += dt;
+
+      // Продолжаем лететь в том же направлении
+      this.velocity.x = this.chargeDirection.x * this.speed;
+      this.velocity.y = this.chargeDirection.y * this.speed;
+      this.velocity.z = this.chargeDirection.z * this.speed;
+
+      // После пролёта через игрока (3 сек) - разворачиваемся
+      if (this.passedThroughTimer > 2.5) {
+        this.isCharging = true;
+        this.currentSpeed = this.speed * 0.3; // Частичный разгон
+        this.passedThroughTimer = 0;
+      }
+    }
+
+    // Движение
+    this.position.x += this.velocity.x * dt;
+    this.position.y += this.velocity.y * dt;
+    this.position.z += this.velocity.z * dt;
+
+    // Ограничения высоты
+    this.position.y = Math.max(0.5, Math.min(4.0, this.position.y));
+
+    // Если улетел слишком далеко - начинаем разгон заново
+    if (dist > 35) {
+      this.isCharging = true;
+      this.currentSpeed = 0;
+      this.passedThroughTimer = 0;
     }
   }
 
@@ -244,14 +311,18 @@ export class Target {
     return !this.active && this.removeTimer <= 0 && this.fragments.length === 0;
   }
 
-  /** Данные для шейдера */
+  /** Данные для шейдера [x, y, z, type+intensity] */
   public getShaderData(): [number, number, number, number] {
-    return [
-      this.position.x,
-      this.position.y,
-      this.position.z,
-      this.active ? this.fireIntensity : 0,
-    ];
+    // w компонент: 0 = неактивен, 1-2 = бейнлинг, 3-4 = фантом
+    let w = 0;
+    if (this.active) {
+      if (this.enemyType === 'phantom') {
+        w = 3 + this.fireIntensity * 0.5; // 3.0 - 3.5
+      } else {
+        w = 1 + this.fireIntensity * 0.5; // 1.0 - 1.5
+      }
+    }
+    return [this.position.x, this.position.y, this.position.z, w];
   }
 
   /** Данные осколков для шейдера */
@@ -320,14 +391,31 @@ export class TargetManager {
   /** Счётчик для ID */
   private enemyIdCounter = 0;
 
-  /** Спавн врагов */
-  private spawnEnemies(count: number): void {
-    const spawnRadius = 18; // Расстояние от центра
-    const baseSpeed = 3.5 + this.wave * 0.4; // Скорость растёт с волнами
+  /**
+   * Спавн врагов по волнам:
+   * - Волна 1: 1 бейнлинг
+   * - Волна 2: 2 бейнлинга
+   * - Волна 3: 3 бейнлинга + 1 фантом
+   * - Волна 4: 4 бейнлинга + 1 фантом
+   * - Волна 5: 5 бейнлингов + 2 фантома
+   * - Волна 6: 6 бейнлингов + 2 фантома
+   * - Волна 7+: +1 бейнлинг каждую волну, +1 фантом каждые 2 волны
+   */
+  private spawnEnemies(wave: number): void {
+    const spawnRadius = 18;
+    const baseSpeed = 3.5 + wave * 0.3;
 
-    for (let i = 0; i < count; i++) {
-      // Равномерно по кругу
-      const angle = (i / count) * Math.PI * 2 + Math.random() * 0.3;
+    // Количество бейнлингов = номер волны
+    const banelingCount = wave;
+    
+    // Количество фантомов (начиная с волны 3)
+    const phantomCount = wave >= 3 ? Math.floor((wave - 1) / 2) : 0;
+
+    const totalCount = banelingCount + phantomCount;
+
+    // Спавним бейнлингов
+    for (let i = 0; i < banelingCount; i++) {
+      const angle = (i / totalCount) * Math.PI * 2 + Math.random() * 0.3;
       const height = 1.0 + Math.random() * 2.5;
 
       const pos = vec3(
@@ -336,13 +424,28 @@ export class TargetManager {
         Math.sin(angle) * spawnRadius
       );
 
-      // Немного разная скорость
       const speed = baseSpeed + Math.random() * 1.5;
+      this.targets.push(new Target(pos, speed, this.enemyIdCounter++, 'baneling'));
+    }
 
-      // Передаём уникальный ID для разного поведения
-      this.targets.push(new Target(pos, speed, this.enemyIdCounter++));
+    // Спавним фантомов (с противоположной стороны)
+    for (let i = 0; i < phantomCount; i++) {
+      const angle = ((banelingCount + i) / totalCount) * Math.PI * 2 + Math.random() * 0.3;
+      const height = 1.5 + Math.random() * 2.0; // Выше стартуют
+
+      const pos = vec3(
+        Math.cos(angle) * spawnRadius,
+        height,
+        Math.sin(angle) * spawnRadius
+      );
+
+      const speed = baseSpeed + Math.random() * 1.0;
+      this.targets.push(new Target(pos, speed, this.enemyIdCounter++, 'phantom'));
     }
   }
+
+  /** Кулдаун на урон от фантомов (чтобы не спамил урон) */
+  private phantomDamageCooldown: Map<number, number> = new Map();
 
   /** Обновление */
   public update(dt: number, playerPos: Vec3, time: number): void {
@@ -355,14 +458,32 @@ export class TargetManager {
       return;
     }
 
+    // Уменьшаем кулдауны фантомов
+    for (const [id, cd] of this.phantomDamageCooldown) {
+      if (cd > 0) {
+        this.phantomDamageCooldown.set(id, cd - dt);
+      }
+    }
+
     // Обновляем врагов
     for (const target of this.targets) {
       target.update(dt, playerPos, time);
 
       // Проверка столкновения с игроком
       if (target.checkPlayerCollision(playerPos)) {
-        this.onPlayerHit?.(target);
-        target.active = false;
+        if (target.enemyType === 'phantom') {
+          // Фантом пролетает сквозь, но наносит урон с кулдауном
+          const cd = this.phantomDamageCooldown.get(target['id'] as number) || 0;
+          if (cd <= 0) {
+            this.onPlayerHit?.(target);
+            this.phantomDamageCooldown.set(target['id'] as number, 1.0); // 1 сек кулдаун
+          }
+          // НЕ деактивируем - фантом летит дальше!
+        } else {
+          // Бейнлинг взрывается
+          this.onPlayerHit?.(target);
+          target.active = false;
+        }
       }
     }
 

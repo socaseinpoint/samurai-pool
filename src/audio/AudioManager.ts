@@ -139,6 +139,9 @@ export class AudioManager {
       case 'hit':
         this.playBanelingExplosion(); // Взрыв бейнлинга!
         break;
+      case 'phantom_pass':
+        this.playPhantomPass(); // Фантом пролетел сквозь!
+        break;
       case 'kill':
         this.playKill();
         break;
@@ -262,6 +265,72 @@ export class AudioManager {
     hiss.connect(hissFilter);
     hissFilter.connect(hissGain);
     hissGain.connect(this.sfxGain);
+  }
+
+  /** Фантом пролетает сквозь игрока */
+  private playPhantomPass(): void {
+    if (!this.ctx || !this.sfxGain) return;
+
+    const now = this.ctx.currentTime;
+
+    // Жуткий низкий свист (доплер эффект)
+    const swoosh = this.ctx.createOscillator();
+    const swooshGain = this.ctx.createGain();
+    const swooshFilter = this.ctx.createBiquadFilter();
+
+    swoosh.type = 'sawtooth';
+    // Частота падает как будто пролетает мимо
+    swoosh.frequency.setValueAtTime(400, now);
+    swoosh.frequency.exponentialRampToValueAtTime(100, now + 0.3);
+
+    swooshFilter.type = 'lowpass';
+    swooshFilter.frequency.setValueAtTime(2000, now);
+    swooshFilter.frequency.exponentialRampToValueAtTime(300, now + 0.3);
+    swooshFilter.Q.value = 2;
+
+    swooshGain.gain.setValueAtTime(0.3, now);
+    swooshGain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+
+    swoosh.connect(swooshFilter);
+    swooshFilter.connect(swooshGain);
+    swooshGain.connect(this.sfxGain);
+    swooshGain.connect(this.reverb!);
+
+    swoosh.start(now);
+    swoosh.stop(now + 0.5);
+
+    // Тёмный резонанс
+    const dark = this.ctx.createOscillator();
+    const darkGain = this.ctx.createGain();
+
+    dark.type = 'sine';
+    dark.frequency.setValueAtTime(60, now);
+    dark.frequency.exponentialRampToValueAtTime(30, now + 0.5);
+
+    darkGain.gain.setValueAtTime(0.4, now);
+    darkGain.gain.exponentialRampToValueAtTime(0.01, now + 0.6);
+
+    dark.connect(darkGain);
+    darkGain.connect(this.sfxGain);
+
+    dark.start(now);
+    dark.stop(now + 0.7);
+
+    // Шёпот/шорох (высокочастотный шум)
+    const whisper = this.createNoise(0.3);
+    const whisperGain = this.ctx.createGain();
+    const whisperFilter = this.ctx.createBiquadFilter();
+
+    whisperFilter.type = 'bandpass';
+    whisperFilter.frequency.value = 3000;
+    whisperFilter.Q.value = 5;
+
+    whisperGain.gain.setValueAtTime(0.15, now);
+    whisperGain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+
+    whisper.connect(whisperFilter);
+    whisperFilter.connect(whisperGain);
+    whisperGain.connect(this.sfxGain);
   }
 
   /** Звук взмаха катаны - свист + энергия */
@@ -474,48 +543,6 @@ export class AudioManager {
     noiseGain.connect(this.sfxGain);
   }
 
-  /** Получение урона - глитч + боль */
-  private playHit(): void {
-    if (!this.ctx || !this.sfxGain) return;
-
-    const now = this.ctx.currentTime;
-
-    // Глитч-искажение
-    for (let i = 0; i < 3; i++) {
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-
-      osc.type = 'square';
-      osc.frequency.value = 200 + Math.random() * 800;
-
-      gain.gain.setValueAtTime(0.2, now + i * 0.02);
-      gain.gain.setValueAtTime(0, now + i * 0.02 + 0.015);
-
-      osc.connect(gain);
-      gain.connect(this.distortion!);
-
-      osc.start(now + i * 0.02);
-      osc.stop(now + i * 0.02 + 0.02);
-    }
-
-    // Низкий удар
-    const hit = this.ctx.createOscillator();
-    const hitGain = this.ctx.createGain();
-
-    hit.type = 'sine';
-    hit.frequency.setValueAtTime(80, now);
-    hit.frequency.exponentialRampToValueAtTime(20, now + 0.1);
-
-    hitGain.gain.setValueAtTime(0.4, now);
-    hitGain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
-
-    hit.connect(hitGain);
-    hitGain.connect(this.sfxGain);
-
-    hit.start(now);
-    hit.stop(now + 0.2);
-  }
-
   /** Убийство врага - ЭПИЧНЫЙ взрыв! */
   private playKill(): void {
     if (!this.ctx || !this.sfxGain) return;
@@ -631,7 +658,6 @@ export class AudioManager {
 
   // ==================== SYNTHWAVE МУЗЫКА ====================
 
-  private bassOsc: OscillatorNode | null = null;
   private arpInterval: number | null = null;
 
   /** Запустить synthwave музыку */

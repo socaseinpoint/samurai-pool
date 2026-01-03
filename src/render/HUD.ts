@@ -149,7 +149,7 @@ export class HUD {
     return el;
   }
 
-  /** Создать оверлей урона (кислотный зелёный!) */
+  /** Создать оверлей урона */
   private createDamageOverlay(): HTMLElement {
     let el = document.getElementById('damage-overlay');
     if (!el) {
@@ -175,6 +175,33 @@ export class HUD {
       document.body.appendChild(el);
     }
     return el;
+  }
+
+  /** Показать урон с определённым цветом */
+  public showDamage(color: 'green' | 'purple' = 'green'): void {
+    if (this.damageOverlay) {
+      if (color === 'purple') {
+        // Фиолетовый для фантома
+        this.damageOverlay.style.background = `radial-gradient(circle, 
+          rgba(100, 0, 150, 0.3) 0%,
+          rgba(80, 0, 120, 0.4) 30%,
+          rgba(50, 0, 80, 0.5) 70%,
+          rgba(30, 0, 50, 0.6) 100%
+        )`;
+      } else {
+        // Зелёный для бейнлинга
+        this.damageOverlay.style.background = `radial-gradient(circle, 
+          rgba(0, 255, 0, 0.3) 0%,
+          rgba(50, 255, 50, 0.4) 30%,
+          rgba(0, 150, 0, 0.5) 70%,
+          rgba(0, 100, 0, 0.6) 100%
+        )`;
+      }
+      this.damageOverlay.style.opacity = '1';
+      setTimeout(() => {
+        if (this.damageOverlay) this.damageOverlay.style.opacity = '0';
+      }, 150);
+    }
   }
 
   /** Обновить здоровье */
@@ -272,16 +299,6 @@ export class HUD {
     }
   }
 
-  /** Показать урон */
-  public showDamage(): void {
-    if (this.damageOverlay) {
-      this.damageOverlay.style.opacity = '1';
-      setTimeout(() => {
-        if (this.damageOverlay) this.damageOverlay.style.opacity = '0';
-      }, 200);
-    }
-  }
-
   /** Показать Game Over */
   public showGameOver(score: number, wave: number): void {
     if (this.messageEl) {
@@ -350,8 +367,8 @@ export class HUD {
     }
   }
 
-  /** Эффект урона */
+  /** Эффект урона (алиас) */
   public showDamageEffect(): void {
-    this.showDamage();
+    this.showDamage('green');
   }
 }

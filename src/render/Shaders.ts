@@ -284,31 +284,54 @@ float map(vec3 p) {
     }
   }
   
-  // === БЕЙНЛИНГИ (кислотная жижа) ===
+  // === ВРАГИ ===
   for (int i = 0; i < u_targetCount; i++) {
     if (i >= 16) break;
     vec4 target = u_targets[i];
-    if (target.w > 0.0) {
+    // w: 0 = неактивен, 1-2 = бейнлинг, 3-4 = фантом
+    if (target.w > 0.5) {
       vec3 tp = p - target.xyz;
+      bool isPhantom = target.w >= 2.5;
       
-      // Деформация для эффекта жижи
-      float wobble = sin(u_time * 4.0 + tp.x * 3.0) * 0.1
-                   + sin(u_time * 3.0 + tp.y * 4.0) * 0.1
-                   + sin(u_time * 5.0 + tp.z * 2.0) * 0.08;
+      float targetD;
+      int matId;
       
-      // Базовая сфера с деформацией
-      float radius = 0.7 + wobble;
-      float targetD = sdSphere(tp, radius);
-      
-      // Добавляем "пузыри" на поверхности
-      float bubbles = sin(tp.x * 8.0 + u_time * 2.0) 
-                    * sin(tp.y * 8.0 + u_time * 1.5) 
-                    * sin(tp.z * 8.0 + u_time * 2.5) * 0.05;
-      targetD += bubbles;
+      if (isPhantom) {
+        // === ФАНТОМ (чёрный шар с искажениями) ===
+        // Быстрое искажение
+        float distort = sin(u_time * 8.0 + tp.x * 5.0) * 0.08
+                      + sin(u_time * 7.0 + tp.z * 6.0) * 0.06;
+        
+        float radius = 0.55 + distort;
+        targetD = sdSphere(tp, radius);
+        
+        // Тёмный шлейф/хвост
+        vec3 trail = tp + vec3(0.0, 0.0, 0.3);
+        float trailD = sdSphere(trail, 0.3) - 0.1;
+        targetD = min(targetD, trailD);
+        
+        matId = 5; // Материал фантома
+      } else {
+        // === БЕЙНЛИНГ (зелёная жижа) ===
+        float wobble = sin(u_time * 4.0 + tp.x * 3.0) * 0.1
+                     + sin(u_time * 3.0 + tp.y * 4.0) * 0.1
+                     + sin(u_time * 5.0 + tp.z * 2.0) * 0.08;
+        
+        float radius = 0.7 + wobble;
+        targetD = sdSphere(tp, radius);
+        
+        // Пузыри на поверхности
+        float bubbles = sin(tp.x * 8.0 + u_time * 2.0) 
+                      * sin(tp.y * 8.0 + u_time * 1.5) 
+                      * sin(tp.z * 8.0 + u_time * 2.5) * 0.05;
+        targetD += bubbles;
+        
+        matId = 4; // Материал бейнлинга
+      }
       
       if (targetD < d) {
         d = targetD;
-        materialId = 4;
+        materialId = matId;
       }
     }
   }
@@ -432,25 +455,44 @@ void main() {
       
     } else if (mat == 4) {
       // === БЕЙНЛИНГИ (зелёная кислотная жижа) ===
-      // Базовый ядовито-зелёный цвет
       vec3 acidGreen = vec3(0.2, 0.9, 0.1);
       vec3 darkGreen = vec3(0.0, 0.4, 0.0);
       
-      // Пульсация как живой организм
       float pulse = 0.7 + 0.3 * sin(u_time * 4.0 + p.x * 2.0);
       float pulse2 = 0.8 + 0.2 * sin(u_time * 6.0 + p.z * 3.0);
-      
-      // Внутреннее свечение
       float glow = 0.5 + 0.5 * sin(u_time * 3.0);
       
-      // Смешиваем цвета для эффекта жижи
       color = mix(darkGreen, acidGreen, pulse * pulse2);
-      color += vec3(0.3, 1.0, 0.2) * glow * 0.5; // Яркое свечение
-      color *= 1.5; // Увеличиваем яркость
+      color += vec3(0.3, 1.0, 0.2) * glow * 0.5;
+      color *= 1.5;
       
-      // Эффект прозрачности/глубины
       float fresnel = pow(1.0 - max(0.0, dot(-rd, n)), 3.0);
       color = mix(color, vec3(0.5, 1.0, 0.3), fresnel * 0.4);
+      
+    } else if (mat == 5) {
+      // === ФАНТОМ (чёрный шар с тёмной энергией) ===
+      vec3 voidBlack = vec3(0.02, 0.02, 0.05);
+      vec3 darkPurple = vec3(0.1, 0.0, 0.15);
+      
+      // Мерцание тёмной энергии
+      float flicker = 0.6 + 0.4 * sin(u_time * 12.0 + p.x * 5.0);
+      float flicker2 = 0.7 + 0.3 * sin(u_time * 15.0 + p.z * 4.0);
+      
+      color = mix(voidBlack, darkPurple, flicker * flicker2 * 0.3);
+      
+      // Тёмное свечение по краям (обратный Френель)
+      float fresnel = pow(1.0 - max(0.0, dot(-rd, n)), 2.0);
+      vec3 edgeGlow = vec3(0.3, 0.0, 0.5) * fresnel * 0.8;
+      color += edgeGlow;
+      
+      // Искры тёмной энергии
+      float spark = sin(u_time * 20.0 + p.y * 10.0) * sin(u_time * 18.0 + p.x * 8.0);
+      if (spark > 0.9) {
+        color += vec3(0.5, 0.2, 0.8) * 0.5;
+      }
+      
+      // Поглощение света (почти не отражает)
+      color *= 0.6;
       
     } else {
       // === ПОЛ / СТЕНЫ ===
