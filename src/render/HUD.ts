@@ -177,17 +177,22 @@ export class HUD {
     return el;
   }
 
+  /** Оверлей замедления */
+  private slowOverlay: HTMLElement | null = null;
+
   /** Показать урон с определённым цветом */
   public showDamage(color: 'green' | 'purple' = 'green'): void {
     if (this.damageOverlay) {
       if (color === 'purple') {
-        // Фиолетовый для фантома
+        // Фиолетовый для фантома + ЗАМЕДЛЕНИЕ
         this.damageOverlay.style.background = `radial-gradient(circle, 
           rgba(100, 0, 150, 0.3) 0%,
           rgba(80, 0, 120, 0.4) 30%,
           rgba(50, 0, 80, 0.5) 70%,
           rgba(30, 0, 50, 0.6) 100%
         )`;
+        // Показываем оверлей замедления
+        this.showSlowdown(2.0);
       } else {
         // Зелёный для бейнлинга
         this.damageOverlay.style.background = `radial-gradient(circle, 
@@ -202,6 +207,49 @@ export class HUD {
         if (this.damageOverlay) this.damageOverlay.style.opacity = '0';
       }, 150);
     }
+  }
+
+  /** Показать эффект замедления */
+  public showSlowdown(duration: number): void {
+    if (!this.slowOverlay) {
+      this.slowOverlay = document.createElement('div');
+      this.slowOverlay.id = 'slow-overlay';
+      this.slowOverlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: radial-gradient(circle,
+          transparent 0%,
+          rgba(50, 0, 80, 0.2) 50%,
+          rgba(30, 0, 60, 0.4) 100%
+        );
+        pointer-events: none;
+        z-index: 998;
+        opacity: 0;
+        transition: opacity 0.3s;
+      `;
+      document.body.appendChild(this.slowOverlay);
+    }
+
+    this.slowOverlay.style.opacity = '1';
+    
+    // Эффект пульсации
+    this.slowOverlay.animate([
+      { filter: 'hue-rotate(0deg) brightness(1)' },
+      { filter: 'hue-rotate(20deg) brightness(1.1)' },
+      { filter: 'hue-rotate(0deg) brightness(1)' }
+    ], {
+      duration: 500,
+      iterations: Math.ceil(duration * 2)
+    });
+
+    setTimeout(() => {
+      if (this.slowOverlay) {
+        this.slowOverlay.style.opacity = '0';
+      }
+    }, duration * 1000);
   }
 
   /** Обновить здоровье */
@@ -370,5 +418,86 @@ export class HUD {
   /** Эффект урона (алиас) */
   public showDamageEffect(): void {
     this.showDamage('green');
+  }
+
+  /** Показать сообщение */
+  public showMessage(text: string, color: string = 'white'): void {
+    const msg = document.createElement('div');
+    msg.style.cssText = `
+      position: fixed;
+      top: 30%;
+      left: 50%;
+      transform: translateX(-50%);
+      font-family: 'Orbitron', sans-serif;
+      font-size: 24px;
+      color: ${color};
+      text-shadow: 0 0 10px ${color}, 0 0 20px ${color};
+      pointer-events: none;
+      z-index: 1100;
+      opacity: 1;
+      animation: messageFloat 1s ease-out forwards;
+    `;
+    msg.textContent = text;
+    document.body.appendChild(msg);
+
+    // Добавляем стиль анимации если его нет
+    if (!document.getElementById('message-anim-style')) {
+      const style = document.createElement('style');
+      style.id = 'message-anim-style';
+      style.textContent = `
+        @keyframes messageFloat {
+          0% { opacity: 1; transform: translateX(-50%) translateY(0); }
+          100% { opacity: 0; transform: translateX(-50%) translateY(-50px); }
+        }
+      `;
+      document.head.appendChild(style);
+    }
+
+    setTimeout(() => msg.remove(), 1000);
+  }
+
+  /** Показать оверлей буйства */
+  private rageOverlay: HTMLElement | null = null;
+
+  public showRageOverlay(duration: number): void {
+    if (!this.rageOverlay) {
+      this.rageOverlay = document.createElement('div');
+      this.rageOverlay.id = 'rage-overlay';
+      this.rageOverlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: radial-gradient(circle,
+          transparent 0%,
+          rgba(255, 50, 0, 0.15) 50%,
+          rgba(255, 0, 0, 0.3) 100%
+        );
+        pointer-events: none;
+        z-index: 997;
+        opacity: 0;
+        transition: opacity 0.3s;
+      `;
+      document.body.appendChild(this.rageOverlay);
+    }
+
+    this.rageOverlay.style.opacity = '1';
+    
+    // Пульсация красным
+    this.rageOverlay.animate([
+      { filter: 'hue-rotate(0deg) brightness(1)' },
+      { filter: 'hue-rotate(-20deg) brightness(1.2)' },
+      { filter: 'hue-rotate(0deg) brightness(1)' }
+    ], {
+      duration: 300,
+      iterations: Math.ceil(duration * 3)
+    });
+
+    setTimeout(() => {
+      if (this.rageOverlay) {
+        this.rageOverlay.style.opacity = '0';
+      }
+    }, duration * 1000);
   }
 }

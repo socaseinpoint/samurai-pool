@@ -2,7 +2,7 @@ import type { Vec3 } from '@/types';
 import { vec3, distanceVec3, normalizeVec3 } from '@/utils/math';
 
 /** Тип врага */
-export type EnemyType = 'baneling' | 'phantom';
+export type EnemyType = 'baneling' | 'phantom' | 'runner' | 'hopper';
 
 /** Осколок после разрубания */
 export interface Fragment {
@@ -71,6 +71,30 @@ export class Target {
   /** Фантом: время после пролёта через игрока */
   private passedThroughTimer = 0;
 
+  /** Hopper: вертикальная скорость */
+  private verticalVelocity = 0;
+
+  /** Hopper: на земле? */
+  private onGround = true;
+
+  /** Hopper: время до следующего прыжка */
+  private hopTimer = 0;
+
+  /** Runner: угол уклонения */
+  private dodgeAngle = 0;
+
+  /** Runner: время до смены направления */
+  private dodgeTimer = 0;
+
+  /** Runner: прицепился к игроку? */
+  public isAttached = false;
+
+  /** Runner: время на прицепе (сколько осталось чтобы скинуть) */
+  public attachTimer = 0;
+
+  /** Runner: угол вращения вокруг игрока */
+  private orbitAngle = 0;
+
   constructor(position: Vec3, speed: number = 4.0, id: number = 0, type: EnemyType = 'baneling') {
     this.position = { ...position };
     this.speed = speed;
@@ -83,9 +107,20 @@ export class Target {
     if (type === 'phantom') {
       this.speed = speed * 2; // В 2 раза быстрее
       this.damage = 10; // Меньше урона
-      this.radius = 0.6; // Чуть меньше
+      this.radius = 0.6;
       this.currentSpeed = 0;
       this.isCharging = true;
+    } else if (type === 'runner') {
+      this.speed = speed * 2.5; // Очень быстрый!
+      this.damage = 15;
+      this.radius = 0.4; // Маленький и низкий
+      this.position.y = 0.5; // Бежит по земле
+    } else if (type === 'hopper') {
+      this.speed = speed * 1.2;
+      this.damage = 20;
+      this.radius = 0.5;
+      this.verticalVelocity = 8; // Начинает с прыжка
+      this.onGround = false;
     } else {
       this.damage = 25;
       this.currentSpeed = speed;
@@ -98,10 +133,18 @@ export class Target {
     this.fireIntensity = 0.6 + Math.sin(time * 8 + this.id) * 0.4;
 
     if (this.active) {
-      if (this.enemyType === 'phantom') {
-        this.updatePhantom(dt, playerPos, time);
-      } else {
-        this.updateBaneling(dt, playerPos, time);
+      switch (this.enemyType) {
+        case 'phantom':
+          this.updatePhantom(dt, playerPos, time);
+          break;
+        case 'runner':
+          this.updateRunner(dt, playerPos, time);
+          break;
+        case 'hopper':
+          this.updateHopper(dt, playerPos, time);
+          break;
+        default:
+          this.updateBaneling(dt, playerPos, time);
       }
     }
 
@@ -233,6 +276,152 @@ export class Target {
     }
   }
 
+  /** Обновление раннера - быстрый бегун, прицепляется к игроку */
+  private updateRunner(dt: number, playerPos: Vec3, time: number): void {
+    if (this.isAttached) {
+      // === РЕЖИМ ПРИЦЕПА - летает вокруг игрока ===
+      this.attachTimer -= dt;
+      this.orbitAngle += dt * 12; // Быстрое вращение!
+
+      // Летает вокруг игрока
+      const orbitRadius = 1.2;
+      const orbitHeight = Math.sin(time * 8) * 0.3;
+      
+      this.position.x = playerPos.x + Math.cos(this.orbitAngle) * orbitRadius;
+      this.position.y = playerPos.y + orbitHeight;
+      this.position.z = playerPos.z + Math.sin(this.orbitAngle) * orbitRadius;
+
+      // Время вышло - наносим урон и отцепляемся!
+      if (this.attachTimer <= 0) {
+        this.isAttached = false;
+        this.active = false; // Самоуничтожение после укуса
+        this.removeTimer = 0.5;
+      }
+      return;
+    }
+
+    // === РЕЖИМ ПОГОНИ ===
+    const dx = playerPos.x - this.position.x;
+    const dz = playerPos.z - this.position.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+
+    // Если достаточно близко - ПРИЦЕПЛЯЕМСЯ!
+    if (dist < 1.5) {
+      this.isAttached = true;
+      this.attachTimer = 3.0; // 3 секунды чтобы скинуть!
+      this.orbitAngle = Math.atan2(dz, dx);
+      return;
+    }
+
+    if (dist > 0.1) {
+      const dirX = dx / dist;
+      const dirZ = dz / dist;
+
+      // Таймер уклонения
+      this.dodgeTimer -= dt;
+      if (this.dodgeTimer <= 0) {
+        this.dodgeAngle = (Math.random() - 0.5) * Math.PI * 0.8;
+        this.dodgeTimer = 0.3 + Math.random() * 0.4;
+      }
+
+      // Применяем уклонение к направлению
+      const cos = Math.cos(this.dodgeAngle);
+      const sin = Math.sin(this.dodgeAngle);
+      const dodgedDirX = dirX * cos - dirZ * sin;
+      const dodgedDirZ = dirX * sin + dirZ * cos;
+
+      // Скорость увеличивается при приближении
+      const aggression = 1.0 + Math.max(0, (10 - dist) / 10) * 0.5;
+      const currentSpeed = this.speed * aggression;
+
+      // Зигзаг движение
+      const zigzag = Math.sin(time * 15 + this.phase) * 2;
+
+      this.velocity.x = dodgedDirX * currentSpeed + zigzag * 0.3;
+      this.velocity.y = 0;
+      this.velocity.z = dodgedDirZ * currentSpeed;
+
+      this.position.x += this.velocity.x * dt;
+      this.position.z += this.velocity.z * dt;
+      
+      // Бежит по земле
+      this.position.y = 0.5 + Math.abs(Math.sin(time * 20)) * 0.1;
+    }
+  }
+
+  /** Скинуть раннера (двойной прыжок) */
+  public detachRunner(): boolean {
+    if (this.isAttached && this.enemyType === 'runner') {
+      this.isAttached = false;
+      // Отбрасываем в сторону
+      const angle = this.orbitAngle + Math.PI;
+      this.velocity.x = Math.cos(angle) * 15;
+      this.velocity.y = 8;
+      this.velocity.z = Math.sin(angle) * 15;
+      this.attachTimer = 0;
+      return true;
+    }
+    return false;
+  }
+
+  /** Обновление хоппера - прыгающий враг */
+  private updateHopper(dt: number, playerPos: Vec3, time: number): void {
+    const dx = playerPos.x - this.position.x;
+    const dy = playerPos.y - this.position.y;
+    const dz = playerPos.z - this.position.z;
+    const distXZ = Math.sqrt(dx * dx + dz * dz);
+
+    // Гравитация
+    const gravity = 18.0;
+
+    if (this.onGround) {
+      // На земле - готовимся к прыжку
+      this.hopTimer -= dt;
+      
+      if (this.hopTimer <= 0) {
+        // ПРЫЖОК!
+        this.onGround = false;
+        this.verticalVelocity = 10 + Math.random() * 4; // Высокий прыжок
+        this.hopTimer = 0.5 + Math.random() * 0.5;
+
+        // Направляемся к игроку с упреждением
+        if (distXZ > 0.1) {
+          const jumpSpeed = this.speed * 1.5;
+          this.velocity.x = (dx / distXZ) * jumpSpeed;
+          this.velocity.z = (dz / distXZ) * jumpSpeed;
+        }
+      } else {
+        // Ждём на земле, немного двигаемся
+        this.velocity.x *= 0.9;
+        this.velocity.z *= 0.9;
+      }
+    } else {
+      // В воздухе
+      this.verticalVelocity -= gravity * dt;
+      
+      // Немного корректируем направление в воздухе
+      if (distXZ > 0.1) {
+        this.velocity.x += (dx / distXZ) * dt * 3;
+        this.velocity.z += (dz / distXZ) * dt * 3;
+      }
+    }
+
+    // Применяем движение
+    this.position.x += this.velocity.x * dt;
+    this.position.y += this.verticalVelocity * dt;
+    this.position.z += this.velocity.z * dt;
+
+    // Проверка земли
+    if (this.position.y <= 0.5) {
+      this.position.y = 0.5;
+      this.onGround = true;
+      this.verticalVelocity = 0;
+    }
+
+    // Максимальная высота
+    this.position.y = Math.min(6.0, this.position.y);
+  }
+
   /** Обновление осколков */
   private updateFragments(dt: number): void {
     const gravity = 15.0;
@@ -313,13 +502,26 @@ export class Target {
 
   /** Данные для шейдера [x, y, z, type+intensity] */
   public getShaderData(): [number, number, number, number] {
-    // w компонент: 0 = неактивен, 1-2 = бейнлинг, 3-4 = фантом
+    // w компонент: 0 = неактивен
+    // 1.0-1.9 = бейнлинг (зелёный)
+    // 3.0-3.9 = фантом (чёрный)
+    // 5.0-5.9 = runner (оранжевый)
+    // 7.0-7.9 = hopper (синий)
     let w = 0;
     if (this.active) {
-      if (this.enemyType === 'phantom') {
-        w = 3 + this.fireIntensity * 0.5; // 3.0 - 3.5
-      } else {
-        w = 1 + this.fireIntensity * 0.5; // 1.0 - 1.5
+      const intensity = this.fireIntensity * 0.5;
+      switch (this.enemyType) {
+        case 'phantom':
+          w = 3 + intensity;
+          break;
+        case 'runner':
+          w = 5 + intensity;
+          break;
+        case 'hopper':
+          w = 7 + intensity;
+          break;
+        default: // baneling
+          w = 1 + intensity;
       }
     }
     return [this.position.x, this.position.y, this.position.z, w];
@@ -394,28 +596,27 @@ export class TargetManager {
   /**
    * Спавн врагов по волнам:
    * - Волна 1: 1 бейнлинг
-   * - Волна 2: 2 бейнлинга
-   * - Волна 3: 3 бейнлинга + 1 фантом
-   * - Волна 4: 4 бейнлинга + 1 фантом
-   * - Волна 5: 5 бейнлингов + 2 фантома
-   * - Волна 6: 6 бейнлингов + 2 фантома
-   * - Волна 7+: +1 бейнлинг каждую волну, +1 фантом каждые 2 волны
+   * - Волна 2: 2 бейнлинга + 1 раннер
+   * - Волна 3: 3 бейнлинга + 1 фантом + 1 раннер
+   * - Волна 4: 4 бейнлинга + 1 фантом + 2 раннера + 1 хоппер
+   * - Волна 5+: всех больше!
    */
   private spawnEnemies(wave: number): void {
     const spawnRadius = 18;
     const baseSpeed = 3.5 + wave * 0.3;
 
-    // Количество бейнлингов = номер волны
+    // Количество каждого типа
     const banelingCount = wave;
-    
-    // Количество фантомов (начиная с волны 3)
     const phantomCount = wave >= 3 ? Math.floor((wave - 1) / 2) : 0;
+    const runnerCount = wave >= 2 ? Math.floor(wave / 2) : 0;
+    const hopperCount = wave >= 4 ? Math.floor((wave - 2) / 2) : 0;
 
-    const totalCount = banelingCount + phantomCount;
+    const totalCount = banelingCount + phantomCount + runnerCount + hopperCount;
+    let idx = 0;
 
-    // Спавним бейнлингов
+    // Спавним бейнлингов (зелёные)
     for (let i = 0; i < banelingCount; i++) {
-      const angle = (i / totalCount) * Math.PI * 2 + Math.random() * 0.3;
+      const angle = (idx / totalCount) * Math.PI * 2 + Math.random() * 0.3;
       const height = 1.0 + Math.random() * 2.5;
 
       const pos = vec3(
@@ -426,9 +627,40 @@ export class TargetManager {
 
       const speed = baseSpeed + Math.random() * 1.5;
       this.targets.push(new Target(pos, speed, this.enemyIdCounter++, 'baneling'));
+      idx++;
     }
 
-    // Спавним фантомов (с противоположной стороны)
+    // Спавним раннеров (оранжевые, бегут по земле)
+    for (let i = 0; i < runnerCount; i++) {
+      const angle = (idx / totalCount) * Math.PI * 2 + Math.random() * 0.3;
+
+      const pos = vec3(
+        Math.cos(angle) * spawnRadius,
+        0.5, // На земле
+        Math.sin(angle) * spawnRadius
+      );
+
+      const speed = baseSpeed + Math.random() * 1.0;
+      this.targets.push(new Target(pos, speed, this.enemyIdCounter++, 'runner'));
+      idx++;
+    }
+
+    // Спавним хопперов (синие, прыгают)
+    for (let i = 0; i < hopperCount; i++) {
+      const angle = (idx / totalCount) * Math.PI * 2 + Math.random() * 0.3;
+
+      const pos = vec3(
+        Math.cos(angle) * spawnRadius,
+        0.5, // Стартуют на земле
+        Math.sin(angle) * spawnRadius
+      );
+
+      const speed = baseSpeed + Math.random() * 1.0;
+      this.targets.push(new Target(pos, speed, this.enemyIdCounter++, 'hopper'));
+      idx++;
+    }
+
+    // Спавним фантомов (чёрные)
     for (let i = 0; i < phantomCount; i++) {
       const angle = ((banelingCount + i) / totalCount) * Math.PI * 2 + Math.random() * 0.3;
       const height = 1.5 + Math.random() * 2.0; // Выше стартуют

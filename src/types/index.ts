@@ -163,7 +163,9 @@ export type SFXType =
   | 'hit'
   | 'kill'
   | 'ambient'
-  | 'phantom_pass';
+  | 'phantom_pass'
+  | 'runner_hit'
+  | 'hopper_hit';
 
 // ========== РЕНДЕРИНГ ==========
 

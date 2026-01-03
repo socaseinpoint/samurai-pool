@@ -37,6 +37,17 @@ export class Player {
   private targetYaw = 0;
   private targetPitch = -0.05;
 
+  /** Двойной прыжок использован? */
+  private doubleJumpUsed = false;
+
+  /** Режим буйства */
+  public rageMode = false;
+  public rageModeTimer = 0;
+
+  /** Модификатор скорости (стимпак) */
+  public speedBoost = 1.0;
+  public speedBoostTimer = 0;
+
   constructor(
     startPosition: Vec3 = vec3(0, 1.7, 5),
     config: Partial<MovementConfig> = {},
@@ -59,11 +70,43 @@ export class Player {
 
   /** Обновление игрока */
   public update(dt: number, input: InputState, mouseDelta: { x: number; y: number }): void {
+    // Обновляем таймеры буйства и скорости
+    if (this.rageModeTimer > 0) {
+      this.rageModeTimer -= dt;
+      if (this.rageModeTimer <= 0) {
+        this.rageMode = false;
+      }
+    }
+    if (this.speedBoostTimer > 0) {
+      this.speedBoostTimer -= dt;
+      if (this.speedBoostTimer <= 0) {
+        this.speedBoost = 1.0;
+      }
+    }
+
     // Обновляем камеру
     this.updateCamera(mouseDelta);
 
     // Обновляем движение
     this.updateMovement(dt, input);
+  }
+
+  /** Активировать стимпак */
+  public activateStimpack(): void {
+    this.rageMode = true;
+    this.rageModeTimer = 8.0; // 8 секунд буйства
+    this.speedBoost = 1.8; // +80% скорости
+    this.speedBoostTimer = 8.0;
+  }
+
+  /** Попытка двойного прыжка - возвращает true если выполнен */
+  public tryDoubleJump(): boolean {
+    if (!this.state.grounded && !this.doubleJumpUsed) {
+      this.doubleJumpUsed = true;
+      this.state.velocity.y = this.config.jumpForce * 0.9; // Чуть слабее обычного
+      return true;
+    }
+    return false;
   }
 
   /** Обновление камеры - быстрое и лёгкое */
@@ -106,8 +149,9 @@ export class Player {
     const worldMoveX = moveX * cos - moveZ * sin;
     const worldMoveZ = moveX * sin + moveZ * cos;
 
-    // Скорость (бег или ходьба)
-    const speed = input.run ? config.runSpeed : config.walkSpeed;
+    // Скорость (бег или ходьба) с учётом буста
+    const baseSpeed = input.run ? config.runSpeed : config.walkSpeed;
+    const speed = baseSpeed * this.speedBoost;
 
     // Целевая скорость
     const targetVx = worldMoveX * speed;
@@ -189,6 +233,7 @@ export class Player {
         state.position.y = minY;
         state.velocity.y = 0;
         state.grounded = true;
+        this.doubleJumpUsed = false; // Сброс двойного прыжка
       } else {
         // Ещё летим
         const testPosY = { x: state.position.x, y: newPosY, z: state.position.z };

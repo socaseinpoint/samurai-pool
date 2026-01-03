@@ -285,48 +285,72 @@ float map(vec3 p) {
   }
   
   // === ВРАГИ ===
+  // w: 0=неактивен, 1-2=бейнлинг, 3-4=фантом, 5-6=runner, 7-8=hopper
   for (int i = 0; i < u_targetCount; i++) {
     if (i >= 16) break;
     vec4 target = u_targets[i];
-    // w: 0 = неактивен, 1-2 = бейнлинг, 3-4 = фантом
     if (target.w > 0.5) {
       vec3 tp = p - target.xyz;
-      bool isPhantom = target.w >= 2.5;
+      int enemyType = int(target.w / 2.0); // 0=baneling, 1=phantom, 2=runner, 3=hopper
       
       float targetD;
       int matId;
       
-      if (isPhantom) {
-        // === ФАНТОМ (чёрный шар с искажениями) ===
-        // Быстрое искажение
+      if (enemyType == 1) {
+        // === ФАНТОМ (чёрный шар) ===
         float distort = sin(u_time * 8.0 + tp.x * 5.0) * 0.08
                       + sin(u_time * 7.0 + tp.z * 6.0) * 0.06;
-        
         float radius = 0.55 + distort;
         targetD = sdSphere(tp, radius);
         
-        // Тёмный шлейф/хвост
         vec3 trail = tp + vec3(0.0, 0.0, 0.3);
         float trailD = sdSphere(trail, 0.3) - 0.1;
         targetD = min(targetD, trailD);
+        matId = 5;
         
-        matId = 5; // Материал фантома
+      } else if (enemyType == 2) {
+        // === RUNNER (оранжевый, вытянутый) ===
+        // Вытянутая форма для ощущения скорости
+        vec3 stretched = tp;
+        stretched.x *= 0.6; // Сжимаем по X
+        float radius = 0.35;
+        targetD = sdSphere(stretched, radius);
+        
+        // "Следы" скорости
+        float speedTrail = sdSphere(tp + vec3(0.3, 0.0, 0.0), 0.2);
+        speedTrail = min(speedTrail, sdSphere(tp + vec3(0.5, 0.0, 0.0), 0.12));
+        targetD = min(targetD, speedTrail);
+        matId = 6;
+        
+      } else if (enemyType == 3) {
+        // === HOPPER (синий, пружинистый) ===
+        // Основное тело
+        float squeeze = 1.0 + sin(u_time * 12.0) * 0.15; // Пульсация
+        vec3 squashed = tp;
+        squashed.y *= squeeze;
+        float radius = 0.45;
+        targetD = sdSphere(squashed, radius);
+        
+        // "Уши" или антенны
+        vec3 ear1 = tp - vec3(0.2, 0.4, 0.0);
+        vec3 ear2 = tp - vec3(-0.2, 0.4, 0.0);
+        float ears = min(sdSphere(ear1, 0.12), sdSphere(ear2, 0.12));
+        targetD = min(targetD, ears);
+        matId = 7;
+        
       } else {
         // === БЕЙНЛИНГ (зелёная жижа) ===
         float wobble = sin(u_time * 4.0 + tp.x * 3.0) * 0.1
                      + sin(u_time * 3.0 + tp.y * 4.0) * 0.1
                      + sin(u_time * 5.0 + tp.z * 2.0) * 0.08;
-        
         float radius = 0.7 + wobble;
         targetD = sdSphere(tp, radius);
         
-        // Пузыри на поверхности
         float bubbles = sin(tp.x * 8.0 + u_time * 2.0) 
                       * sin(tp.y * 8.0 + u_time * 1.5) 
                       * sin(tp.z * 8.0 + u_time * 2.5) * 0.05;
         targetD += bubbles;
-        
-        matId = 4; // Материал бейнлинга
+        matId = 4;
       }
       
       if (targetD < d) {
@@ -474,25 +498,61 @@ void main() {
       vec3 voidBlack = vec3(0.02, 0.02, 0.05);
       vec3 darkPurple = vec3(0.1, 0.0, 0.15);
       
-      // Мерцание тёмной энергии
       float flicker = 0.6 + 0.4 * sin(u_time * 12.0 + p.x * 5.0);
       float flicker2 = 0.7 + 0.3 * sin(u_time * 15.0 + p.z * 4.0);
       
       color = mix(voidBlack, darkPurple, flicker * flicker2 * 0.3);
       
-      // Тёмное свечение по краям (обратный Френель)
       float fresnel = pow(1.0 - max(0.0, dot(-rd, n)), 2.0);
       vec3 edgeGlow = vec3(0.3, 0.0, 0.5) * fresnel * 0.8;
       color += edgeGlow;
       
-      // Искры тёмной энергии
       float spark = sin(u_time * 20.0 + p.y * 10.0) * sin(u_time * 18.0 + p.x * 8.0);
       if (spark > 0.9) {
         color += vec3(0.5, 0.2, 0.8) * 0.5;
       }
-      
-      // Поглощение света (почти не отражает)
       color *= 0.6;
+      
+    } else if (mat == 6) {
+      // === RUNNER (оранжевый, огненный) ===
+      vec3 orange = vec3(1.0, 0.5, 0.0);
+      vec3 yellow = vec3(1.0, 0.9, 0.2);
+      vec3 red = vec3(1.0, 0.2, 0.0);
+      
+      // Быстрое мерцание как пламя
+      float flame = 0.5 + 0.5 * sin(u_time * 20.0 + p.x * 8.0);
+      float flame2 = 0.6 + 0.4 * sin(u_time * 25.0 + p.z * 10.0);
+      
+      color = mix(red, orange, flame);
+      color = mix(color, yellow, flame2 * 0.4);
+      color *= 1.8; // Яркий!
+      
+      // Свечение по краям
+      float fresnel = pow(1.0 - max(0.0, dot(-rd, n)), 2.0);
+      color += vec3(1.0, 0.8, 0.3) * fresnel * 0.6;
+      
+    } else if (mat == 7) {
+      // === HOPPER (синий, электрический) ===
+      vec3 cyan = vec3(0.0, 0.8, 1.0);
+      vec3 blue = vec3(0.1, 0.3, 1.0);
+      vec3 white = vec3(0.9, 0.95, 1.0);
+      
+      // Электрические разряды
+      float spark1 = sin(u_time * 30.0 + p.y * 15.0);
+      float spark2 = sin(u_time * 35.0 + p.x * 12.0);
+      float electric = spark1 * spark2;
+      
+      color = mix(blue, cyan, 0.5 + 0.5 * sin(u_time * 8.0));
+      
+      // Яркие вспышки
+      if (electric > 0.8) {
+        color = mix(color, white, 0.7);
+      }
+      color *= 1.5;
+      
+      // Свечение
+      float fresnel = pow(1.0 - max(0.0, dot(-rd, n)), 2.5);
+      color += vec3(0.3, 0.6, 1.0) * fresnel * 0.8;
       
     } else {
       // === ПОЛ / СТЕНЫ ===

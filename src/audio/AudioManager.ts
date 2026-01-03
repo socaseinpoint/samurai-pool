@@ -107,7 +107,18 @@ export class AudioManager {
   public toggleMute(): void {
     this.isMuted = !this.isMuted;
     if (this.masterGain) {
-      this.masterGain.gain.value = this.isMuted ? 0 : 0.8;
+      this.masterGain.gain.value = this.isMuted ? 0 : this.volume;
+    }
+  }
+
+  /** Громкость (0-1) */
+  private volume = 0.5;
+
+  /** Установить громкость */
+  public setVolume(value: number): void {
+    this.volume = Math.max(0, Math.min(1, value));
+    if (this.masterGain && !this.isMuted) {
+      this.masterGain.gain.value = this.volume;
     }
   }
 
@@ -140,7 +151,13 @@ export class AudioManager {
         this.playBanelingExplosion(); // Взрыв бейнлинга!
         break;
       case 'phantom_pass':
-        this.playPhantomPass(); // Фантом пролетел сквозь!
+        this.playPhantomPass();
+        break;
+      case 'runner_hit':
+        this.playRunnerHit();
+        break;
+      case 'hopper_hit':
+        this.playHopperHit();
         break;
       case 'kill':
         this.playKill();
@@ -331,6 +348,129 @@ export class AudioManager {
     whisper.connect(whisperFilter);
     whisperFilter.connect(whisperGain);
     whisperGain.connect(this.sfxGain);
+  }
+
+  /** Runner врезался - быстрый огненный удар */
+  private playRunnerHit(): void {
+    if (!this.ctx || !this.sfxGain) return;
+
+    const now = this.ctx.currentTime;
+
+    // Быстрый свист
+    const swoosh = this.ctx.createOscillator();
+    const swooshGain = this.ctx.createGain();
+
+    swoosh.type = 'sawtooth';
+    swoosh.frequency.setValueAtTime(800, now);
+    swoosh.frequency.exponentialRampToValueAtTime(200, now + 0.15);
+
+    swooshGain.gain.setValueAtTime(0.3, now);
+    swooshGain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+
+    swoosh.connect(swooshGain);
+    swooshGain.connect(this.sfxGain);
+
+    swoosh.start(now);
+    swoosh.stop(now + 0.25);
+
+    // Огненный треск
+    for (let i = 0; i < 4; i++) {
+      const crackle = this.ctx.createOscillator();
+      const crackleGain = this.ctx.createGain();
+
+      crackle.type = 'square';
+      crackle.frequency.value = 1000 + Math.random() * 2000;
+
+      const t = now + i * 0.03;
+      crackleGain.gain.setValueAtTime(0.15, t);
+      crackleGain.gain.setValueAtTime(0, t + 0.02);
+
+      crackle.connect(crackleGain);
+      crackleGain.connect(this.sfxGain);
+
+      crackle.start(t);
+      crackle.stop(t + 0.03);
+    }
+
+    // Низкий удар
+    const impact = this.ctx.createOscillator();
+    const impactGain = this.ctx.createGain();
+
+    impact.type = 'sine';
+    impact.frequency.setValueAtTime(120, now);
+    impact.frequency.exponentialRampToValueAtTime(40, now + 0.15);
+
+    impactGain.gain.setValueAtTime(0.4, now);
+    impactGain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+
+    impact.connect(impactGain);
+    impactGain.connect(this.sfxGain);
+
+    impact.start(now);
+    impact.stop(now + 0.25);
+  }
+
+  /** Hopper приземлился на игрока - электрический удар сверху */
+  private playHopperHit(): void {
+    if (!this.ctx || !this.sfxGain) return;
+
+    const now = this.ctx.currentTime;
+
+    // Электрический разряд (высокий → низкий)
+    const zap = this.ctx.createOscillator();
+    const zapGain = this.ctx.createGain();
+    const zapFilter = this.ctx.createBiquadFilter();
+
+    zap.type = 'sawtooth';
+    zap.frequency.setValueAtTime(2000, now);
+    zap.frequency.exponentialRampToValueAtTime(100, now + 0.2);
+
+    zapFilter.type = 'bandpass';
+    zapFilter.frequency.value = 1500;
+    zapFilter.Q.value = 3;
+
+    zapGain.gain.setValueAtTime(0.35, now);
+    zapGain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+
+    zap.connect(zapFilter);
+    zapFilter.connect(zapGain);
+    zapGain.connect(this.sfxGain);
+    zapGain.connect(this.reverb!);
+
+    zap.start(now);
+    zap.stop(now + 0.3);
+
+    // Тяжёлый удар сверху
+    const thud = this.ctx.createOscillator();
+    const thudGain = this.ctx.createGain();
+
+    thud.type = 'sine';
+    thud.frequency.setValueAtTime(80, now + 0.05);
+    thud.frequency.exponentialRampToValueAtTime(25, now + 0.3);
+
+    thudGain.gain.setValueAtTime(0.5, now + 0.05);
+    thudGain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+
+    thud.connect(thudGain);
+    thudGain.connect(this.sfxGain);
+
+    thud.start(now + 0.05);
+    thud.stop(now + 0.4);
+
+    // Искры (шум)
+    const sparks = this.createNoise(0.25);
+    const sparksGain = this.ctx.createGain();
+    const sparksFilter = this.ctx.createBiquadFilter();
+
+    sparksFilter.type = 'highpass';
+    sparksFilter.frequency.value = 3000;
+
+    sparksGain.gain.setValueAtTime(0.2, now);
+    sparksGain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+
+    sparks.connect(sparksFilter);
+    sparksFilter.connect(sparksGain);
+    sparksGain.connect(this.sfxGain);
   }
 
   /** Звук взмаха катаны - свист + энергия */

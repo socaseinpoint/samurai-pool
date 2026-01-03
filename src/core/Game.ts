@@ -5,6 +5,7 @@ import { Player } from '@/player/Player';
 import { Weapon } from '@/weapon/Weapon';
 import { WeaponRenderer } from '@/weapon/WeaponRenderer';
 import { TargetManager } from '@/enemies/Target';
+import { PickupManager } from '@/items/Pickup';
 import { AudioManager } from '@/audio/AudioManager';
 import { WebGLRenderer } from '@/render/WebGLRenderer';
 import { HUD } from '@/render/HUD';
@@ -60,6 +61,7 @@ export class Game {
   private weapon: Weapon;
   private weaponRenderer: WeaponRenderer;
   private targetManager: TargetManager;
+  private pickupManager: PickupManager;
   private audio: AudioManager;
   private renderer: WebGLRenderer;
   private hud: HUD;
@@ -114,6 +116,9 @@ export class Game {
     this.targetManager = new TargetManager();
     this.setupTargetCallbacks();
 
+    // Предметы
+    this.pickupManager = new PickupManager();
+
     // Игровой цикл
     this.gameLoop = new GameLoop(
       (dt) => this.update(dt),
@@ -129,10 +134,13 @@ export class Game {
 
   /** Настройка callbacks для врагов */
   private setupTargetCallbacks(): void {
-    this.targetManager.onTargetDestroyed = (_target) => {
+    this.targetManager.onTargetDestroyed = (target) => {
       this.state.frags++;
       this.audio.playSFX('kill');
       this.hud.showHitmarker(true);
+      
+      // Шанс выпадения предмета
+      this.pickupManager.spawnAfterKill(target.position);
     };
 
     this.targetManager.onPlayerHit = (target) => {
@@ -140,14 +148,29 @@ export class Game {
       this.player.takeDamage(target.damage);
       
       // Разные эффекты для разных врагов
-      if (target.enemyType === 'phantom') {
-        this.audio.playSFX('phantom_pass');
-        this.screenShake = 0.3; // Меньше тряски
-        this.hud.showDamage('purple'); // Фиолетовая вспышка
-      } else {
-        this.audio.playSFX('hit');
-        this.screenShake = 0.5;
-        this.hud.showDamage('green'); // Зелёная вспышка
+      switch (target.enemyType) {
+        case 'phantom':
+          this.audio.playSFX('phantom_pass');
+          this.screenShake = 0.3;
+          this.hud.showDamage('purple');
+          // ЗАМЕДЛЕНИЕ! Фантом как чёрная дыра
+          this.slowdownFactor = 0.3;
+          this.slowdownTimer = 2.0; // 2 секунды
+          break;
+        case 'runner':
+          this.audio.playSFX('runner_hit');
+          this.screenShake = 0.4;
+          this.hud.showDamage('green');
+          break;
+        case 'hopper':
+          this.audio.playSFX('hopper_hit');
+          this.screenShake = 0.6; // Сильная тряска - прыгнул сверху!
+          this.hud.showDamage('green');
+          break;
+        default:
+          this.audio.playSFX('hit');
+          this.screenShake = 0.5;
+          this.hud.showDamage('green');
       }
     };
 
@@ -160,8 +183,38 @@ export class Game {
     };
   }
 
+  /** Замедление от фантомов */
+  private slowdownFactor = 1.0;
+  private slowdownTimer = 0;
+
   /** Настройка обработчиков событий */
   private setupEventHandlers(): void {
+    // Обработчики слайдеров
+    const volumeSlider = document.getElementById('volume-slider') as HTMLInputElement;
+    const volumeValue = document.getElementById('volume-value');
+    const sensSlider = document.getElementById('sens-slider') as HTMLInputElement;
+    const sensValue = document.getElementById('sens-value');
+
+    volumeSlider?.addEventListener('input', (e) => {
+      e.stopPropagation(); // Не запускаем игру при клике на слайдер
+      const value = parseInt(volumeSlider.value);
+      if (volumeValue) volumeValue.textContent = `${value}%`;
+      this.audio.setVolume(value / 100);
+    });
+
+    sensSlider?.addEventListener('input', (e) => {
+      e.stopPropagation();
+      const value = parseInt(sensSlider.value);
+      if (sensValue) sensValue.textContent = `${value}%`;
+      // Чувствительность от 0.001 до 0.01
+      this.input.setSensitivity(0.001 + (value / 100) * 0.009);
+    });
+
+    // Предотвращаем запуск игры при клике на слайдеры
+    document.getElementById('settings')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+    });
+
     this.startScreen?.addEventListener('click', () => this.start());
 
     document.addEventListener('keydown', (e) => {
@@ -179,6 +232,17 @@ export class Game {
   /** Запуск игры */
   public start(): void {
     if (this.state.isRunning) return;
+
+    // Читаем настройки
+    const volumeSlider = document.getElementById('volume-slider') as HTMLInputElement;
+    const sensSlider = document.getElementById('sens-slider') as HTMLInputElement;
+    
+    if (volumeSlider) {
+      this.audio.setVolume(parseInt(volumeSlider.value) / 100);
+    }
+    if (sensSlider) {
+      this.input.setSensitivity(0.001 + (parseInt(sensSlider.value) / 100) * 0.009);
+    }
 
     if (this.startScreen) {
       this.startScreen.style.display = 'none';
@@ -208,8 +272,20 @@ export class Game {
 
     this.gameTime += dt;
 
-    // Обновляем игрока
-    this.player.update(dt, this.input.state, this.input.mouseDelta);
+    // Обновляем таймер замедления
+    if (this.slowdownTimer > 0) {
+      this.slowdownTimer -= dt;
+      if (this.slowdownTimer <= 0) {
+        this.slowdownFactor = 1.0;
+      }
+    }
+
+    // Обновляем игрока с учётом замедления
+    const effectiveDt = dt * this.slowdownFactor;
+    this.player.update(effectiveDt, this.input.state, {
+      x: this.input.mouseDelta.x * this.slowdownFactor,
+      y: this.input.mouseDelta.y * this.slowdownFactor
+    });
     this.input.resetMouseDelta();
 
     // Звуки движения
@@ -249,10 +325,27 @@ export class Game {
     const playerPos = this.player.getEyePosition();
     this.targetManager.update(dt, playerPos, this.gameTime);
 
+    // Проверяем прицепившихся раннеров
+    this.checkAttachedRunners();
+
+    // Двойной прыжок для скидывания раннера
+    if (this.input.state.jump && !this.player.state.grounded) {
+      if (this.player.tryDoubleJump()) {
+        // Пробуем скинуть раннеров
+        this.detachRunners();
+        this.audio.playSFX('jump');
+      }
+    }
+
+    // Обновляем предметы
+    const pickedUp = this.pickupManager.update(dt, this.gameTime, playerPos);
+    if (pickedUp) {
+      this.onPickup(pickedUp);
+    }
+
     // Звук приближения ближайшего врага
     const closestDist = this.targetManager.getClosestEnemyDistance(playerPos);
     if (closestDist < 15) {
-      // proximity от 0 (далеко) до 1 (очень близко)
       const proximity = Math.max(0, 1 - closestDist / 15);
       this.audio.updateProximitySound(proximity);
     } else {
@@ -317,6 +410,59 @@ export class Game {
     this.state.frags = 0;
     this.state.isPaused = false;
     this.targetManager.startGame();
+    this.pickupManager.pickups = [];
+  }
+
+  /** Проверка прицепившихся раннеров */
+  private checkAttachedRunners(): void {
+    for (const target of this.targetManager.targets) {
+      if (target.enemyType === 'runner' && target.isAttached) {
+        // Раннер прицепился - урон когда время выйдет
+        if (target.attachTimer <= 0 && target.active === false) {
+          this.player.takeDamage(target.damage);
+          this.audio.playSFX('runner_hit');
+          this.screenShake = 0.6;
+          this.hud.showDamage('green');
+          this.hud.showMessage('⚠️ РАННЕР УКУСИЛ!', 'orange');
+        }
+      }
+    }
+  }
+
+  /** Скинуть раннеров двойным прыжком */
+  private detachRunners(): void {
+    let detached = false;
+    for (const target of this.targetManager.targets) {
+      if (target.enemyType === 'runner' && target.isAttached) {
+        target.detachRunner();
+        detached = true;
+      }
+    }
+    if (detached) {
+      this.hud.showMessage('✓ РАННЕР СБРОШЕН!', 'cyan');
+    }
+  }
+
+  /** Подбор предмета */
+  private onPickup(type: string): void {
+    if (type === 'health') {
+      // Аптечка - восстанавливает HP
+      const heal = 30;
+      this.player.state.health = Math.min(
+        this.player.state.maxHealth,
+        this.player.state.health + heal
+      );
+      this.audio.playSFX('jump'); // Временный звук
+      this.hud.showMessage('+' + heal + ' HP', 'lime');
+      this.hud.updateHealth(this.player.state.health, this.player.state.maxHealth);
+      
+    } else if (type === 'stimpack') {
+      // Стимпак - буйство!
+      this.player.activateStimpack();
+      this.audio.playSFX('kill'); // Временный звук
+      this.hud.showMessage('🔥 БУЙСТВО! 🔥', 'red');
+      this.hud.showRageOverlay(8.0);
+    }
   }
 
   /** Рендеринг */

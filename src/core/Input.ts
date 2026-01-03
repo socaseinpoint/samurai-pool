@@ -24,7 +24,12 @@ export class Input {
   public isPointerLocked = false;
 
   /** Чувствительность мыши (выше = быстрее) */
-  public sensitivity = 0.006;
+  public sensitivity = 0.005;
+
+  /** Установить чувствительность */
+  public setSensitivity(value: number): void {
+    this.sensitivity = Math.max(0.001, Math.min(0.015, value));
+  }
 
   /** Инвертировать ось X */
   public invertX = true;
