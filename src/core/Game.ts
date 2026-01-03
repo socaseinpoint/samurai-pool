@@ -1,4 +1,4 @@
-import type { GameState, GameConfig } from '@/types';
+import type { GameState, GameConfig, Vec3 } from '@/types';
 import { GameLoop } from './GameLoop';
 import { Input } from './Input';
 import { Player } from '@/player/Player';
