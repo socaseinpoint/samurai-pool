@@ -290,6 +290,17 @@ export class Game {
         this.screenShake = 1.5; // Сильная тряска
       }
     };
+
+    // Вихрь чёрного босса
+    this.targetManager.onBossVortexStart = () => {
+      this.audio.playVortexSound(true);
+      this.hud.showMessage('🌀 ВИХРЬ! БЕГИ! 🌀', 'purple');
+      this.screenShake = 1.0;
+    };
+
+    this.targetManager.onBossVortexEnd = () => {
+      this.audio.playVortexSound(false);
+    };
   }
 
   /** Замедление от фантомов */
@@ -422,6 +433,15 @@ export class Game {
       y: this.input.mouseDelta.y * this.slowdownFactor
     });
     this.input.resetMouseDelta();
+
+    // Притяжение вихря чёрного босса
+    const vortexPull = this.targetManager.getVortexPull(this.player.state.position);
+    if (vortexPull.x !== 0 || vortexPull.z !== 0) {
+      this.player.state.position.x += vortexPull.x * dt;
+      this.player.state.position.z += vortexPull.z * dt;
+      // Тряска экрана во время вихря
+      this.screenShake = Math.max(this.screenShake, 0.3);
+    }
 
     // Звуки движения
     this.updateMovementSounds(dt);

@@ -1907,6 +1907,102 @@ export class AudioManager {
     this.musicIntervals.push(setInterval(playAlarm, 2000) as unknown as number);
   }
 
+  /** Звук вихря чёрного босса */
+  private vortexGain: GainNode | null = null;
+  private vortexOsc: OscillatorNode | null = null;
+  private vortexNoise: AudioBufferSourceNode | null = null;
+
+  public playVortexSound(start: boolean): void {
+    if (!this.ctx || !this.masterGain) return;
+
+    if (start) {
+      // === ЗАПУСК ВИХРЯ ===
+      
+      // Создаём gain
+      this.vortexGain = this.ctx.createGain();
+      this.vortexGain.gain.value = 0;
+      this.vortexGain.connect(this.masterGain);
+
+      // Низкий гудящий осциллятор (ветер)
+      this.vortexOsc = this.ctx.createOscillator();
+      this.vortexOsc.type = 'sawtooth';
+      this.vortexOsc.frequency.value = 60;
+      
+      const oscGain = this.ctx.createGain();
+      oscGain.gain.value = 0.15;
+      
+      // LFO для модуляции частоты (эффект вращения)
+      const lfo = this.ctx.createOscillator();
+      lfo.type = 'sine';
+      lfo.frequency.value = 3; // 3 оборота в секунду
+      
+      const lfoGain = this.ctx.createGain();
+      lfoGain.gain.value = 30; // Модуляция ±30 Гц
+      
+      lfo.connect(lfoGain);
+      lfoGain.connect(this.vortexOsc.frequency);
+      
+      // Фильтр для глубокого звука
+      const lowpass = this.ctx.createBiquadFilter();
+      lowpass.type = 'lowpass';
+      lowpass.frequency.value = 200;
+      lowpass.Q.value = 5;
+      
+      this.vortexOsc.connect(lowpass);
+      lowpass.connect(oscGain);
+      oscGain.connect(this.vortexGain);
+      
+      // Шум ветра
+      const noiseBuffer = this.ctx.createBuffer(1, this.ctx.sampleRate * 4, this.ctx.sampleRate);
+      const noiseData = noiseBuffer.getChannelData(0);
+      for (let i = 0; i < noiseData.length; i++) {
+        noiseData[i] = (Math.random() * 2 - 1) * 0.5;
+      }
+      
+      this.vortexNoise = this.ctx.createBufferSource();
+      this.vortexNoise.buffer = noiseBuffer;
+      this.vortexNoise.loop = true;
+      
+      const noiseFilter = this.ctx.createBiquadFilter();
+      noiseFilter.type = 'bandpass';
+      noiseFilter.frequency.value = 400;
+      noiseFilter.Q.value = 2;
+      
+      const noiseGain = this.ctx.createGain();
+      noiseGain.gain.value = 0.3;
+      
+      this.vortexNoise.connect(noiseFilter);
+      noiseFilter.connect(noiseGain);
+      noiseGain.connect(this.vortexGain);
+      
+      // Запускаем всё
+      this.vortexOsc.start();
+      lfo.start();
+      this.vortexNoise.start();
+      
+      // Плавное нарастание
+      this.vortexGain.gain.linearRampToValueAtTime(0.5, this.ctx.currentTime + 0.5);
+      
+    } else {
+      // === ОСТАНОВКА ВИХРЯ ===
+      if (this.vortexGain) {
+        this.vortexGain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.5);
+      }
+      
+      setTimeout(() => {
+        if (this.vortexOsc) {
+          try { this.vortexOsc.stop(); } catch (e) {}
+          this.vortexOsc = null;
+        }
+        if (this.vortexNoise) {
+          try { this.vortexNoise.stop(); } catch (e) {}
+          this.vortexNoise = null;
+        }
+        this.vortexGain = null;
+      }, 600);
+    }
+  }
+
   /** Музыка Зелёного Босса - КИСЛОТНОЕ ТЕХНО (Acid Techno) */
   private playBossGreenMusic(): void {
     if (!this.ctx || !this.musicGain) return;

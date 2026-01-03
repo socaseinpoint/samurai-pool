@@ -116,6 +116,21 @@ export class Target {
   /** Чёрный босс: интенсивность искривления */
   public distortionPower = 0;
 
+  /** Чёрный босс: таймер спавна фантома */
+  private spawnPhantomTimer = 5.0;
+
+  /** Чёрный босс: фаза вихря (всасывание) */
+  public isVortexActive = false;
+  private vortexTimer = 0;
+  private vortexCooldown = 0;
+
+  /** Чёрный босс: колбэк спавна фантома */
+  public onSpawnPhantom?: (pos: Vec3) => void;
+
+  /** Чёрный босс: колбэк начала вихря (для звука) */
+  public onVortexStart?: () => void;
+  public onVortexEnd?: () => void;
+
   /** Зелёный босс: таймер создания лужи */
   private poolTimer = 0;
 
@@ -589,6 +604,51 @@ export class Target {
     const dz = playerPos.z - this.position.z;
     const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
+    // === СПАВН ФАНТОМОВ КАЖДЫЕ 5 СЕКУНД ===
+    this.spawnPhantomTimer -= dt;
+    if (this.spawnPhantomTimer <= 0) {
+      this.spawnPhantomTimer = 5.0;
+      // Спавним фантома рядом с боссом
+      const spawnAngle = Math.random() * Math.PI * 2;
+      const spawnDist = 3 + Math.random() * 2;
+      const spawnPos = vec3(
+        this.position.x + Math.cos(spawnAngle) * spawnDist,
+        this.position.y,
+        this.position.z + Math.sin(spawnAngle) * spawnDist
+      );
+      this.onSpawnPhantom?.(spawnPos);
+    }
+
+    // === ФАЗА ВИХРЯ (ВСАСЫВАНИЕ) ===
+    this.vortexCooldown -= dt;
+    
+    if (this.isVortexActive) {
+      // Вихрь активен - всасываем игрока
+      this.vortexTimer -= dt;
+      
+      // Босс крутится на месте
+      this.position.y = 2.0 + Math.sin(time * 10) * 0.3;
+      
+      // Интенсивное искривление
+      this.distortionPower = 1.5 + Math.sin(time * 15) * 0.5;
+      
+      if (this.vortexTimer <= 0) {
+        // Вихрь закончился
+        this.isVortexActive = false;
+        this.vortexCooldown = 12.0; // Кулдаун 12 секунд
+        this.onVortexEnd?.();
+      }
+      return; // Не двигаемся во время вихря
+    }
+    
+    // Начинаем вихрь каждые 12 секунд (если игрок близко)
+    if (this.vortexCooldown <= 0 && dist < 15) {
+      this.isVortexActive = true;
+      this.vortexTimer = 4.0; // Вихрь длится 4 секунды
+      this.onVortexStart?.();
+    }
+
+    // === ОБЫЧНОЕ ДВИЖЕНИЕ ===
     // Орбитальное движение вокруг центра + приближение к игроку
     const orbitSpeed = 0.5;
     const orbitRadius = 8 + Math.sin(time * 0.3) * 3;
@@ -610,6 +670,26 @@ export class Target {
 
     // Интенсивность искривления зависит от расстояния до игрока
     this.distortionPower = Math.max(0, 1.0 - dist / 20);
+  }
+
+  /** Получить силу притяжения вихря (для игрока) */
+  public getVortexPull(playerPos: Vec3): Vec3 {
+    if (!this.isVortexActive) return vec3(0, 0, 0);
+    
+    const dx = this.position.x - playerPos.x;
+    const dz = this.position.z - playerPos.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);
+    
+    if (dist < 0.5) return vec3(0, 0, 0);
+    
+    // Сила притяжения - сильнее когда ближе
+    const pullStrength = Math.max(0, 1 - dist / 20) * 15;
+    
+    return vec3(
+      (dx / dist) * pullStrength,
+      0,
+      (dz / dist) * pullStrength
+    );
   }
 
   /** Синий босс - телепортируется */
@@ -924,6 +1004,10 @@ export class TargetManager {
   /** Callback при смене фазы босса */
   public onBossPhaseChange?: (bossType: EnemyType, phase: number) => void;
 
+  /** Callback при начале/конце вихря чёрного босса */
+  public onBossVortexStart?: () => void;
+  public onBossVortexEnd?: () => void;
+
   /** Токсичные лужи */
   public toxicPools: ToxicPool[] = [];
 
@@ -992,7 +1076,22 @@ export class TargetManager {
     } else if (wave === 10) {
       // ЧЁРНЫЙ БОСС!
       const pos = vec3(0, 2.5, -spawnRadius);
-      this.targets.push(new Target(pos, baseSpeed, this.enemyIdCounter++, 'boss_black', this.collision || undefined));
+      const boss = new Target(pos, baseSpeed, this.enemyIdCounter++, 'boss_black', this.collision || undefined);
+      
+      // Колбэк для спавна фантомов
+      boss.onSpawnPhantom = (spawnPos) => {
+        this.spawnPhantomFromBoss(spawnPos);
+      };
+      
+      // Колбэки для вихря (звук)
+      boss.onVortexStart = () => {
+        this.onBossVortexStart?.();
+      };
+      boss.onVortexEnd = () => {
+        this.onBossVortexEnd?.();
+      };
+      
+      this.targets.push(boss);
     } else if (wave === 15) {
       // СИНИЙ БОСС!
       const pos = vec3(0, 2.0, -spawnRadius);
@@ -1371,6 +1470,23 @@ export class TargetManager {
     );
     
     this.targets.push(baneling);
+  }
+
+  /** Спавн фантома из Чёрного Босса */
+  private spawnPhantomFromBoss(spawnPos: Vec3): void {
+    const speed = 8 + Math.random() * 4;
+    const phantom = new Target(spawnPos, speed, this.enemyIdCounter++, 'phantom', this.collision || undefined);
+    this.targets.push(phantom);
+  }
+
+  /** Получить силу притяжения вихря для игрока */
+  public getVortexPull(playerPos: Vec3): Vec3 {
+    for (const target of this.targets) {
+      if (target.active && target.enemyType === 'boss_black') {
+        return target.getVortexPull(playerPos);
+      }
+    }
+    return vec3(0, 0, 0);
   }
 
   /** Количество активных врагов */
