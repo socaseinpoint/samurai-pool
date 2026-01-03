@@ -274,6 +274,7 @@ export class Player {
         state.position.y = minY;
         state.velocity.y = 0;
         state.grounded = true;
+        this.canDoubleJump = false; // Сброс разрешения на двойной прыжок
       } else {
         // Ещё летим
         const testPosY = { x: state.position.x, y: newPosY, z: state.position.z };
