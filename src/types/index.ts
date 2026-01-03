@@ -216,6 +216,10 @@ export interface ICollisionSystem {
   getFloorHeight(pos: Vec3): number;
   /** Получить высоту потолка в точке */
   getCeilingHeight(pos: Vec3): number;
+  /** Проверить коллизию для врага */
+  checkEnemyCollision?(pos: Vec3, radius: number): boolean;
+  /** Получить высоту препятствия перед врагом */
+  getObstacleHeight?(pos: Vec3, dirX: number, dirZ: number, checkDist?: number): number;
 }
 
 // ========== ИГРА ==========

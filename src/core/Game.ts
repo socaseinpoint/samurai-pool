@@ -121,8 +121,8 @@ export class Game {
     this.renderer.renderScale = this.config.renderScale;
     this.weaponRenderer = new WeaponRenderer(weaponCanvas);
 
-    // Враги
-    this.targetManager = new TargetManager();
+    // Враги (передаём систему коллизий для обхода препятствий)
+    this.targetManager = new TargetManager(this.collision);
     this.setupTargetCallbacks();
 
     // Предметы

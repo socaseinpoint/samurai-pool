@@ -1,4 +1,4 @@
-import type { Vec3 } from '@/types';
+import type { Vec3, ICollisionSystem } from '@/types';
 import { vec3, distanceVec3, normalizeVec3 } from '@/utils/math';
 
 /** Тип врага */
@@ -125,13 +125,17 @@ export class Target {
   /** Callback при смене фазы босса */
   public onPhaseChange?: (phase: number) => void;
 
-  constructor(position: Vec3, speed: number = 4.0, id: number = 0, type: EnemyType = 'baneling') {
+  /** Система коллизий */
+  private collision: ICollisionSystem | null = null;
+
+  constructor(position: Vec3, speed: number = 4.0, id: number = 0, type: EnemyType = 'baneling', collision?: ICollisionSystem) {
     this.position = { ...position };
     this.speed = speed;
     this.id = id;
     this.phase = Math.random() * Math.PI * 2;
     this.moveType = id % 4;
     this.enemyType = type;
+    this.collision = collision || null;
 
     // Настройки по типу врага
     if (type === 'phantom') {
@@ -234,36 +238,33 @@ export class Target {
       const dirY = dy / dist;
       const dirZ = dz / dist;
 
-      // Скорость увеличивается при приближении (агрессия!)
       const aggression = 1.0 + Math.max(0, (15 - dist) / 15) * 0.8;
       const currentSpeed = this.speed * aggression;
 
-      // Разные паттерны движения
       let offsetX = 0, offsetY = 0, offsetZ = 0;
       const wave = time * 4 + this.phase;
 
       switch (this.moveType) {
-        case 0: // Спираль
+        case 0:
           offsetX = Math.cos(wave) * 3;
           offsetZ = Math.sin(wave) * 3;
           offsetY = Math.sin(wave * 0.5) * 1.5;
           break;
-        case 1: // Зигзаг горизонтальный
+        case 1:
           offsetX = Math.sin(wave * 2) * 4;
           offsetY = Math.cos(wave) * 0.5;
           break;
-        case 2: // Волна вверх-вниз
+        case 2:
           offsetY = Math.sin(wave * 1.5) * 2.5;
           offsetX = Math.cos(wave * 0.7) * 1;
           break;
-        case 3: // Рывками
+        case 3:
           const pulse = Math.sin(wave) > 0 ? 1.5 : 0.5;
           offsetX = Math.cos(wave * 3) * 2 * pulse;
           offsetZ = Math.sin(wave * 3) * 2 * pulse;
           break;
       }
 
-      // Добавляем смещение перпендикулярно направлению
       const perpX = -dirZ;
       const perpZ = dirX;
 
@@ -271,11 +272,21 @@ export class Target {
       this.velocity.y = dirY * currentSpeed + offsetY * 0.3;
       this.velocity.z = dirZ * currentSpeed + perpZ * offsetZ * 0.3 + offsetZ * 0.1;
 
-      this.position.x += this.velocity.x * dt;
+      // Применяем движение с проверкой коллизий
+      const newX = this.position.x + this.velocity.x * dt;
+      const newZ = this.position.z + this.velocity.z * dt;
+      
+      if (!this.collision?.checkEnemyCollision || 
+          !this.collision.checkEnemyCollision({ x: newX, y: this.position.y, z: newZ }, this.radius)) {
+        this.position.x = newX;
+        this.position.z = newZ;
+      } else {
+        // Облетаем препятствие сверху
+        this.velocity.y += 5 * dt;
+      }
+      
       this.position.y += this.velocity.y * dt;
-      this.position.z += this.velocity.z * dt;
-
-      this.position.y = Math.max(0.5, Math.min(4.0, this.position.y));
+      this.position.y = Math.max(0.5, Math.min(6.0, this.position.y));
     }
   }
 
@@ -341,14 +352,18 @@ export class Target {
     }
   }
 
+  /** Вертикальная скорость раннера */
+  private runnerVerticalVel = 0;
+  /** Раннер на земле? */
+  private runnerOnGround = true;
+
   /** Обновление раннера - быстрый бегун, прицепляется к игроку */
   private updateRunner(dt: number, playerPos: Vec3, time: number): void {
     if (this.isAttached) {
       // === РЕЖИМ ПРИЦЕПА - летает вокруг игрока ===
       this.attachTimer -= dt;
-      this.orbitAngle += dt * 12; // Быстрое вращение!
+      this.orbitAngle += dt * 12;
 
-      // Летает вокруг игрока
       const orbitRadius = 1.2;
       const orbitHeight = Math.sin(time * 8) * 0.3;
       
@@ -356,10 +371,9 @@ export class Target {
       this.position.y = playerPos.y + orbitHeight;
       this.position.z = playerPos.z + Math.sin(this.orbitAngle) * orbitRadius;
 
-      // Время вышло - наносим урон и отцепляемся!
       if (this.attachTimer <= 0) {
         this.isAttached = false;
-        this.active = false; // Самоуничтожение после укуса
+        this.active = false;
         this.removeTimer = 0.5;
       }
       return;
@@ -370,10 +384,9 @@ export class Target {
     const dz = playerPos.z - this.position.z;
     const dist = Math.sqrt(dx * dx + dz * dz);
 
-    // Если достаточно близко - ПРИЦЕПЛЯЕМСЯ!
     if (dist < 1.5) {
       this.isAttached = true;
-      this.attachTimer = 3.0; // 3 секунды чтобы скинуть!
+      this.attachTimer = 3.0;
       this.orbitAngle = Math.atan2(dz, dx);
       return;
     }
@@ -382,6 +395,29 @@ export class Target {
       const dirX = dx / dist;
       const dirZ = dz / dist;
 
+      // Проверяем препятствие впереди
+      if (this.collision?.getObstacleHeight && this.runnerOnGround) {
+        const obstacleHeight = this.collision.getObstacleHeight(this.position, dirX, dirZ, 1.5);
+        // Если есть препятствие - прыгаем!
+        if (obstacleHeight > this.position.y && obstacleHeight < 10) {
+          this.runnerVerticalVel = 12; // Сильный прыжок
+          this.runnerOnGround = false;
+        }
+      }
+
+      // Проверяем коллизию
+      if (this.collision?.checkEnemyCollision) {
+        const testPos = { 
+          x: this.position.x + dirX * this.speed * dt, 
+          y: this.position.y, 
+          z: this.position.z + dirZ * this.speed * dt 
+        };
+        if (this.collision.checkEnemyCollision(testPos, this.radius)) {
+          // Пытаемся обойти
+          this.dodgeAngle = (Math.random() > 0.5 ? 1 : -1) * Math.PI * 0.5;
+        }
+      }
+
       // Таймер уклонения
       this.dodgeTimer -= dt;
       if (this.dodgeTimer <= 0) {
@@ -389,28 +425,41 @@ export class Target {
         this.dodgeTimer = 0.3 + Math.random() * 0.4;
       }
 
-      // Применяем уклонение к направлению
       const cos = Math.cos(this.dodgeAngle);
       const sin = Math.sin(this.dodgeAngle);
       const dodgedDirX = dirX * cos - dirZ * sin;
       const dodgedDirZ = dirX * sin + dirZ * cos;
 
-      // Скорость увеличивается при приближении
       const aggression = 1.0 + Math.max(0, (10 - dist) / 10) * 0.5;
       const currentSpeed = this.speed * aggression;
-
-      // Зигзаг движение
       const zigzag = Math.sin(time * 15 + this.phase) * 2;
 
       this.velocity.x = dodgedDirX * currentSpeed + zigzag * 0.3;
-      this.velocity.y = 0;
       this.velocity.z = dodgedDirZ * currentSpeed;
 
-      this.position.x += this.velocity.x * dt;
-      this.position.z += this.velocity.z * dt;
+      // Применяем горизонтальное движение с проверкой коллизий
+      const newX = this.position.x + this.velocity.x * dt;
+      const newZ = this.position.z + this.velocity.z * dt;
       
-      // Бежит по земле
-      this.position.y = 0.5 + Math.abs(Math.sin(time * 20)) * 0.1;
+      if (!this.collision?.checkEnemyCollision || 
+          !this.collision.checkEnemyCollision({ x: newX, y: this.position.y, z: newZ }, this.radius)) {
+        this.position.x = newX;
+        this.position.z = newZ;
+      }
+
+      // Вертикальное движение (прыжки)
+      if (!this.runnerOnGround) {
+        this.runnerVerticalVel -= 25 * dt; // Гравитация
+        this.position.y += this.runnerVerticalVel * dt;
+        
+        if (this.position.y <= 0.5) {
+          this.position.y = 0.5;
+          this.runnerVerticalVel = 0;
+          this.runnerOnGround = true;
+        }
+      } else {
+        this.position.y = 0.5 + Math.abs(Math.sin(time * 20)) * 0.1;
+      }
     }
   }
 
@@ -637,51 +686,68 @@ export class Target {
   }
 
   /** Обновление хоппера - прыгающий враг */
-  private updateHopper(dt: number, playerPos: Vec3, time: number): void {
+  private updateHopper(dt: number, playerPos: Vec3, _time: number): void {
     const dx = playerPos.x - this.position.x;
-    const dy = playerPos.y - this.position.y;
     const dz = playerPos.z - this.position.z;
     const distXZ = Math.sqrt(dx * dx + dz * dz);
 
-    // Гравитация
     const gravity = 18.0;
 
     if (this.onGround) {
-      // На земле - готовимся к прыжку
       this.hopTimer -= dt;
       
       if (this.hopTimer <= 0) {
         // ПРЫЖОК!
         this.onGround = false;
-        this.verticalVelocity = 10 + Math.random() * 4; // Высокий прыжок
+        
+        // Проверяем препятствие - прыгаем выше если нужно
+        let jumpForce = 10 + Math.random() * 4;
+        if (this.collision?.getObstacleHeight && distXZ > 0.1) {
+          const dirX = dx / distXZ;
+          const dirZ = dz / distXZ;
+          const obstacleHeight = this.collision.getObstacleHeight(this.position, dirX, dirZ, 3);
+          if (obstacleHeight > this.position.y) {
+            // Прыгаем выше чтобы перепрыгнуть
+            jumpForce = Math.max(jumpForce, (obstacleHeight - this.position.y + 2) * 3);
+          }
+        }
+        
+        this.verticalVelocity = jumpForce;
         this.hopTimer = 0.5 + Math.random() * 0.5;
 
-        // Направляемся к игроку с упреждением
         if (distXZ > 0.1) {
           const jumpSpeed = this.speed * 1.5;
           this.velocity.x = (dx / distXZ) * jumpSpeed;
           this.velocity.z = (dz / distXZ) * jumpSpeed;
         }
       } else {
-        // Ждём на земле, немного двигаемся
         this.velocity.x *= 0.9;
         this.velocity.z *= 0.9;
       }
     } else {
-      // В воздухе
       this.verticalVelocity -= gravity * dt;
       
-      // Немного корректируем направление в воздухе
       if (distXZ > 0.1) {
         this.velocity.x += (dx / distXZ) * dt * 3;
         this.velocity.z += (dz / distXZ) * dt * 3;
       }
     }
 
-    // Применяем движение
-    this.position.x += this.velocity.x * dt;
+    // Применяем движение с проверкой коллизий
+    const newX = this.position.x + this.velocity.x * dt;
+    const newZ = this.position.z + this.velocity.z * dt;
+    
+    if (!this.collision?.checkEnemyCollision || 
+        !this.collision.checkEnemyCollision({ x: newX, y: this.position.y, z: newZ }, this.radius)) {
+      this.position.x = newX;
+      this.position.z = newZ;
+    } else {
+      // Отскакиваем при столкновении
+      this.velocity.x *= -0.5;
+      this.velocity.z *= -0.5;
+    }
+    
     this.position.y += this.verticalVelocity * dt;
-    this.position.z += this.velocity.z * dt;
 
     // Проверка земли
     if (this.position.y <= 0.5) {
@@ -690,8 +756,7 @@ export class Target {
       this.verticalVelocity = 0;
     }
 
-    // Максимальная высота
-    this.position.y = Math.min(6.0, this.position.y);
+    this.position.y = Math.min(12.0, this.position.y); // Выше могут прыгать
   }
 
   /** Обновление осколков */
@@ -865,7 +930,12 @@ export class TargetManager {
   /** Таймер урона от луж */
   private poolDamageTimer = 0;
 
-  constructor() {}
+  /** Система коллизий */
+  private collision: ICollisionSystem | null = null;
+
+  constructor(collision?: ICollisionSystem) {
+    this.collision = collision || null;
+  }
 
   /** Начать игру с указанной волны */
   public startGame(startWave: number = 1): void {
@@ -904,14 +974,14 @@ export class TargetManager {
     if (wave === 5) {
       // ЗЕЛЁНЫЙ БОСС!
       const pos = vec3(0, 3.0, -spawnRadius);
-      const boss = new Target(pos, baseSpeed, this.enemyIdCounter++, 'boss_green');
+      const boss = new Target(pos, baseSpeed, this.enemyIdCounter++, 'boss_green', this.collision || undefined);
       // Callback для создания луж
       boss.onCreatePool = (poolPos) => {
         this.toxicPools.push({
           position: { ...poolPos },
           radius: 2.5,
-          lifetime: 8.0, // 8 секунд живёт
-          damage: 5 // 5 урона в секунду
+          lifetime: 8.0,
+          damage: 5
         });
       };
       // Callback для смены фазы
@@ -922,11 +992,11 @@ export class TargetManager {
     } else if (wave === 10) {
       // ЧЁРНЫЙ БОСС!
       const pos = vec3(0, 2.5, -spawnRadius);
-      this.targets.push(new Target(pos, baseSpeed, this.enemyIdCounter++, 'boss_black'));
+      this.targets.push(new Target(pos, baseSpeed, this.enemyIdCounter++, 'boss_black', this.collision || undefined));
     } else if (wave === 15) {
       // СИНИЙ БОСС!
       const pos = vec3(0, 2.0, -spawnRadius);
-      this.targets.push(new Target(pos, baseSpeed, this.enemyIdCounter++, 'boss_blue'));
+      this.targets.push(new Target(pos, baseSpeed, this.enemyIdCounter++, 'boss_blue', this.collision || undefined));
     }
 
     // На волнах боссов - ТОЛЬКО БОСС!
@@ -978,7 +1048,7 @@ export class TargetManager {
       );
 
       const speed = baseSpeed + Math.random() * 1.5;
-      this.targets.push(new Target(pos, speed, this.enemyIdCounter++, 'baneling'));
+      this.targets.push(new Target(pos, speed, this.enemyIdCounter++, 'baneling', this.collision || undefined));
       idx++;
     }
 
@@ -993,7 +1063,7 @@ export class TargetManager {
       );
 
       const speed = baseSpeed + Math.random() * 1.0;
-      this.targets.push(new Target(pos, speed, this.enemyIdCounter++, 'runner'));
+      this.targets.push(new Target(pos, speed, this.enemyIdCounter++, 'runner', this.collision || undefined));
       idx++;
     }
 
@@ -1008,7 +1078,7 @@ export class TargetManager {
       );
 
       const speed = baseSpeed + Math.random() * 1.0;
-      this.targets.push(new Target(pos, speed, this.enemyIdCounter++, 'hopper'));
+      this.targets.push(new Target(pos, speed, this.enemyIdCounter++, 'hopper', this.collision || undefined));
       idx++;
     }
 
@@ -1024,7 +1094,7 @@ export class TargetManager {
       );
 
       const speed = baseSpeed + Math.random() * 1.0;
-      this.targets.push(new Target(pos, speed, this.enemyIdCounter++, 'phantom'));
+      this.targets.push(new Target(pos, speed, this.enemyIdCounter++, 'phantom', this.collision || undefined));
     }
   }
 
@@ -1283,7 +1353,6 @@ export class TargetManager {
 
   /** Спавн бейнлинга из Зелёного Босса */
   private spawnBanelingFromBoss(bossPos: Vec3): void {
-    // Случайное направление вылета
     const angle = Math.random() * Math.PI * 2;
     const speed = 5 + Math.random() * 3;
     
@@ -1293,9 +1362,8 @@ export class TargetManager {
       bossPos.z + Math.sin(angle) * 2
     );
     
-    const baneling = new Target(pos, speed, this.enemyIdCounter++, 'baneling');
+    const baneling = new Target(pos, speed, this.enemyIdCounter++, 'baneling', this.collision || undefined);
     
-    // Начальная скорость - вылетает из босса
     baneling.velocity = vec3(
       Math.cos(angle) * 8,
       3 + Math.random() * 3,

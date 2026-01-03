@@ -202,10 +202,10 @@ export class PickupManager {
     }
   }
 
-  /** Спавн заряда катаны на балконе */
+  /** Спавн заряда катаны на верхней платформе */
   private spawnChargeOnBalcony(): void {
-    // Позиция на верхнем балконе (высота 12)
-    const pos = vec3(0, 12.5, -23);
+    // Позиция на верхней круглой платформе (центр, высота 9)
+    const pos = vec3(0, 9.8, 0);
     this.chargeOnBalcony = new Pickup(pos, 'charge');
     this.chargeOnBalcony.lifetime = 999999; // Не исчезает
     this.pickups.push(this.chargeOnBalcony);

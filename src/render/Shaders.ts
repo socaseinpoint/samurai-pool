@@ -317,41 +317,33 @@ float map(vec3 p) {
   colD = min(colD, sdCylinder(p - vec3(-22.0, 4.0, 0.0), 0.5, 4.0));
   d = min(d, colD);
   
-  // === ВЕРХНИЙ БАЛКОН С ЗАРЯДОМ (требует двойной прыжок) ===
-  // Балкон наверху (высота 12)
-  float balconyHeight = 12.0;
-  float balcony = sdBox(p - vec3(0.0, balconyHeight, -23.0), vec3(4.0, 0.3, 3.0));
-  if (balcony < d) {
-    d = balcony;
-    materialId = 16; // Балкон (особый материал)
-  }
-  
-  // Перила балкона
-  float balcRail1 = sdBox(p - vec3(-4.0, balconyHeight + 0.8, -23.0), vec3(0.15, 0.8, 3.0));
-  float balcRail2 = sdBox(p - vec3(4.0, balconyHeight + 0.8, -23.0), vec3(0.15, 0.8, 3.0));
-  float balcRail3 = sdBox(p - vec3(0.0, balconyHeight + 0.8, -20.0), vec3(4.0, 0.8, 0.15));
-  d = min(d, min(balcRail1, min(balcRail2, balcRail3)));
-  
-  // Платформы для прыжков (требуют двойной прыжок)
-  // Платформа 1 (высота 3) - обычный прыжок
-  float plat1 = sdBox(p - vec3(-6.5, 3.0, -24.0), vec3(1.5, 0.3, 2.0));
+  // === КРУГЛЫЕ ПЛАТФОРМЫ ДЛЯ ПАРКУРА (по центру арены) ===
+  // Платформа 1 (низкая, Z=12) - обычный прыжок с земли
+  float plat1 = sdCylinder(p - vec3(0.0, 2.5, 12.0), 2.0, 0.3);
   if (plat1 < d) {
     d = plat1;
     materialId = 16;
   }
   
-  // Платформа 2 (высота 6) - двойной прыжок
-  float plat2 = sdBox(p - vec3(-2.5, 6.0, -24.0), vec3(1.5, 0.3, 2.0));
+  // Платформа 2 (средняя, Z=6) - нужен двойной прыжок
+  float plat2 = sdCylinder(p - vec3(0.0, 5.5, 6.0), 1.8, 0.3);
   if (plat2 < d) {
     d = plat2;
     materialId = 16;
   }
   
-  // Платформа 3 (высота 9) - двойной прыжок
-  float plat3 = sdBox(p - vec3(1.5, 9.0, -24.0), vec3(1.5, 0.3, 2.0));
+  // Платформа 3 (верхняя с бафом, Z=0 центр) - нужен двойной прыжок
+  float plat3 = sdCylinder(p - vec3(0.0, 9.0, 0.0), 3.0, 0.4);
   if (plat3 < d) {
     d = plat3;
     materialId = 16;
+  }
+  
+  // Свечение под верхней платформой (подсветка)
+  float glowRing = sdTorus(p - vec3(0.0, 8.5, 0.0), vec2(2.5, 0.1));
+  if (glowRing < d) {
+    d = glowRing;
+    materialId = 17; // Светящееся кольцо
   }
   
   // === ВОДА ===
