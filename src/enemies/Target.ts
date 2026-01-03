@@ -123,6 +123,7 @@ export class Target {
   public isVortexActive = false;
   private vortexTimer = 0;
   private vortexCooldown = 0;
+  private vortexWarningPlayed = false;
 
   /** Чёрный босс: колбэк спавна фантома */
   public onSpawnPhantom?: (pos: Vec3) => void;
@@ -130,6 +131,8 @@ export class Target {
   /** Чёрный босс: колбэк начала вихря (для звука) */
   public onVortexStart?: () => void;
   public onVortexEnd?: () => void;
+  /** Колбэк предупреждения о вихре (райзер) */
+  public onVortexWarning?: () => void;
 
   /** Зелёный босс: таймер создания лужи */
   private poolTimer = 0;
@@ -636,9 +639,16 @@ export class Target {
         // Вихрь закончился
         this.isVortexActive = false;
         this.vortexCooldown = 12.0; // Кулдаун 12 секунд
+        this.vortexWarningPlayed = false; // Сбрасываем флаг предупреждения
         this.onVortexEnd?.();
       }
       return; // Не двигаемся во время вихря
+    }
+    
+    // Предупреждение о вихре за 2 секунды (райзер)
+    if (this.vortexCooldown > 0 && this.vortexCooldown <= 2.0 && !this.vortexWarningPlayed && dist < 15) {
+      this.vortexWarningPlayed = true;
+      this.onVortexWarning?.();
     }
     
     // Начинаем вихрь каждые 12 секунд (если игрок близко)
@@ -1007,6 +1017,7 @@ export class TargetManager {
   /** Callback при начале/конце вихря чёрного босса */
   public onBossVortexStart?: () => void;
   public onBossVortexEnd?: () => void;
+  public onBossVortexWarning?: () => void;
 
   /** Токсичные лужи */
   public toxicPools: ToxicPool[] = [];
@@ -1084,6 +1095,9 @@ export class TargetManager {
       };
       
       // Колбэки для вихря (звук)
+      boss.onVortexWarning = () => {
+        this.onBossVortexWarning?.();
+      };
       boss.onVortexStart = () => {
         this.onBossVortexStart?.();
       };

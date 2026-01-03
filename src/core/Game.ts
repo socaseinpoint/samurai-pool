@@ -292,6 +292,11 @@ export class Game {
     };
 
     // Вихрь чёрного босса
+    this.targetManager.onBossVortexWarning = () => {
+      this.audio.playVortexRiser();
+      this.hud.showMessage('⚠️ ВИХРЬ ПРИБЛИЖАЕТСЯ! ⚠️', 'yellow');
+    };
+
     this.targetManager.onBossVortexStart = () => {
       this.audio.playVortexSound(true);
       this.hud.showMessage('🌀 ВИХРЬ! БЕГИ! 🌀', 'purple');
@@ -477,6 +482,9 @@ export class Game {
     const playerPos = this.player.getEyePosition();
     this.targetManager.update(dt, playerPos, this.gameTime);
 
+    // Звуки приближения врагов
+    this.updateEnemyProximitySounds(playerPos);
+
     // Проверяем прицепившихся раннеров
     this.checkAttachedRunners();
 
@@ -598,6 +606,21 @@ export class Game {
           this.hud.showMessage('⚠️ РАННЕР УКУСИЛ!', 'orange');
         }
       }
+    }
+  }
+
+  /** Звуки приближения врагов */
+  private updateEnemyProximitySounds(playerPos: Vec3): void {
+    for (const target of this.targetManager.targets) {
+      if (!target.active) continue;
+
+      const dx = target.position.x - playerPos.x;
+      const dy = target.position.y - playerPos.y;
+      const dz = target.position.z - playerPos.z;
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+      // Звук при приближении
+      this.audio.playEnemyProximitySound(target.enemyType, dist);
     }
   }
 
