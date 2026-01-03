@@ -31,6 +31,7 @@ uniform vec4 u_acidRainZones[4]; // Зоны кислотного дождя [x,
 uniform int u_acidRainZoneCount;
 uniform int u_era; // Эпоха: 1=кислотная, 2=чёрная дыра, 3=космическая
 uniform int u_wave; // Текущая волна (для эффекта дождя на 15+)
+uniform int u_greenBossPhase2; // Фаза 2 зелёного босса - зелёное небо!
 uniform vec4 u_pickups[8]; // Пикапы [x, y, z, type] type: 9=health, 10=stimpack, 11=charge
 uniform int u_pickupCount;
 uniform vec4 u_crystals[6]; // Кристаллы силы [x, z, height, active]
@@ -212,25 +213,49 @@ float map(vec3 p) {
     }
   }
   
-  // === ЗОНЫ КИСЛОТНОГО ДОЖДЯ (оптимизировано) ===
+  // === ЗОНЫ КИСЛОТНОГО ДОЖДЯ ===
   for (int i = 0; i < u_acidRainZoneCount; i++) {
     if (i >= 4) break;
     vec4 zone = u_acidRainZones[i];
     float state = zone.w;
+    float distToZone = length(p.xz - zone.xy);
+    float zoneRadius = zone.z;
     
-    if (state < 1.0 && p.y < 0.1 && p.y > -0.05) {
-      float distToZone = length(p.xz - zone.xy);
-      float markRadius = zone.z * (0.3 + state * 1.4);
-      
-      if (distToZone < markRadius) {
-        // Простые кольца + пульсация
-        float ring = smoothstep(0.2, 0.0, abs(distToZone - markRadius * 0.85));
-        float pulse = sin(u_time * 10.0) * 0.5 + 0.5;
-        float center = step(distToZone, markRadius * 0.3) * pulse;
+    if (state < 1.0) {
+      // Метка предупреждения на земле
+      if (p.y < 0.1 && p.y > -0.05) {
+        float markRadius = zoneRadius * (0.3 + state * 1.4);
+        if (distToZone < markRadius) {
+          float ring = smoothstep(0.2, 0.0, abs(distToZone - markRadius * 0.85));
+          float pulse = sin(u_time * 10.0) * 0.5 + 0.5;
+          float center = step(distToZone, markRadius * 0.3) * pulse;
+          if (ring + center > 0.3) {
+            d = p.y - 0.02;
+            materialId = 20;
+          }
+        }
+      }
+    } else {
+      // === АКТИВНЫЙ ДОЖДЬ - СТОЛБ КИСЛОТЫ ===
+      // Светящийся круг на земле
+      if (p.y < 0.15 && p.y > -0.05 && distToZone < zoneRadius) {
+        d = p.y - 0.03;
+        materialId = 21; // Зелёный светящийся круг
+      }
+      // Вертикальный столб дождя (цилиндр частиц)
+      if (p.y > 0.0 && p.y < 15.0 && distToZone < zoneRadius * 0.8) {
+        // Анимированные "струи" внутри столба
+        float angle = atan(p.z - zone.y, p.x - zone.x);
+        float streams = sin(angle * 8.0 + p.y * 2.0 - u_time * 10.0) * 0.5 + 0.5;
+        float fade = 1.0 - p.y / 15.0; // Затухание к верху
+        float streamDist = distToZone / (zoneRadius * 0.8);
         
-        if (ring + center > 0.3) {
-          d = p.y - 0.02;
-          materialId = 20;
+        if (streams > 0.7 && streamDist > 0.3) {
+          float pillarD = distToZone - zoneRadius * 0.75;
+          if (pillarD < d) {
+            d = pillarD;
+            materialId = 22; // Полупрозрачные струи
+          }
         }
       }
     }
@@ -644,6 +669,24 @@ float caustics(vec2 p, float t) {
 vec3 renderSky(vec3 rd) {
   vec3 color = vec3(0.02, 0.03, 0.08);
   
+  // ФАЗА 2 ЗЕЛЁНОГО БОССА - ТОКСИЧНОЕ ЗЕЛЁНОЕ НЕБО!
+  if (u_greenBossPhase2 == 1) {
+    // Ядовито-зелёный градиент
+    float heightFade = smoothstep(-0.2, 0.8, rd.y);
+    vec3 toxicGreen = mix(vec3(0.05, 0.15, 0.02), vec3(0.1, 0.4, 0.05), heightFade);
+    color = toxicGreen;
+    
+    // Токсичные облака
+    float clouds = sin(rd.x * 3.0 + u_time * 0.5) * sin(rd.z * 2.0 + u_time * 0.3) * 0.5 + 0.5;
+    color += vec3(0.0, 0.2, 0.0) * clouds * 0.3;
+    
+    // Пульсирующее свечение
+    float pulse = sin(u_time * 2.0) * 0.2 + 0.8;
+    color *= pulse;
+    
+    return color;
+  }
+  
   // Звёзды
   vec2 skyUV = rd.xz / (rd.y + 0.5);
   for (float i = 0.0; i < 50.0; i++) {
@@ -745,39 +788,51 @@ float lightningWarning(vec2 uv, float time, float seed) {
   return glow * warning;
 }
 
-// Кислотный дождь - ОПТИМИЗИРОВАНО
+// Кислотный дождь - капли только когда игрок В зоне
 vec3 renderAcidRain(vec2 uv, vec3 color, float time, vec3 camPos) {
   if (u_acidRainZoneCount == 0) return color;
   
   vec3 result = color;
-  float totalIntensity = 0.0;
+  float inRainIntensity = 0.0; // Игрок ВНУТРИ зоны дождя
   
-  // Проверяем только ближайшую активную зону
+  // Проверяем находится ли игрок в зоне дождя
   for (int i = 0; i < u_acidRainZoneCount; i++) {
     if (i >= 4) break;
     vec4 zone = u_acidRainZones[i];
     if (zone.w >= 1.0) {
       float dist = length(camPos.xz - zone.xy);
-      float intensity = 1.0 - smoothstep(0.0, zone.z * 2.0, dist);
-      totalIntensity = max(totalIntensity, intensity);
+      float zoneRadius = zone.z;
+      // Только если игрок ВНУТРИ зоны (с небольшим запасом)
+      if (dist < zoneRadius + 1.0) {
+        inRainIntensity = max(inRainIntensity, 1.0 - dist / (zoneRadius + 1.0));
+      }
     }
   }
   
-  if (totalIntensity > 0.01) {
-    // Простые быстрые капли (один расчёт)
-    float dropY1 = fract(uv.y * 6.0 - time * 30.0);
-    float dropX1 = fract(uv.x * 6.0);
-    float streak1 = step(0.1, dropY1) * step(dropY1, 0.5) * step(0.45, dropX1) * step(dropX1, 0.55);
+  // Капли на экране ТОЛЬКО если игрок под дождём
+  if (inRainIntensity > 0.01) {
+    float drops = 0.0;
     
-    float dropY2 = fract(uv.y * 10.0 - time * 25.0 + 0.3);
-    float dropX2 = fract(uv.x * 10.0 + 0.1);
-    float streak2 = step(0.15, dropY2) * step(dropY2, 0.4) * step(0.47, dropX2) * step(dropX2, 0.53);
+    // Толстые струи
+    float y1 = fract(uv.y * 3.0 - time * 15.0);
+    drops += step(0.0, y1) * step(y1, 0.5) * step(0.4, fract(uv.x * 3.0)) * step(fract(uv.x * 3.0), 0.6) * 0.5;
     
-    float drops = (streak1 + streak2 * 0.6) * totalIntensity;
+    float y1b = fract(uv.y * 3.0 - time * 18.0 + 0.33);
+    drops += step(0.0, y1b) * step(y1b, 0.5) * step(0.4, fract(uv.x * 3.0 + 0.33)) * step(fract(uv.x * 3.0 + 0.33), 0.6) * 0.5;
     
-    // Зелёное свечение
-    result += vec3(0.2, 1.0, 0.3) * drops * 2.0;
-    result = mix(result, result * vec3(0.7, 1.2, 0.8), totalIntensity * 0.3);
+    // Средние капли
+    float y2 = fract(uv.y * 6.0 - time * 22.0);
+    drops += step(0.1, y2) * step(y2, 0.4) * step(0.45, fract(uv.x * 6.0)) * step(fract(uv.x * 6.0), 0.55) * 0.3;
+    
+    // Мелкие капли
+    float y3 = fract(uv.y * 10.0 - time * 28.0);
+    drops += step(0.15, y3) * step(y3, 0.35) * step(0.47, fract(uv.x * 10.0)) * step(fract(uv.x * 10.0), 0.53) * 0.2;
+    
+    // Зелёные капли на экране
+    result += vec3(0.2, 1.0, 0.1) * drops * inRainIntensity * 5.0;
+    
+    // Зелёная дымка когда под дождём
+    result = mix(result, vec3(0.1, 0.5, 0.1), inRainIntensity * 0.35);
   }
   
   return result;
@@ -1209,10 +1264,20 @@ void main() {
       color *= 3.0;
       
     } else if (mat == 20) {
-      // === МЕТКА ДОЖДЯ (оптимизировано) ===
+      // === МЕТКА ДОЖДЯ ===
       float pulse = sin(u_time * 10.0) * 0.5 + 0.5;
       color = mix(vec3(1.0, 0.2, 0.0), vec3(0.3, 1.0, 0.2), pulse);
       color *= 4.0;
+      
+    } else if (mat == 21) {
+      // === ЗОНА ДОЖДЯ НА ЗЕМЛЕ ===
+      float pulse = sin(u_time * 5.0) * 0.3 + 0.7;
+      color = vec3(0.1, 0.8, 0.2) * pulse * 3.0;
+      
+    } else if (mat == 22) {
+      // === СТРУИ КИСЛОТНОГО ДОЖДЯ ===
+      float flicker = sin(u_time * 20.0 + p.y * 5.0) * 0.3 + 0.7;
+      color = vec3(0.2, 1.0, 0.3) * flicker * 2.0;
       
     } else {
       // === ПОЛ / СТЕНЫ ===

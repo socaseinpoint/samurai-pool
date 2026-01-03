@@ -39,6 +39,7 @@ export class WebGLRenderer {
       acidRainZoneCount: null,
       era: null,
       wave: null,
+      greenBossPhase2: null,
       pickups: null,
       pickupCount: null,
       crystals: null,
@@ -87,6 +88,7 @@ export class WebGLRenderer {
     this.uniforms.acidRainZoneCount = gl.getUniformLocation(this.program, 'u_acidRainZoneCount');
     this.uniforms.era = gl.getUniformLocation(this.program, 'u_era');
     this.uniforms.wave = gl.getUniformLocation(this.program, 'u_wave');
+    this.uniforms.greenBossPhase2 = gl.getUniformLocation(this.program, 'u_greenBossPhase2');
     this.uniforms.pickups = gl.getUniformLocation(this.program, 'u_pickups');
     this.uniforms.pickupCount = gl.getUniformLocation(this.program, 'u_pickupCount');
     this.uniforms.crystals = gl.getUniformLocation(this.program, 'u_crystals');
@@ -174,7 +176,8 @@ export class WebGLRenderer {
     acidProjectilesData?: Float32Array,
     acidProjectileCount?: number,
     acidRainZonesData?: Float32Array,
-    acidRainZoneCount?: number
+    acidRainZoneCount?: number,
+    greenBossPhase2?: boolean
   ): void {
     const gl = this.gl;
 
@@ -222,6 +225,9 @@ export class WebGLRenderer {
     
     // Волна (для дождя на 15+)
     gl.uniform1i(this.uniforms.wave, wave || 1);
+    
+    // Фаза 2 зелёного босса (зелёное небо)
+    gl.uniform1i(this.uniforms.greenBossPhase2, greenBossPhase2 ? 1 : 0);
     
     // Пикапы
     if (pickupsData && pickupCount !== undefined) {

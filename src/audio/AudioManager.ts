@@ -372,53 +372,99 @@ export class AudioManager {
     osc.stop(now + 0.3);
   }
 
-  /** Boss Green - токсичное шипение */
+  /** Boss Green - зловещий шёпот */
   private playBossGreenProximity(vol: number, now: number): void {
     if (!this.ctx || !this.sfxGain) return;
 
-    // Шипение кислоты
-    const bufferSize = this.ctx.sampleRate * 0.3;
+    // === ЗЛОВЕЩИЙ ШЁПОТ ===
+    // Основа - фильтрованный шум (шипящие согласные)
+    const bufferSize = this.ctx.sampleRate * 0.5;
     const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
     const data = buffer.getChannelData(0);
+    
+    // Модуляция амплитуды для имитации слогов шёпота
     for (let i = 0; i < bufferSize; i++) {
-      data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (this.ctx.sampleRate * 0.15));
+      const t = i / this.ctx.sampleRate;
+      // "Слоги" шёпота - прерывистость
+      const syllable = Math.sin(t * 12) * 0.5 + 0.5;
+      const envelope = Math.sin(t * Math.PI / 0.5) * syllable;
+      data[i] = (Math.random() * 2 - 1) * envelope * 0.8;
     }
 
     const noise = this.ctx.createBufferSource();
     noise.buffer = buffer;
 
+    // Фильтр для "шипящего" шёпота (2-6 кГц)
     const filter = this.ctx.createBiquadFilter();
     filter.type = 'bandpass';
-    filter.frequency.value = 4000;
-    filter.Q.value = 3;
+    filter.frequency.value = 3500;
+    filter.Q.value = 1.5;
+
+    // Второй фильтр - убираем низы
+    const hipass = this.ctx.createBiquadFilter();
+    hipass.type = 'highpass';
+    hipass.frequency.value = 800;
 
     const gain = this.ctx.createGain();
-    gain.gain.setValueAtTime(vol * 0.5, now);
-    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(vol * 0.6, now + 0.05);
+    gain.gain.setValueAtTime(vol * 0.6, now + 0.35);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
 
     noise.connect(filter);
-    filter.connect(gain);
+    filter.connect(hipass);
+    hipass.connect(gain);
     gain.connect(this.sfxGain);
 
     noise.start(now);
-    noise.stop(now + 0.35);
+    noise.stop(now + 0.55);
 
-    // Низкий рык
-    const growl = this.ctx.createOscillator();
-    const growlGain = this.ctx.createGain();
+    // Низкий "потусторонний" тон под шёпотом
+    const tone = this.ctx.createOscillator();
+    const tone2 = this.ctx.createOscillator();
+    const toneGain = this.ctx.createGain();
+    const toneFilter = this.ctx.createBiquadFilter();
 
-    growl.type = 'sawtooth';
-    growl.frequency.setValueAtTime(50, now);
-    growl.frequency.linearRampToValueAtTime(40, now + 0.3);
+    // Два слегка расстроенных тона для "биения"
+    tone.type = 'sine';
+    tone.frequency.value = 85;
+    tone2.type = 'sine';
+    tone2.frequency.value = 87; // Лёгкая расстройка = жуткое биение
 
-    growlGain.gain.setValueAtTime(vol * 0.3, now);
-    growlGain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+    toneFilter.type = 'lowpass';
+    toneFilter.frequency.value = 150;
 
-    growl.connect(growlGain);
-    growlGain.connect(this.sfxGain);
+    toneGain.gain.setValueAtTime(vol * 0.15, now);
+    toneGain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
 
-    growl.start(now);
-    growl.stop(now + 0.4);
+    tone.connect(toneFilter);
+    tone2.connect(toneFilter);
+    toneFilter.connect(toneGain);
+    toneGain.connect(this.sfxGain);
+
+    tone.start(now);
+    tone2.start(now);
+    tone.stop(now + 0.55);
+    tone2.stop(now + 0.55);
+
+    // Случайный "вздох" (скользящий тон)
+    if (Math.random() > 0.5) {
+      const sigh = this.ctx.createOscillator();
+      const sighGain = this.ctx.createGain();
+      
+      sigh.type = 'sine';
+      sigh.frequency.setValueAtTime(300, now + 0.1);
+      sigh.frequency.exponentialRampToValueAtTime(150, now + 0.4);
+      
+      sighGain.gain.setValueAtTime(vol * 0.08, now + 0.1);
+      sighGain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+      
+      sigh.connect(sighGain);
+      sighGain.connect(this.sfxGain);
+      
+      sigh.start(now + 0.1);
+      sigh.stop(now + 0.45);
+    }
   }
 
   /** Boss Black - гулкий низкий гул искривления */
@@ -2444,7 +2490,7 @@ export class AudioManager {
       }
       distortion.curve = curve;
 
-      gain.gain.setValueAtTime(0.5, now);
+      gain.gain.setValueAtTime(0.8, now); // ГРОМЧЕ!
       gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
 
       osc.connect(distortion);
@@ -2458,8 +2504,53 @@ export class AudioManager {
       osc2.stop(now + 0.25);
     };
 
-    // Тяжёлая бочка на каждую восьмую - агрессивнее!
-    this.musicIntervals.push(setInterval(playHeavyKick, 207) as unknown as number);
+    // Тяжёлая бочка на каждую восьмую - агрессивнее! 160 BPM
+    this.musicIntervals.push(setInterval(playHeavyKick, 187) as unknown as number);
+
+    // === ЗЛОЙ СИНТ ===
+    const playEvilSynth = () => {
+      if (!this.ctx || !this.musicGain || this.currentMusicMode !== 'boss_green') return;
+
+      const now = this.ctx.currentTime;
+
+      const osc = this.ctx.createOscillator();
+      const osc2 = this.ctx.createOscillator();
+      const filter = this.ctx.createBiquadFilter();
+      const gain = this.ctx.createGain();
+
+      // Два осциллятора для дисторшн эффекта
+      osc.type = 'sawtooth';
+      osc2.type = 'square';
+      
+      // Злой паттерн
+      const notes = [110, 110, 146.8, 110]; // A2, A2, D3, A2
+      const note = notes[Math.floor(Math.random() * notes.length)];
+      osc.frequency.value = note;
+      osc2.frequency.value = note * 1.5; // Квинта для агрессии
+
+      // Резонансный фильтр - ОЧЕНЬ злой
+      filter.type = 'lowpass';
+      filter.Q.value = 25;
+      filter.frequency.setValueAtTime(300, now);
+      filter.frequency.exponentialRampToValueAtTime(2000, now + 0.05);
+      filter.frequency.exponentialRampToValueAtTime(150, now + 0.15);
+
+      gain.gain.setValueAtTime(0.4, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+
+      osc.connect(filter);
+      osc2.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.musicGain!);
+
+      osc.start(now);
+      osc2.start(now);
+      osc.stop(now + 0.2);
+      osc2.stop(now + 0.2);
+    };
+
+    // Злой синт на оффбитах
+    this.musicIntervals.push(setInterval(playEvilSynth, 93) as unknown as number);
 
     // === СИРЕНА ТРЕВОГИ ===
     const playAlarm = () => {
@@ -2471,23 +2562,23 @@ export class AudioManager {
       const gain = this.ctx.createGain();
 
       osc.type = 'square';
-      osc.frequency.setValueAtTime(600, now);
-      osc.frequency.linearRampToValueAtTime(800, now + 0.2);
-      osc.frequency.linearRampToValueAtTime(600, now + 0.4);
+      osc.frequency.setValueAtTime(500, now);
+      osc.frequency.linearRampToValueAtTime(900, now + 0.15);
+      osc.frequency.linearRampToValueAtTime(500, now + 0.3);
 
-      gain.gain.setValueAtTime(0.08, now);
-      gain.gain.linearRampToValueAtTime(0.12, now + 0.2);
-      gain.gain.linearRampToValueAtTime(0.0, now + 0.4);
+      gain.gain.setValueAtTime(0.12, now);
+      gain.gain.linearRampToValueAtTime(0.18, now + 0.15);
+      gain.gain.linearRampToValueAtTime(0.0, now + 0.3);
 
       osc.connect(gain);
       gain.connect(this.musicGain!);
 
       osc.start(now);
-      osc.stop(now + 0.4);
+      osc.stop(now + 0.35);
     };
 
-    // Сирена каждые 2 секунды
-    this.musicIntervals.push(setInterval(playAlarm, 2000) as unknown as number);
+    // Сирена каждые 1.5 секунды - чаще!
+    this.musicIntervals.push(setInterval(playAlarm, 1500) as unknown as number);
   }
 
   /** Звук вихря чёрного босса */
@@ -2793,8 +2884,8 @@ export class AudioManager {
       filter.frequency.exponentialRampToValueAtTime(filterPeak, now + 0.03);
       filter.frequency.exponentialRampToValueAtTime(isSlide ? filterPeak * 0.7 : 200, now + 0.1);
 
-      // Акцент
-      const accent = step % 4 === 0 ? 0.35 : 0.2;
+      // Акцент - ГРОМЧЕ!
+      const accent = step % 4 === 0 ? 0.5 : 0.3;
       gain.gain.setValueAtTime(accent, now);
       gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
 
@@ -2834,10 +2925,10 @@ export class AudioManager {
       click.type = 'triangle';
       click.frequency.value = 1500;
 
-      gain.gain.setValueAtTime(0.5, now);
+      gain.gain.setValueAtTime(0.7, now);
       gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
 
-      clickGain.gain.setValueAtTime(0.15, now);
+      clickGain.gain.setValueAtTime(0.2, now);
       clickGain.gain.exponentialRampToValueAtTime(0.001, now + 0.02);
 
       osc.connect(gain);
@@ -2866,9 +2957,9 @@ export class AudioManager {
       filter.type = 'highpass';
       filter.frequency.value = 9000;
 
-      // Акцент на оффбит
+      // Акцент на оффбит - ГРОМЧЕ!
       const isOffbeat = hihatStep % 2 === 1;
-      gain.gain.setValueAtTime(isOffbeat ? 0.12 : 0.06, now);
+      gain.gain.setValueAtTime(isOffbeat ? 0.18 : 0.1, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
 
       noise.connect(filter);

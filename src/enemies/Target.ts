@@ -1130,6 +1130,9 @@ export class TargetManager {
   /** Зоны кислотного дождя */
   public acidRainZones: AcidRainZone[] = [];
 
+  /** Фаза 2 зелёного босса (один из двух убит) */
+  public greenBossPhase2 = false;
+
   /** Летящие снаряды кислоты */
   public acidProjectiles: AcidProjectile[] = [];
 
@@ -1159,6 +1162,7 @@ export class TargetManager {
     this.score = 0;
     this.targets = [];
     this.toxicPools = [];
+    this.greenBossPhase2 = false;
     this.startNextWave();
   }
 
@@ -1445,17 +1449,15 @@ export class TargetManager {
     // Удаляем приземлившиеся снаряды
     this.acidProjectiles = this.acidProjectiles.filter(p => p.progress < 1);
 
-    // === ТОКСИЧНЫЕ ЛУЖИ ===
+    // === ТОКСИЧНЫЕ ЛУЖИ (остаются навсегда) ===
     for (const pool of this.toxicPools) {
-      pool.lifetime -= dt;
       // Растекание: радиус увеличивается в первые 1.5 сек
       if (pool.spreadProgress < 1) {
         pool.spreadProgress = Math.min(1, pool.spreadProgress + dt / 1.5);
         pool.radius = pool.maxRadius * (0.3 + 0.7 * pool.spreadProgress);
       }
+      // lifetime не уменьшается - лужи остаются навсегда
     }
-    // Удаляем истёкшие
-    this.toxicPools = this.toxicPools.filter(p => p.lifetime > 0);
 
     // === ЗОНЫ КИСЛОТНОГО ДОЖДЯ ===
     for (const zone of this.acidRainZones) {
@@ -1516,8 +1518,7 @@ export class TargetManager {
       this.waveActive = false;
       this.waveTimer = this.waveDelay;
       this.onWaveComplete?.(this.wave);
-      // Очищаем лужи при завершении волны
-      this.toxicPools = [];
+      // Лужи остаются навсегда - не очищаем
     }
   }
 
@@ -1549,9 +1550,13 @@ export class TargetManager {
         // Босс - уменьшаем HP
         const killed = target.takeDamage(1);
         
-        // Зелёный босс выпускает бейнлинга при каждом ударе!
+        // Зелёный босс выпускает бейнлингов при каждом ударе!
         if (target.enemyType === 'boss_green' && !killed) {
-          this.spawnBanelingFromBoss(target.position);
+          // В фазе 2 - спавним 2 бейнлинга!
+          const spawnCount = this.greenBossPhase2 ? 2 : 1;
+          for (let i = 0; i < spawnCount; i++) {
+            this.spawnBanelingFromBoss(target.position);
+          }
         }
         
         if (killed) {
@@ -1563,6 +1568,17 @@ export class TargetManager {
           
           // Зелёный босс при смерти выпускает кучу бейнлингов!
           if (target.enemyType === 'boss_green') {
+            // Проверяем остался ли ещё один зелёный босс
+            const remainingGreenBosses = this.targets.filter(
+              t => t.active && t.enemyType === 'boss_green' && t !== target
+            ).length;
+            
+            if (remainingGreenBosses > 0 && !this.greenBossPhase2) {
+              // Входим в фазу 2 - один босс остался!
+              this.greenBossPhase2 = true;
+              this.onBossPhaseChange?.('boss_green', 2);
+            }
+            
             for (let i = 0; i < 5; i++) {
               this.spawnBanelingFromBoss(target.position);
             }
@@ -1611,9 +1627,12 @@ export class TargetManager {
         // Босс - уменьшаем HP (сплеш наносит 2 урона)
         const killed = target.takeDamage(2);
         
-        // Зелёный босс выпускает бейнлинга при каждом ударе!
+        // Зелёный босс выпускает бейнлингов при каждом ударе!
         if (target.enemyType === 'boss_green' && !killed) {
-          this.spawnBanelingFromBoss(target.position);
+          const spawnCount = this.greenBossPhase2 ? 2 : 1;
+          for (let i = 0; i < spawnCount; i++) {
+            this.spawnBanelingFromBoss(target.position);
+          }
         }
         
         if (killed) {
@@ -1626,6 +1645,15 @@ export class TargetManager {
           
           // Зелёный босс при смерти выпускает бейнлингов
           if (target.enemyType === 'boss_green') {
+            const remainingGreenBosses = this.targets.filter(
+              t => t.active && t.enemyType === 'boss_green' && t !== target
+            ).length;
+            
+            if (remainingGreenBosses > 0 && !this.greenBossPhase2) {
+              this.greenBossPhase2 = true;
+              this.onBossPhaseChange?.('boss_green', 2);
+            }
+            
             for (let i = 0; i < 5; i++) {
               this.spawnBanelingFromBoss(target.position);
             }
@@ -1673,7 +1701,7 @@ export class TargetManager {
   }
 
   /** Данные луж для шейдера [x, z, radius, animData] */
-  /** animData: старшие биты = lifetime (0-1), младшие = spreadProgress (0-1) */
+  /** Данные луж для шейдера [x, z, radius, spreadProgress] */
   public getPoolsShaderData(): Float32Array {
     const data = new Float32Array(this.toxicPools.length * 4);
     for (let i = 0; i < this.toxicPools.length; i++) {
@@ -1681,9 +1709,7 @@ export class TargetManager {
       data[i * 4 + 0] = pool.position.x;
       data[i * 4 + 1] = pool.position.z;
       data[i * 4 + 2] = pool.radius;
-      // Комбинируем lifetime и spreadProgress
-      const lifetimeNorm = pool.lifetime / pool.maxLifetime;
-      data[i * 4 + 3] = lifetimeNorm + pool.spreadProgress * 0.01; // spreadProgress в дробной части
+      data[i * 4 + 3] = pool.spreadProgress; // 0-1 анимация растекания
     }
     return data;
   }

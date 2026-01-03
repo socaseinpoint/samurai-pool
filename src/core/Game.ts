@@ -840,7 +840,8 @@ export class Game {
       acidProjectilesData,
       acidProjectileCount,
       acidRainZonesData,
-      acidRainZoneCount
+      acidRainZoneCount,
+      this.targetManager.greenBossPhase2
     );
 
     // Рендерим оружие

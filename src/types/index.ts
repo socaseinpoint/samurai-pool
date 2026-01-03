@@ -211,6 +211,8 @@ export interface ShaderUniforms {
   era: WebGLUniformLocation | null;
   /** Текущая волна (для эффектов) */
   wave: WebGLUniformLocation | null;
+  /** Фаза 2 зелёного босса */
+  greenBossPhase2: WebGLUniformLocation | null;
   /** Пикапы */
   pickups: WebGLUniformLocation | null;
   /** Количество пикапов */
