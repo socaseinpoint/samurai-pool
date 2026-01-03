@@ -67,6 +67,8 @@ export class WebGLRenderer {
     this.uniforms.targets = gl.getUniformLocation(this.program, 'u_targets');
     this.uniforms.targetCount = gl.getUniformLocation(this.program, 'u_targetCount');
     this.uniforms.muzzleFlash = gl.getUniformLocation(this.program, 'u_muzzleFlash');
+    this.uniforms.pools = gl.getUniformLocation(this.program, 'u_pools');
+    this.uniforms.poolCount = gl.getUniformLocation(this.program, 'u_poolCount');
 
     // Создаём fullscreen quad
     this.createQuad();
@@ -140,7 +142,9 @@ export class WebGLRenderer {
     cameraPitch: number,
     targetsData: Float32Array,
     targetCount: number,
-    muzzleFlash: number
+    muzzleFlash: number,
+    poolsData?: Float32Array,
+    poolCount?: number
   ): void {
     const gl = this.gl;
 
@@ -158,6 +162,14 @@ export class WebGLRenderer {
     gl.uniform4fv(this.uniforms.targets, targetsData);
     gl.uniform1i(this.uniforms.targetCount, targetCount);
     gl.uniform1f(this.uniforms.muzzleFlash, muzzleFlash);
+    
+    // Лужи
+    if (poolsData && poolCount !== undefined) {
+      gl.uniform4fv(this.uniforms.pools, poolsData);
+      gl.uniform1i(this.uniforms.poolCount, poolCount);
+    } else {
+      gl.uniform1i(this.uniforms.poolCount, 0);
+    }
 
     // Рисуем
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);

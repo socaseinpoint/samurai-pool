@@ -2,7 +2,7 @@ import type { Vec3 } from '@/types';
 import { vec3, distanceVec3, normalizeVec3 } from '@/utils/math';
 
 /** Тип врага */
-export type EnemyType = 'baneling' | 'phantom' | 'runner' | 'hopper';
+export type EnemyType = 'baneling' | 'phantom' | 'runner' | 'hopper' | 'boss_green' | 'boss_black' | 'boss_blue';
 
 /** Осколок после разрубания */
 export interface Fragment {
@@ -12,6 +12,14 @@ export interface Fragment {
   lifetime: number;
   rotation: number;
   rotationSpeed: number;
+}
+
+/** Токсичная лужа (от Зелёного Босса) */
+export interface ToxicPool {
+  position: Vec3;
+  radius: number;
+  lifetime: number;
+  damage: number;
 }
 
 /**
@@ -95,6 +103,22 @@ export class Target {
   /** Runner: угол вращения вокруг игрока */
   private orbitAngle = 0;
 
+  /** Босс: HP (обычные враги имеют 1) */
+  public hp = 1;
+  public maxHp = 1;
+
+  /** Босс: это босс? */
+  public isBoss = false;
+
+  /** Синий босс: таймер телепортации */
+  private teleportTimer = 0;
+
+  /** Чёрный босс: интенсивность искривления */
+  public distortionPower = 0;
+
+  /** Зелёный босс: таймер создания лужи */
+  private poolTimer = 0;
+
   constructor(position: Vec3, speed: number = 4.0, id: number = 0, type: EnemyType = 'baneling') {
     this.position = { ...position };
     this.speed = speed;
@@ -119,8 +143,34 @@ export class Target {
       this.speed = speed * 1.2;
       this.damage = 20;
       this.radius = 0.5;
-      this.verticalVelocity = 8; // Начинает с прыжка
+      this.verticalVelocity = 8;
       this.onGround = false;
+    } else if (type === 'boss_green') {
+      // ЗЕЛЁНЫЙ БОСС - огромный и живучий
+      this.isBoss = true;
+      this.speed = speed * 0.6; // Медленный
+      this.damage = 40;
+      this.radius = 2.5; // ОГРОМНЫЙ!
+      this.hp = 10;
+      this.maxHp = 10;
+    } else if (type === 'boss_black') {
+      // ЧЁРНЫЙ БОСС - искривляет пространство
+      this.isBoss = true;
+      this.speed = speed * 0.8;
+      this.damage = 30;
+      this.radius = 2.0;
+      this.hp = 15;
+      this.maxHp = 15;
+      this.distortionPower = 1.0;
+    } else if (type === 'boss_blue') {
+      // СИНИЙ БОСС - телепортируется
+      this.isBoss = true;
+      this.speed = speed * 1.5; // Быстрый между телепортами
+      this.damage = 25;
+      this.radius = 1.8;
+      this.hp = 12;
+      this.maxHp = 12;
+      this.teleportTimer = 3.0;
     } else {
       this.damage = 25;
       this.currentSpeed = speed;
@@ -142,6 +192,15 @@ export class Target {
           break;
         case 'hopper':
           this.updateHopper(dt, playerPos, time);
+          break;
+        case 'boss_green':
+          this.updateBossGreen(dt, playerPos, time);
+          break;
+        case 'boss_black':
+          this.updateBossBlack(dt, playerPos, time);
+          break;
+        case 'boss_blue':
+          this.updateBossBlue(dt, playerPos, time);
           break;
         default:
           this.updateBaneling(dt, playerPos, time);
@@ -353,13 +412,134 @@ export class Target {
   public detachRunner(): boolean {
     if (this.isAttached && this.enemyType === 'runner') {
       this.isAttached = false;
-      // Отбрасываем в сторону
       const angle = this.orbitAngle + Math.PI;
       this.velocity.x = Math.cos(angle) * 15;
       this.velocity.y = 8;
       this.velocity.z = Math.sin(angle) * 15;
       this.attachTimer = 0;
       return true;
+    }
+    return false;
+  }
+
+  /** Callback для создания лужи */
+  public onCreatePool?: (pos: Vec3) => void;
+
+  /** Зелёный босс - медленно надвигается, оставляет лужи */
+  private updateBossGreen(dt: number, playerPos: Vec3, time: number): void {
+    const dx = playerPos.x - this.position.x;
+    const dy = playerPos.y - this.position.y;
+    const dz = playerPos.z - this.position.z;
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+    if (dist > 0.1) {
+      const dirX = dx / dist;
+      const dirY = dy / dist;
+      const dirZ = dz / dist;
+
+      // Медленно но неуклонно
+      const wobble = Math.sin(time * 2) * 0.5;
+      
+      this.velocity.x = dirX * this.speed + wobble;
+      this.velocity.y = dirY * this.speed * 0.3;
+      this.velocity.z = dirZ * this.speed;
+
+      this.position.x += this.velocity.x * dt;
+      this.position.y += this.velocity.y * dt;
+      this.position.z += this.velocity.z * dt;
+
+      // Не опускается ниже пола
+      this.position.y = Math.max(this.radius, this.position.y);
+    }
+
+    // Пульсирующий размер
+    this.radius = 2.5 + Math.sin(time * 3) * 0.3;
+
+    // Создание токсичных луж каждые 2 секунды
+    this.poolTimer -= dt;
+    if (this.poolTimer <= 0) {
+      this.poolTimer = 2.0; // Каждые 2 сек
+      // Лужа под боссом
+      const poolPos = vec3(this.position.x, 0.05, this.position.z);
+      this.onCreatePool?.(poolPos);
+    }
+  }
+
+  /** Чёрный босс - искривляет пространство вокруг себя */
+  private updateBossBlack(dt: number, playerPos: Vec3, time: number): void {
+    const dx = playerPos.x - this.position.x;
+    const dy = playerPos.y - this.position.y;
+    const dz = playerPos.z - this.position.z;
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+    // Орбитальное движение вокруг центра + приближение к игроку
+    const orbitSpeed = 0.5;
+    const orbitRadius = 8 + Math.sin(time * 0.3) * 3;
+    
+    const targetX = Math.cos(time * orbitSpeed) * orbitRadius;
+    const targetZ = Math.sin(time * orbitSpeed) * orbitRadius;
+    
+    // Притяжение к орбите + направление к игроку
+    const toOrbitX = targetX - this.position.x;
+    const toOrbitZ = targetZ - this.position.z;
+    
+    this.velocity.x = toOrbitX * 0.5 + (dx / dist) * this.speed * 0.3;
+    this.velocity.y = (1.5 - this.position.y) * 2; // Держится на высоте
+    this.velocity.z = toOrbitZ * 0.5 + (dz / dist) * this.speed * 0.3;
+
+    this.position.x += this.velocity.x * dt;
+    this.position.y += this.velocity.y * dt;
+    this.position.z += this.velocity.z * dt;
+
+    // Интенсивность искривления зависит от расстояния до игрока
+    this.distortionPower = Math.max(0, 1.0 - dist / 20);
+  }
+
+  /** Синий босс - телепортируется */
+  private updateBossBlue(dt: number, playerPos: Vec3, time: number): void {
+    this.teleportTimer -= dt;
+
+    if (this.teleportTimer <= 0) {
+      // ТЕЛЕПОРТ!
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 5 + Math.random() * 10;
+      
+      this.position.x = playerPos.x + Math.cos(angle) * dist;
+      this.position.y = 1.5 + Math.random() * 2;
+      this.position.z = playerPos.z + Math.sin(angle) * dist;
+      
+      this.teleportTimer = 2.0 + Math.random() * 2.0; // 2-4 сек между телепортами
+      return;
+    }
+
+    // Между телепортами - агрессивное преследование
+    const dx = playerPos.x - this.position.x;
+    const dy = playerPos.y - this.position.y;
+    const dz = playerPos.z - this.position.z;
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+    if (dist > 0.1) {
+      // Зигзаг движение
+      const zigzag = Math.sin(time * 10) * 3;
+      
+      this.velocity.x = (dx / dist) * this.speed + zigzag * 0.5;
+      this.velocity.y = (dy / dist) * this.speed * 0.5;
+      this.velocity.z = (dz / dist) * this.speed;
+
+      this.position.x += this.velocity.x * dt;
+      this.position.y += this.velocity.y * dt;
+      this.position.z += this.velocity.z * dt;
+
+      this.position.y = Math.max(0.5, Math.min(4.0, this.position.y));
+    }
+  }
+
+  /** Получить урон (для боссов) */
+  public takeDamage(amount: number = 1): boolean {
+    this.hp -= amount;
+    if (this.hp <= 0) {
+      this.hp = 0;
+      return true; // Убит
     }
     return false;
   }
@@ -507,6 +687,9 @@ export class Target {
     // 3.0-3.9 = фантом (чёрный)
     // 5.0-5.9 = runner (оранжевый)
     // 7.0-7.9 = hopper (синий)
+    // 11.0-11.9 = boss_green (огромный зелёный)
+    // 13.0-13.9 = boss_black (чёрный, искривление)
+    // 15.0-15.9 = boss_blue (синий, телепорт)
     let w = 0;
     if (this.active) {
       const intensity = this.fireIntensity * 0.5;
@@ -519,6 +702,15 @@ export class Target {
           break;
         case 'hopper':
           w = 7 + intensity;
+          break;
+        case 'boss_green':
+          w = 11 + intensity;
+          break;
+        case 'boss_black':
+          w = 13 + intensity;
+          break;
+        case 'boss_blue':
+          w = 15 + intensity;
           break;
         default: // baneling
           w = 1 + intensity;
@@ -569,13 +761,23 @@ export class TargetManager {
   /** Callback при старте волны */
   public onWaveStart?: (wave: number) => void;
 
+  /** Callback при уроне от лужи */
+  public onPoolDamage?: (damage: number) => void;
+
+  /** Токсичные лужи */
+  public toxicPools: ToxicPool[] = [];
+
+  /** Таймер урона от луж */
+  private poolDamageTimer = 0;
+
   constructor() {}
 
-  /** Начать игру (первую волну) */
-  public startGame(): void {
-    this.wave = 0;
+  /** Начать игру с указанной волны */
+  public startGame(startWave: number = 1): void {
+    this.wave = startWave - 1; // -1 потому что startNextWave сделает +1
     this.score = 0;
     this.targets = [];
+    this.toxicPools = [];
     this.startNextWave();
   }
 
@@ -595,23 +797,52 @@ export class TargetManager {
 
   /**
    * Спавн врагов по волнам:
-   * - Волна 1: 1 бейнлинг
-   * - Волна 2: 2 бейнлинга + 1 раннер
-   * - Волна 3: 3 бейнлинга + 1 фантом + 1 раннер
-   * - Волна 4: 4 бейнлинга + 1 фантом + 2 раннера + 1 хоппер
-   * - Волна 5+: всех больше!
+   * - Волна 5: ЗЕЛЁНЫЙ БОСС + враги
+   * - Волна 10: ЧЁРНЫЙ БОСС + враги
+   * - Волна 15: СИНИЙ БОСС + враги
    */
   private spawnEnemies(wave: number): void {
     const spawnRadius = 18;
     const baseSpeed = 3.5 + wave * 0.3;
 
-    // Количество каждого типа
-    const banelingCount = wave;
-    const phantomCount = wave >= 3 ? Math.floor((wave - 1) / 2) : 0;
-    const runnerCount = wave >= 2 ? Math.floor(wave / 2) : 0;
-    const hopperCount = wave >= 4 ? Math.floor((wave - 2) / 2) : 0;
+    // === БОССЫ ===
+    if (wave === 5) {
+      // ЗЕЛЁНЫЙ БОСС!
+      const pos = vec3(0, 3.0, -spawnRadius);
+      const boss = new Target(pos, baseSpeed, this.enemyIdCounter++, 'boss_green');
+      // Callback для создания луж
+      boss.onCreatePool = (poolPos) => {
+        this.toxicPools.push({
+          position: { ...poolPos },
+          radius: 2.5,
+          lifetime: 8.0, // 8 секунд живёт
+          damage: 5 // 5 урона в секунду
+        });
+      };
+      this.targets.push(boss);
+    } else if (wave === 10) {
+      // ЧЁРНЫЙ БОСС!
+      const pos = vec3(0, 2.5, -spawnRadius);
+      this.targets.push(new Target(pos, baseSpeed, this.enemyIdCounter++, 'boss_black'));
+    } else if (wave === 15) {
+      // СИНИЙ БОСС!
+      const pos = vec3(0, 2.0, -spawnRadius);
+      this.targets.push(new Target(pos, baseSpeed, this.enemyIdCounter++, 'boss_blue'));
+    }
 
-    const totalCount = banelingCount + phantomCount + runnerCount + hopperCount;
+    // На волнах боссов - ТОЛЬКО БОСС!
+    const isBossWave = wave === 5 || wave === 10 || wave === 15;
+    if (isBossWave) return; // Не спавним обычных врагов на волнах боссов
+    
+    const enemyMultiplier = 1.0;
+
+    // Количество каждого типа
+    const banelingCount = Math.floor(wave * enemyMultiplier);
+    const phantomCount = wave >= 3 ? Math.floor((wave - 1) / 2 * enemyMultiplier) : 0;
+    const runnerCount = wave >= 2 ? Math.floor(wave / 2 * enemyMultiplier) : 0;
+    const hopperCount = wave >= 4 ? Math.floor((wave - 2) / 2 * enemyMultiplier) : 0;
+
+    const totalCount = Math.max(1, banelingCount + phantomCount + runnerCount + hopperCount);
     let idx = 0;
 
     // Спавним бейнлингов (зелёные)
@@ -636,7 +867,7 @@ export class TargetManager {
 
       const pos = vec3(
         Math.cos(angle) * spawnRadius,
-        0.5, // На земле
+        0.5,
         Math.sin(angle) * spawnRadius
       );
 
@@ -651,7 +882,7 @@ export class TargetManager {
 
       const pos = vec3(
         Math.cos(angle) * spawnRadius,
-        0.5, // Стартуют на земле
+        0.5,
         Math.sin(angle) * spawnRadius
       );
 
@@ -663,7 +894,7 @@ export class TargetManager {
     // Спавним фантомов (чёрные)
     for (let i = 0; i < phantomCount; i++) {
       const angle = ((banelingCount + i) / totalCount) * Math.PI * 2 + Math.random() * 0.3;
-      const height = 1.5 + Math.random() * 2.0; // Выше стартуют
+      const height = 1.5 + Math.random() * 2.0;
 
       const pos = vec3(
         Math.cos(angle) * spawnRadius,
@@ -722,11 +953,39 @@ export class TargetManager {
     // Удаляем мёртвых
     this.targets = this.targets.filter(t => !t.canRemove());
 
+    // === ТОКСИЧНЫЕ ЛУЖИ ===
+    // Обновляем время жизни луж
+    for (const pool of this.toxicPools) {
+      pool.lifetime -= dt;
+    }
+    // Удаляем истёкшие
+    this.toxicPools = this.toxicPools.filter(p => p.lifetime > 0);
+
+    // Урон от луж (каждые 0.5 сек)
+    this.poolDamageTimer -= dt;
+    if (this.poolDamageTimer <= 0) {
+      this.poolDamageTimer = 0.5;
+      
+      for (const pool of this.toxicPools) {
+        const dx = playerPos.x - pool.position.x;
+        const dz = playerPos.z - pool.position.z;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        
+        if (dist < pool.radius) {
+          // Игрок в луже - урон!
+          this.onPoolDamage?.(pool.damage);
+          break; // Только одна лужа может наносить урон за раз
+        }
+      }
+    }
+
     // Проверяем завершение волны
     if (this.waveActive && this.getActiveCount() === 0) {
       this.waveActive = false;
       this.waveTimer = this.waveDelay;
       this.onWaveComplete?.(this.wave);
+      // Очищаем лужи при завершении волны
+      this.toxicPools = [];
     }
   }
 
@@ -735,12 +994,14 @@ export class TargetManager {
     for (const target of this.targets) {
       if (!target.active) continue;
 
-      // Расстояние
+      // Расстояние (для боссов увеличиваем хитбокс)
       const dx = target.position.x - playerPos.x;
       const dz = target.position.z - playerPos.z;
       const dist = Math.sqrt(dx * dx + dz * dz);
-
-      if (dist > range) continue;
+      
+      // Учитываем размер врага
+      const effectiveRange = range + (target.isBoss ? target.radius : 0);
+      if (dist > effectiveRange) continue;
 
       // Угол
       const angleToTarget = Math.atan2(dx, -dz);
@@ -751,28 +1012,44 @@ export class TargetManager {
 
       if (Math.abs(angleDiff) > angle / 2) continue;
 
-      // Попали! Разрубаем
-      const sliceDir = normalizeVec3({ x: dx, y: 0, z: dz });
-      target.slice(sliceDir);
-      
-      this.score += 100 * this.wave; // Очки зависят от волны
-      this.onTargetDestroyed?.(target);
-      
-      return target;
+      // Попали!
+      if (target.isBoss) {
+        // Босс - уменьшаем HP
+        const killed = target.takeDamage(1);
+        
+        if (killed) {
+          // Босс убит! Эпичный взрыв
+          const sliceDir = normalizeVec3({ x: dx, y: 0, z: dz });
+          target.slice(sliceDir);
+          this.score += 1000 * this.wave; // Много очков за босса!
+          this.onTargetDestroyed?.(target);
+        }
+        // Возвращаем даже если не убит - чтобы был хитмаркер
+        return target;
+      } else {
+        // Обычный враг - убиваем сразу
+        const sliceDir = normalizeVec3({ x: dx, y: 0, z: dz });
+        target.slice(sliceDir);
+        
+        this.score += 100 * this.wave;
+        this.onTargetDestroyed?.(target);
+        
+        return target;
+      }
     }
 
     return null;
   }
 
-  /** Данные для шейдера */
+  /** Данные для шейдера (4 компонента: x, y, z, type) */
   public getShaderData(): Float32Array {
     const data = new Float32Array(this.targets.length * 4);
     for (let i = 0; i < this.targets.length; i++) {
-      const [x, y, z, intensity] = this.targets[i].getShaderData();
+      const [x, y, z, typeIntensity] = this.targets[i].getShaderData();
       data[i * 4 + 0] = x;
       data[i * 4 + 1] = y;
       data[i * 4 + 2] = z;
-      data[i * 4 + 3] = intensity;
+      data[i * 4 + 3] = typeIntensity;
     }
     return data;
   }
@@ -786,9 +1063,27 @@ export class TargetManager {
     return new Float32Array(allFragments);
   }
 
+  /** Данные луж для шейдера [x, z, radius, lifetime] */
+  public getPoolsShaderData(): Float32Array {
+    const data = new Float32Array(this.toxicPools.length * 4);
+    for (let i = 0; i < this.toxicPools.length; i++) {
+      const pool = this.toxicPools[i];
+      data[i * 4 + 0] = pool.position.x;
+      data[i * 4 + 1] = pool.position.z;
+      data[i * 4 + 2] = pool.radius;
+      data[i * 4 + 3] = pool.lifetime / 8.0; // Нормализованное время жизни
+    }
+    return data;
+  }
+
   /** Количество активных врагов */
   public getActiveCount(): number {
     return this.targets.filter(t => t.active).length;
+  }
+
+  /** Получить активного босса (если есть) */
+  public getActiveBoss(): Target | null {
+    return this.targets.find(t => t.active && t.isBoss) || null;
   }
 
   /** Расстояние до ближайшего врага */

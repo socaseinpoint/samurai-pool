@@ -459,6 +459,11 @@ export class HUD {
   /** Показать оверлей буйства */
   private rageOverlay: HTMLElement | null = null;
 
+  /** HP бар босса */
+  private bossHealthBar: HTMLElement | null = null;
+  private bossHealthFill: HTMLElement | null = null;
+  private bossNameEl: HTMLElement | null = null;
+
   public showRageOverlay(duration: number): void {
     if (!this.rageOverlay) {
       this.rageOverlay = document.createElement('div');
@@ -484,7 +489,6 @@ export class HUD {
 
     this.rageOverlay.style.opacity = '1';
     
-    // Пульсация красным
     this.rageOverlay.animate([
       { filter: 'hue-rotate(0deg) brightness(1)' },
       { filter: 'hue-rotate(-20deg) brightness(1.2)' },
@@ -499,5 +503,102 @@ export class HUD {
         this.rageOverlay.style.opacity = '0';
       }
     }, duration * 1000);
+  }
+
+  /** Показать HP босса */
+  public showBossHealth(hp: number, maxHp: number, bossType: string): void {
+    if (!this.bossHealthBar) {
+      // Создаём контейнер
+      this.bossHealthBar = document.createElement('div');
+      this.bossHealthBar.style.cssText = `
+        position: fixed;
+        top: 50px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 400px;
+        padding: 10px;
+        background: rgba(0, 0, 0, 0.7);
+        border: 2px solid #ff0000;
+        border-radius: 8px;
+        z-index: 1100;
+        text-align: center;
+        font-family: 'Orbitron', sans-serif;
+        box-shadow: 0 0 20px rgba(255, 0, 0, 0.5);
+      `;
+      
+      // Имя босса
+      this.bossNameEl = document.createElement('div');
+      this.bossNameEl.style.cssText = `
+        color: #ff4444;
+        font-size: 16px;
+        text-shadow: 0 0 10px #ff0000;
+        margin-bottom: 8px;
+        text-transform: uppercase;
+        letter-spacing: 3px;
+      `;
+      this.bossHealthBar.appendChild(this.bossNameEl);
+      
+      // Полоска HP
+      const barContainer = document.createElement('div');
+      barContainer.style.cssText = `
+        width: 100%;
+        height: 20px;
+        background: #333;
+        border-radius: 10px;
+        overflow: hidden;
+        border: 1px solid #666;
+      `;
+      
+      this.bossHealthFill = document.createElement('div');
+      this.bossHealthFill.style.cssText = `
+        height: 100%;
+        transition: width 0.3s ease-out;
+        border-radius: 10px;
+      `;
+      barContainer.appendChild(this.bossHealthFill);
+      this.bossHealthBar.appendChild(barContainer);
+      
+      document.body.appendChild(this.bossHealthBar);
+    }
+
+    // Имя и цвет
+    let bossName = 'БОСС';
+    let barColor = '#ff0000';
+    
+    if (bossType === 'boss_green') {
+      bossName = '☠️ ТОКСИЧНЫЙ ГИГАНТ ☠️';
+      barColor = 'linear-gradient(90deg, #00ff00, #88ff00)';
+      this.bossHealthBar.style.borderColor = '#00ff00';
+      this.bossHealthBar.style.boxShadow = '0 0 20px rgba(0, 255, 0, 0.5)';
+    } else if (bossType === 'boss_black') {
+      bossName = '🌀 ВЛАДЫКА ПУСТОТЫ 🌀';
+      barColor = 'linear-gradient(90deg, #4400aa, #8800ff)';
+      this.bossHealthBar.style.borderColor = '#8800ff';
+      this.bossHealthBar.style.boxShadow = '0 0 20px rgba(136, 0, 255, 0.5)';
+    } else if (bossType === 'boss_blue') {
+      bossName = '⚡ ФАНТОМ ХАОСА ⚡';
+      barColor = 'linear-gradient(90deg, #0088ff, #00ffff)';
+      this.bossHealthBar.style.borderColor = '#00ffff';
+      this.bossHealthBar.style.boxShadow = '0 0 20px rgba(0, 255, 255, 0.5)';
+    }
+    
+    if (this.bossNameEl) {
+      this.bossNameEl.textContent = bossName;
+    }
+    
+    if (this.bossHealthFill) {
+      const percent = (hp / maxHp) * 100;
+      this.bossHealthFill.style.width = percent + '%';
+      this.bossHealthFill.style.background = barColor;
+    }
+    
+    this.bossHealthBar.style.display = 'block';
+  }
+
+  /** Скрыть HP босса */
+  public hideBossHealth(): void {
+    if (this.bossHealthBar) {
+      this.bossHealthBar.style.display = 'none';
+    }
   }
 }

@@ -23,6 +23,8 @@ uniform float u_cameraPitch;
 uniform vec4 u_targets[16];
 uniform int u_targetCount;
 uniform float u_muzzleFlash;
+uniform vec4 u_pools[8]; // Токсичные лужи [x, z, radius, lifetime]
+uniform int u_poolCount;
 
 in vec2 v_uv;
 out vec4 fragColor;
@@ -179,6 +181,23 @@ float map(vec3 p) {
   float floor_d = p.y;
   d = min(d, floor_d);
   
+  // === ТОКСИЧНЫЕ ЛУЖИ ===
+  for (int i = 0; i < u_poolCount; i++) {
+    if (i >= 8) break;
+    vec4 pool = u_pools[i];
+    if (pool.w > 0.0) { // lifetime > 0
+      float distToPool = length(p.xz - pool.xy);
+      if (distToPool < pool.z && p.y < 0.15 && p.y > -0.1) {
+        // Внутри лужи
+        float poolSurface = p.y - 0.08;
+        if (poolSurface < d) {
+          d = poolSurface;
+          materialId = 13; // Токсичная лужа
+        }
+      }
+    }
+  }
+  
   // === КРУГЛЫЕ СТЕНЫ (цилиндр вовнутрь) ===
   float walls = -(length(p.xz) - ARENA_RADIUS);
   d = min(d, walls);
@@ -286,17 +305,77 @@ float map(vec3 p) {
   
   // === ВРАГИ ===
   // w: 0=неактивен, 1-2=бейнлинг, 3-4=фантом, 5-6=runner, 7-8=hopper
+  // 11-12=boss_green, 13-14=boss_black, 15-16=boss_blue
   for (int i = 0; i < u_targetCount; i++) {
     if (i >= 16) break;
     vec4 target = u_targets[i];
     if (target.w > 0.5) {
       vec3 tp = p - target.xyz;
-      int enemyType = int(target.w / 2.0); // 0=baneling, 1=phantom, 2=runner, 3=hopper
+      int enemyType = int(target.w / 2.0); // 0=baneling, 1=phantom, 2=runner, 3=hopper, 5=boss_green, 6=boss_black, 7=boss_blue
       
       float targetD;
       int matId;
       
-      if (enemyType == 1) {
+      if (enemyType == 5) {
+        // === ЗЕЛЁНЫЙ БОСС (огромная зелёная жижа) ===
+        float wobble = sin(u_time * 2.0 + tp.x * 1.5) * 0.3
+                     + sin(u_time * 1.5 + tp.y * 2.0) * 0.25
+                     + sin(u_time * 2.5 + tp.z * 1.0) * 0.2;
+        float radius = 2.5 + wobble;
+        targetD = sdSphere(tp, radius);
+        
+        // Пузырящаяся поверхность
+        float bubbles = sin(tp.x * 4.0 + u_time * 3.0) 
+                      * sin(tp.y * 4.0 + u_time * 2.5) 
+                      * sin(tp.z * 4.0 + u_time * 3.5) * 0.2;
+        targetD += bubbles;
+        
+        // Щупальца
+        for (int t = 0; t < 4; t++) {
+          float angle = float(t) * 1.57 + u_time * 0.5;
+          vec3 tentacle = tp - vec3(cos(angle) * 1.5, -1.0, sin(angle) * 1.5);
+          targetD = smin(targetD, sdCylinder(tentacle, 0.3, 1.5), 0.3);
+        }
+        matId = 10; // Зелёный босс
+        
+      } else if (enemyType == 6) {
+        // === ЧЁРНЫЙ БОСС (искривляет пространство) ===
+        // Искажённое пространство вокруг
+        vec3 distorted = tp;
+        float distortAmount = sin(u_time * 3.0) * 0.3;
+        distorted.x += sin(tp.y * 3.0 + u_time * 2.0) * distortAmount;
+        distorted.z += cos(tp.y * 3.0 + u_time * 2.0) * distortAmount;
+        
+        float radius = 2.0;
+        targetD = sdSphere(distorted, radius);
+        
+        // Кольца тёмной энергии
+        float ring1 = abs(sdTorus(tp, vec2(3.0, 0.1))) - 0.05;
+        float ring2 = abs(sdTorus(tp * vec3(1.0, 0.7, 1.0), vec2(3.5, 0.08))) - 0.03;
+        targetD = min(targetD, ring1);
+        targetD = min(targetD, ring2);
+        matId = 11; // Чёрный босс
+        
+      } else if (enemyType == 7) {
+        // === СИНИЙ БОСС (телепортирующийся) ===
+        // Мерцающая форма
+        float flicker = abs(sin(u_time * 20.0)) * 0.3 + 0.7;
+        float radius = 1.8 * flicker;
+        targetD = sdSphere(tp, radius);
+        
+        // Электрические разряды
+        float sparks = sin(tp.x * 15.0 + u_time * 30.0) 
+                     * sin(tp.y * 15.0 + u_time * 25.0) * 0.1;
+        targetD += sparks;
+        
+        // Призрачные копии
+        vec3 ghost1 = tp - vec3(sin(u_time * 5.0) * 2.0, 0.0, cos(u_time * 5.0) * 2.0);
+        vec3 ghost2 = tp + vec3(cos(u_time * 4.0) * 2.0, 0.0, sin(u_time * 4.0) * 2.0);
+        targetD = min(targetD, sdSphere(ghost1, 0.5) - 0.1);
+        targetD = min(targetD, sdSphere(ghost2, 0.5) - 0.1);
+        matId = 12; // Синий босс
+        
+      } else if (enemyType == 1) {
         // === ФАНТОМ (чёрный шар) ===
         float distort = sin(u_time * 8.0 + tp.x * 5.0) * 0.08
                       + sin(u_time * 7.0 + tp.z * 6.0) * 0.06;
@@ -310,13 +389,11 @@ float map(vec3 p) {
         
       } else if (enemyType == 2) {
         // === RUNNER (оранжевый, вытянутый) ===
-        // Вытянутая форма для ощущения скорости
         vec3 stretched = tp;
-        stretched.x *= 0.6; // Сжимаем по X
+        stretched.x *= 0.6;
         float radius = 0.35;
         targetD = sdSphere(stretched, radius);
         
-        // "Следы" скорости
         float speedTrail = sdSphere(tp + vec3(0.3, 0.0, 0.0), 0.2);
         speedTrail = min(speedTrail, sdSphere(tp + vec3(0.5, 0.0, 0.0), 0.12));
         targetD = min(targetD, speedTrail);
@@ -324,14 +401,12 @@ float map(vec3 p) {
         
       } else if (enemyType == 3) {
         // === HOPPER (синий, пружинистый) ===
-        // Основное тело
-        float squeeze = 1.0 + sin(u_time * 12.0) * 0.15; // Пульсация
+        float squeeze = 1.0 + sin(u_time * 12.0) * 0.15;
         vec3 squashed = tp;
         squashed.y *= squeeze;
         float radius = 0.45;
         targetD = sdSphere(squashed, radius);
         
-        // "Уши" или антенны
         vec3 ear1 = tp - vec3(0.2, 0.4, 0.0);
         vec3 ear2 = tp - vec3(-0.2, 0.4, 0.0);
         float ears = min(sdSphere(ear1, 0.12), sdSphere(ear2, 0.12));
@@ -553,6 +628,96 @@ void main() {
       // Свечение
       float fresnel = pow(1.0 - max(0.0, dot(-rd, n)), 2.5);
       color += vec3(0.3, 0.6, 1.0) * fresnel * 0.8;
+      
+    } else if (mat == 10) {
+      // === ЗЕЛЁНЫЙ БОСС (огромная токсичная жижа) ===
+      vec3 toxicGreen = vec3(0.1, 0.9, 0.2);
+      vec3 darkGreen = vec3(0.0, 0.4, 0.1);
+      vec3 yellow = vec3(0.8, 1.0, 0.0);
+      
+      // Пульсирующее ядовитое свечение
+      float pulse = 0.6 + 0.4 * sin(u_time * 3.0);
+      color = mix(darkGreen, toxicGreen, pulse);
+      
+      // Пузыри на поверхности
+      float bubbles = sin(p.x * 6.0 + u_time * 4.0) * sin(p.z * 6.0 + u_time * 3.0);
+      if (bubbles > 0.7) {
+        color = mix(color, yellow, 0.5);
+      }
+      
+      // Яркое свечение
+      float fresnel = pow(1.0 - max(0.0, dot(-rd, n)), 2.0);
+      color += toxicGreen * fresnel * 1.5;
+      color *= 2.0; // Очень яркий!
+      
+    } else if (mat == 11) {
+      // === ЧЁРНЫЙ БОСС (искривляет пространство) ===
+      vec3 voidBlack = vec3(0.02, 0.0, 0.05);
+      vec3 purple = vec3(0.4, 0.0, 0.6);
+      vec3 darkPurple = vec3(0.15, 0.0, 0.25);
+      
+      // Почти чёрный с пурпурным мерцанием
+      float darkPulse = sin(u_time * 2.0 + p.y * 3.0) * 0.5 + 0.5;
+      color = mix(voidBlack, darkPurple, darkPulse * 0.3);
+      
+      // Искривление видно как переливы
+      float distortion = sin(u_time * 5.0 + p.x * 8.0) * sin(u_time * 4.0 + p.z * 8.0);
+      if (distortion > 0.6) {
+        color += purple * 0.3;
+      }
+      
+      // Жуткое свечение по краям
+      float fresnel = pow(1.0 - max(0.0, dot(-rd, n)), 4.0);
+      color += purple * fresnel * 2.0;
+      
+      // Звёзды внутри (как чёрная дыра)
+      float stars = sin(p.x * 30.0) * sin(p.y * 30.0) * sin(p.z * 30.0);
+      if (stars > 0.95) {
+        color += vec3(1.0, 1.0, 1.0) * 0.5;
+      }
+      
+    } else if (mat == 12) {
+      // === СИНИЙ БОСС (телепортирующийся) ===
+      vec3 electricBlue = vec3(0.0, 0.5, 1.0);
+      vec3 cyan = vec3(0.0, 1.0, 1.0);
+      vec3 white = vec3(1.0, 1.0, 1.0);
+      
+      // Мерцание (телепорт эффект)
+      float flicker = abs(sin(u_time * 25.0));
+      color = mix(electricBlue, cyan, flicker);
+      
+      // Разряды
+      float spark = sin(u_time * 50.0 + p.x * 20.0) * sin(u_time * 45.0 + p.y * 20.0);
+      if (spark > 0.85) {
+        color = white;
+      }
+      
+      // Призрачность
+      float ghost = sin(u_time * 8.0) * 0.3 + 0.7;
+      color *= ghost;
+      
+      // Яркое свечение
+      float fresnel = pow(1.0 - max(0.0, dot(-rd, n)), 2.0);
+      color += cyan * fresnel * 1.5;
+      color *= 1.8;
+      
+    } else if (mat == 13) {
+      // === ТОКСИЧНАЯ ЛУЖА ===
+      vec3 toxicGreen = vec3(0.2, 1.0, 0.3);
+      vec3 darkGreen = vec3(0.0, 0.3, 0.1);
+      
+      // Пульсирующий эффект
+      float pulse = 0.5 + 0.5 * sin(u_time * 4.0 + p.x * 2.0 + p.z * 2.0);
+      color = mix(darkGreen, toxicGreen, pulse);
+      
+      // Пузыри
+      float bubbles = sin(p.x * 10.0 + u_time * 5.0) * sin(p.z * 10.0 + u_time * 4.0);
+      if (bubbles > 0.7) {
+        color += vec3(0.3, 0.5, 0.1);
+      }
+      
+      // Яркое свечение
+      color *= 2.0;
       
     } else {
       // === ПОЛ / СТЕНЫ ===

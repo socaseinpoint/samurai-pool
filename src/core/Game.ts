@@ -141,6 +141,15 @@ export class Game {
       
       // Шанс выпадения предмета
       this.pickupManager.spawnAfterKill(target.position);
+      
+      // Сообщение при убийстве босса
+      if (target.isBoss) {
+        this.hud.showMessage('💀 БОСС ПОВЕРЖЕН! 💀', 'gold');
+        // Босс роняет много аптечек
+        for (let i = 0; i < 3; i++) {
+          this.pickupManager.spawnAfterKill(target.position);
+        }
+      }
     };
 
     this.targetManager.onPlayerHit = (target) => {
@@ -153,9 +162,8 @@ export class Game {
           this.audio.playSFX('phantom_pass');
           this.screenShake = 0.3;
           this.hud.showDamage('purple');
-          // ЗАМЕДЛЕНИЕ! Фантом как чёрная дыра
           this.slowdownFactor = 0.3;
-          this.slowdownTimer = 2.0; // 2 секунды
+          this.slowdownTimer = 2.0;
           break;
         case 'runner':
           this.audio.playSFX('runner_hit');
@@ -164,8 +172,28 @@ export class Game {
           break;
         case 'hopper':
           this.audio.playSFX('hopper_hit');
-          this.screenShake = 0.6; // Сильная тряска - прыгнул сверху!
+          this.screenShake = 0.6;
           this.hud.showDamage('green');
+          break;
+        case 'boss_green':
+          this.audio.playSFX('kill');
+          this.screenShake = 1.0; // Очень сильная тряска
+          this.hud.showDamage('green');
+          this.hud.showMessage('💀 ТОКСИЧНЫЙ УДАР!', 'lime');
+          break;
+        case 'boss_black':
+          this.audio.playSFX('phantom_pass');
+          this.screenShake = 0.8;
+          this.hud.showDamage('purple');
+          this.slowdownFactor = 0.2; // Сильное замедление!
+          this.slowdownTimer = 3.0;
+          this.hud.showMessage('🌀 ИСКРИВЛЕНИЕ!', 'purple');
+          break;
+        case 'boss_blue':
+          this.audio.playSFX('hopper_hit');
+          this.screenShake = 0.7;
+          this.hud.showDamage('purple');
+          this.hud.showMessage('⚡ ТЕЛЕПОРТ УДАР!', 'cyan');
           break;
         default:
           this.audio.playSFX('hit');
@@ -176,10 +204,34 @@ export class Game {
 
     this.targetManager.onWaveStart = (wave) => {
       this.hud.showWave(wave);
+      
+      // Музыка и предупреждение о боссах
+      if (wave === 5) {
+        this.audio.setBossMusic('boss_green');
+        setTimeout(() => this.hud.showMessage('⚠️ ЗЕЛЁНЫЙ БОСС! ⚠️', 'lime'), 500);
+      } else if (wave === 10) {
+        this.audio.setBossMusic('boss_black');
+        setTimeout(() => this.hud.showMessage('☠️ ЧЁРНЫЙ БОСС! ☠️', 'purple'), 500);
+      } else if (wave === 15) {
+        this.audio.setBossMusic('boss_blue');
+        setTimeout(() => this.hud.showMessage('⚡ СИНИЙ БОСС! ⚡', 'cyan'), 500);
+      }
     };
 
     this.targetManager.onWaveComplete = (wave) => {
       this.hud.showWaveComplete(wave);
+      
+      // Возврат к обычной музыке после босса
+      if (wave === 5 || wave === 10 || wave === 15) {
+        this.audio.setBossMusic(null);
+      }
+    };
+
+    // Урон от токсичных луж
+    this.targetManager.onPoolDamage = (damage) => {
+      this.player.takeDamage(damage);
+      this.hud.showDamage('green');
+      this.screenShake = 0.2;
     };
   }
 
@@ -210,11 +262,23 @@ export class Game {
       this.input.setSensitivity(0.001 + (value / 100) * 0.009);
     });
 
-    // Предотвращаем запуск игры при клике на слайдеры
+    // Предотвращаем запуск игры при клике на слайдеры и кнопки
     document.getElementById('settings')?.addEventListener('click', (e) => {
       e.stopPropagation();
     });
+    document.getElementById('start-buttons')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+    });
 
+    // Кнопка НАЧАТЬ
+    document.getElementById('btn-start')?.addEventListener('click', () => this.start());
+    
+    // Кнопки боссов
+    document.getElementById('btn-boss5')?.addEventListener('click', () => this.startFromWave(5));
+    document.getElementById('btn-boss10')?.addEventListener('click', () => this.startFromWave(10));
+    document.getElementById('btn-boss15')?.addEventListener('click', () => this.startFromWave(15));
+
+    // Клик по экрану тоже запускает
     this.startScreen?.addEventListener('click', () => this.start());
 
     document.addEventListener('keydown', (e) => {
@@ -231,6 +295,11 @@ export class Game {
 
   /** Запуск игры */
   public start(): void {
+    this.startFromWave(1);
+  }
+
+  /** Запуск с определённой волны (для боссов) */
+  public startFromWave(wave: number): void {
     if (this.state.isRunning) return;
 
     // Читаем настройки
@@ -253,8 +322,17 @@ export class Game {
     this.gameLoop.start();
     this.state.isRunning = true;
 
-    // Начинаем первую волну
-    this.targetManager.startGame();
+    // Начинаем с указанной волны
+    this.targetManager.startGame(wave);
+    
+    // Сообщение о боссе
+    if (wave === 5) {
+      this.hud.showMessage('⚠️ ЗЕЛЁНЫЙ БОСС! ⚠️', 'lime');
+    } else if (wave === 10) {
+      this.hud.showMessage('☠️ ЧЁРНЫЙ БОСС! ☠️', 'purple');
+    } else if (wave === 15) {
+      this.hud.showMessage('⚡ СИНИЙ БОСС! ⚡', 'cyan');
+    }
 
     this.handleResize();
   }
@@ -366,6 +444,14 @@ export class Game {
     this.hud.updateHealth(this.player.state.health, this.player.state.maxHealth);
     this.hud.updateAmmo(this.targetManager.wave, this.targetManager.getActiveCount());
     this.hud.updateFrags(this.state.frags);
+    
+    // Показываем HP босса если есть
+    const boss = this.targetManager.getActiveBoss();
+    if (boss) {
+      this.hud.showBossHealth(boss.hp, boss.maxHp, boss.enemyType);
+    } else {
+      this.hud.hideBossHealth();
+    }
   }
 
   /** Звуки движения */
@@ -471,6 +557,10 @@ export class Game {
     const targetsData = this.targetManager.getShaderData();
     const targetCount = this.targetManager.targets.length;
 
+    // Данные луж для шейдера
+    const poolsData = this.targetManager.getPoolsShaderData();
+    const poolCount = this.targetManager.toxicPools.length;
+
     // Тряска камеры
     let yaw = this.player.state.yaw;
     let pitch = this.player.state.pitch;
@@ -491,7 +581,9 @@ export class Game {
       pitch,
       targetsData,
       targetCount,
-      sliceFlash
+      sliceFlash,
+      poolsData,
+      poolCount
     );
 
     // Рендерим катану
