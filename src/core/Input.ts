@@ -16,6 +16,7 @@ export class Input {
     fire: false,
     altFire: false, // ПКМ для сплеш-атаки
     reload: false,
+    throwGrenade: false, // Колёсико для гранаты
   };
 
   /** Движение мыши за кадр */
@@ -56,6 +57,7 @@ export class Input {
     document.addEventListener('mousemove', this.handleMouseMove.bind(this));
     document.addEventListener('mousedown', this.handleMouseDown.bind(this));
     document.addEventListener('mouseup', this.handleMouseUp.bind(this));
+    document.addEventListener('wheel', this.handleWheel.bind(this));
 
     // Отключаем контекстное меню для ПКМ
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -135,6 +137,10 @@ export class Input {
   private handleMouseDown(e: MouseEvent): void {
     if (e.button === 0) {
       this.state.fire = true;
+    } else if (e.button === 1) {
+      // Средняя кнопка (нажатие на колёсико) - граната
+      e.preventDefault();
+      this.state.throwGrenade = true;
     } else if (e.button === 2) {
       e.preventDefault();
       this.state.altFire = true;
@@ -148,6 +154,14 @@ export class Input {
     } else if (e.button === 2) {
       this.state.altFire = false;
     }
+  }
+
+  /** Обработка колёсика мыши (бросок гранаты) */
+  private handleWheel(e: WheelEvent): void {
+    if (!this.isPointerLocked) return;
+    e.preventDefault();
+    // Любое движение колёсика - бросок гранаты
+    this.state.throwGrenade = true;
   }
 
   /** Обработка изменения Pointer Lock */

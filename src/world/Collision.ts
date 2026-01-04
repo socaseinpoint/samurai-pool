@@ -9,7 +9,7 @@ export class CollisionSystem implements ICollisionSystem {
   private playerRadius = 0.4;
 
   // Размеры круглой арены
-  private arenaRadius = 28.0;
+  private arenaRadius = 38.0;
   
   // Центральный бассейн
   private poolRadius = 8.0;
@@ -20,6 +20,10 @@ export class CollisionSystem implements ICollisionSystem {
   
   // Мосты
   private bridgeWidth = 3.5;
+  
+  // Площадки за порталами
+  private backPlatformRadius = 8.0;
+  private backPlatformX = 30.0;
   
   // === КРУГЛЫЕ ПЛАТФОРМЫ ДЛЯ ПАРКУРА (спираль по кругу) ===
   // 6 платформ по кругу с радиусом 10м, высота растёт по спирали
@@ -73,9 +77,10 @@ export class CollisionSystem implements ICollisionSystem {
   public checkCollision(pos: Vec3): boolean {
     const r = this.playerRadius;
 
-    // Круглые стены арены
+    // Стены убраны - теперь за границей арены река войда!
+    // Игрок может свободно падать туда
     const distFromCenter = Math.sqrt(pos.x * pos.x + pos.z * pos.z);
-    if (distFromCenter > this.arenaRadius - r) return true;
+    // Нет стен - проверка убрана!
 
     // Центральная колонна (фонтан) - блокирует только внизу, не на верхней платформе
     // Фонтан высотой ~8м, верхняя платформа на 9.5м
@@ -148,6 +153,13 @@ export class CollisionSystem implements ICollisionSystem {
   /** Получить высоту пола в точке */
   public getFloorHeight(pos: Vec3): number {
     const distFromCenter = Math.sqrt(pos.x * pos.x + pos.z * pos.z);
+    
+    // === КРАЙ АРЕНЫ ===
+    const arenaRadius = 33.0; // ARENA_RADIUS - 5.0
+    
+    if (distFromCenter > arenaRadius) {
+      return -50.0; // Бездонная пропасть
+    }
 
     // === МОСТЫ (приоритет - они над бассейном) ===
     const onBridgeX = Math.abs(pos.z) < this.bridgeWidth / 2 && 
@@ -227,9 +239,10 @@ export class CollisionSystem implements ICollisionSystem {
 
   /** Проверить коллизию для врага (упрощённая версия без перил) */
   public checkEnemyCollision(pos: Vec3, radius: number): boolean {
-    // Круглые стены арены
+    // Стены убраны, но враги не выходят за границу
     const distFromCenter = Math.sqrt(pos.x * pos.x + pos.z * pos.z);
-    if (distFromCenter > this.arenaRadius - radius) return true;
+    const ARENA_EDGE = 33.0; // Граница до реки войда
+    if (distFromCenter > ARENA_EDGE - radius) return true;
 
     // Центральная колонна (фонтан)
     if (distFromCenter < 2.0 + radius) return true;

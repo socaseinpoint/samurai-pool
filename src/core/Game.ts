@@ -4,7 +4,7 @@ import { Input } from './Input';
 import { Player } from '@/player/Player';
 import { Weapon } from '@/weapon/Weapon';
 import { WeaponRenderer } from '@/weapon/WeaponRenderer';
-import { TargetManager } from '@/enemies/Target';
+import { TargetManager, Target, PORTAL_POSITIONS } from '@/enemies/Target';
 import { PickupManager } from '@/items/Pickup';
 import { AudioManager } from '@/audio/AudioManager';
 import { WebGLRenderer } from '@/render/WebGLRenderer';
@@ -78,6 +78,93 @@ export class Game {
 
   // === СОСТОЯНИЕ ===
   private isPaused = false;
+  
+  // === СИСТЕМА ОЧКОВ ===
+  /** Очки, которые игрок несёт (ещё не вброшены) */
+  private carryingScore = 0;
+  
+  /** Алтари на краях карты */
+  private altars = [
+    { position: { x: 0, y: 0, z: 30 }, score: 0 },   // Северный алтарь
+    { position: { x: 0, y: 0, z: -30 }, score: 0 },  // Южный алтарь
+  ];
+  
+  /** Очки за разных врагов */
+  private readonly SCORE_VALUES: Record<string, number> = {
+    baneling: 10,
+    phantom: 15,
+    runner: 20,
+    hopper: 25,
+    spiker: 30,
+    boss_green: 100,
+    boss_black: 150,
+    boss_blue: 200,
+  };
+  
+  // === СИСТЕМА ДРОТИКОВ ===
+  /** Количество дротиков */
+  private darts = 50;
+  
+  /** Кулдаун стрельбы дротиками */
+  private dartCooldown = 0;
+  private readonly DART_FIRE_RATE = 0.08; // 12.5 выстрелов в секунду!
+  private readonly DART_DAMAGE = 15;
+  private readonly DARTS_PER_POINT = 2; // 2 дротика за 1 очко
+  
+  /** Летящие дротики */
+  private flyingDarts: Array<{
+    position: Vec3;
+    velocity: Vec3;
+    active: boolean;
+  }> = [];
+  
+  // === ПОРТАЛ В ВОЙД ===
+  /** Таймер появления портала */
+  private voidPortalTimer = 10;
+  /** Активен ли портал */
+  private voidPortalActive = false;
+  /** Время жизни портала */
+  private voidPortalLifetime = 0;
+  private readonly VOID_PORTAL_DURATION = 10; // Портал открыт 10 секунд
+  private readonly VOID_PORTAL_COOLDOWN = 10; // Появляется каждые 10 секунд
+  
+  // === МОНЕТЫ КРОВИ (валюта войда) ===
+  /** Собранные монеты крови */
+  private bloodCoins = 0;
+  /** Монеты в войде */
+  private voidCoins: Array<{
+    position: Vec3;
+    active: boolean;
+    phase: number;
+  }> = [];
+  
+  // === ГРАНАТЫ (покупаются за монеты крови) ===
+  /** Количество гранат у игрока */
+  private grenadeCount = 5;
+  /** Летящие гранаты */
+  private grenades: Array<{
+    position: Vec3;
+    velocity: Vec3;
+    active: boolean;
+    lifetime: number;
+  }> = [];
+  /** Активные взрывы */
+  private explosions: Array<{
+    position: Vec3;
+    progress: number; // 0-1
+    active: boolean;
+  }> = [];
+  private readonly GRENADE_SPEED = 25;
+  private readonly GRENADE_GRAVITY = 15;
+  private readonly GRENADE_FUSE = 1.5; // 1.5 сек до взрыва
+  private readonly EXPLOSION_RADIUS = 8;
+  private readonly EXPLOSION_DAMAGE = 50;
+  private readonly EXPLOSION_DURATION = 0.5;
+  private readonly GRENADE_COST = 3; // 3 монеты крови за гранату
+  
+  // === ВАРИАНТ ВОЙДА (разные каждый раз) ===
+  private voidVariant = 0; // 0-3 разные цвета/стили
+  
   private footstepTimer = 0;
   private wasGrounded = true;
   private screenShake = 0;
@@ -91,6 +178,21 @@ export class Game {
   private killTimes: number[] = [];
   private readonly COMBO_WINDOW = 9.0; // 9 секунд
   private readonly COMBO_KILLS_NEEDED = 3; // 3 убийства для адреналина
+
+  /** === VOID MODE - ECLIPSE (БЕРСЕРК) === */
+  private isInVoid = false;
+  private voidSpawnTimer = 0; // Таймер до следующего спавна фантома
+  private savedPosition: Vec3 = vec3(0, 0, 0);
+  private savedYaw = 0;
+  private voidEnemyIds: number[] = []; // ID врагов в войде
+  private voidFallOffset = 0; // Смещение для эффекта падения
+  private savedEnemyIds: number[] = []; // ID врагов которые были активны до войда
+  private savedWaveActive = false; // Была ли волна активна до войда
+  private voidPhantomCooldown: Map<number, number> = new Map(); // Кулдаун урона от фантомов
+  private portalPos: Vec3 = vec3(0, 0, 0); // Позиция портала выхода
+  private readonly PORTAL_DISTANCE = 60; // Расстояние до портала
+  private readonly PORTAL_RADIUS = 4; // Радиус для достижения портала
+  private readonly VOID_SPAWN_INTERVAL = 3.0; // Интервал спавна фантомов
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -149,8 +251,15 @@ export class Game {
       this.audio.playSFX('kill');
       this.hud.showHitmarker(true);
       
-      // Шанс выпадения предмета
-      this.pickupManager.spawnAfterKill(target.position);
+      // === НАЧИСЛЕНИЕ ОЧКОВ ===
+      const scoreValue = this.SCORE_VALUES[target.enemyType] || 10;
+      this.carryingScore += scoreValue;
+      this.hud.showMessage(`+${scoreValue}`, 'purple');
+      
+      // Шанс выпадения предмета (не в войде)
+      if (!this.isInVoid) {
+        this.pickupManager.spawnAfterKill(target.position);
+      }
       
       // === СИСТЕМА КОМБО ДЛЯ АДРЕНАЛИНА ===
       // Добавляем время убийства
@@ -191,6 +300,23 @@ export class Game {
       // Урон игроку (зависит от типа врага)
       this.player.takeDamage(target.damage);
       
+      // Вскрик героя
+      this.audio.playSFX('player_hurt');
+      
+      // Отталкивание от врага
+      const playerPos = this.player.state.position;
+      const knockbackDir = {
+        x: playerPos.x - target.position.x,
+        y: 0,
+        z: playerPos.z - target.position.z
+      };
+      const knockDist = Math.sqrt(knockbackDir.x ** 2 + knockbackDir.z ** 2);
+      if (knockDist > 0.1) {
+        const knockForce = target.isBoss ? 12 : 6; // Боссы отталкивают сильнее
+        this.player.state.velocity.x += (knockbackDir.x / knockDist) * knockForce;
+        this.player.state.velocity.z += (knockbackDir.z / knockDist) * knockForce;
+      }
+      
       // Разные эффекты для разных врагов
       switch (target.enemyType) {
         case 'phantom':
@@ -217,12 +343,11 @@ export class Game {
           this.hud.showMessage('💀 ТОКСИЧНЫЙ УДАР!', 'lime');
           break;
         case 'boss_black':
-          this.audio.playSFX('phantom_pass');
-          this.screenShake = 0.8;
-          this.hud.showDamage('purple');
-          this.slowdownFactor = 0.2; // Сильное замедление!
-          this.slowdownTimer = 3.0;
-          this.hud.showMessage('🌀 ИСКРИВЛЕНИЕ!', 'purple');
+          // Владыка пустоты засасывает в ВОЙД!
+          if (!this.isInVoid) {
+            this.enterVoidMode();
+            return; // Не наносим урон - вместо этого входим в войд
+          }
           break;
         case 'boss_blue':
           this.audio.playSFX('hopper_hit');
@@ -304,20 +429,18 @@ export class Game {
       }
     };
 
-    // Вихрь чёрного босса
+    // Вихрь чёрного босса (без звука вибро)
     this.targetManager.onBossVortexWarning = () => {
-      this.audio.playVortexRiser();
       this.hud.showMessage('⚠️ ВИХРЬ ПРИБЛИЖАЕТСЯ! ⚠️', 'yellow');
     };
 
     this.targetManager.onBossVortexStart = () => {
-      this.audio.playVortexSound(true);
       this.hud.showMessage('🌀 ВИХРЬ! БЕГИ! 🌀', 'purple');
       this.screenShake = 1.0;
     };
 
     this.targetManager.onBossVortexEnd = () => {
-      this.audio.playVortexSound(false);
+      // Вихрь закончился
     };
 
     // Звук плевка кислотой
@@ -341,6 +464,55 @@ export class Game {
     this.targetManager.onAcidRainStart = (_pos) => {
       this.audio.playAcidRainStart();
       this.screenShake = 0.5;
+    };
+    
+    // === СПАВН ВРАГОВ ЧЕРЕЗ ПОРТАЛЫ ===
+    this.targetManager.onEnemySpawn = (type, _portalSide) => {
+      // Воспроизводим уникальный звук для каждого типа врага
+      switch (type) {
+        case 'baneling':
+          this.audio.playBanelingSpawn();
+          break;
+        case 'phantom':
+          this.audio.playPhantomSpawn();
+          break;
+        case 'runner':
+          this.audio.playRunnerSpawn();
+          break;
+        case 'hopper':
+          this.audio.playHopperSpawn();
+          break;
+        case 'spiker':
+          this.audio.playSFX('spiker_scream'); // Вскрик при появлении
+          break;
+        case 'boss_green':
+        case 'boss_black':
+        case 'boss_blue':
+          this.audio.playBossSpawn();
+          break;
+      }
+    };
+    
+    // === АТАКА ИГОЛКАМИ СПАЙКЕРОВ ===
+    this.targetManager.onSpikerScream = () => {
+      this.audio.playSFX('spiker_scream');
+    };
+    
+    this.targetManager.onSpikerAttack = () => {
+      this.audio.playSFX('spiker_shoot');
+    };
+    
+    // Попадание иголки в игрока
+    this.targetManager.onSpikeHit = () => {
+      this.player.takeDamage(10); // 10 урона от иголки
+      this.audio.playSFX('player_hurt');
+      this.hud.showDamage(); // Красный эффект по умолчанию
+      this.screenShake = 0.3;
+      this.hud.updateHealth(this.player.state.health, this.player.state.maxHealth);
+      
+      if (this.player.isDead()) {
+        this.gameOver();
+      }
     };
   }
 
@@ -459,8 +631,10 @@ export class Game {
 
     this.gameTime += dt;
 
-    // Обновляем анимацию платформ (парение)
-    this.collision.updatePlatforms(this.gameTime);
+    // Обновляем анимацию платформ (парение) - только если не в войде
+    if (!this.isInVoid) {
+      this.collision.updatePlatforms(this.gameTime);
+    }
 
     // Обновляем таймер замедления
     if (this.slowdownTimer > 0) {
@@ -477,6 +651,25 @@ export class Game {
       y: this.input.mouseDelta.y * this.slowdownFactor
     });
     this.input.resetMouseDelta();
+
+    // === VOID MODE (после player.update чтобы не ломать управление) ===
+    if (this.isInVoid) {
+      this.updateVoidMode(dt);
+    }
+    
+    // === ПРОВЕРКА ПАДЕНИЯ В ВОЙД ===
+    if (!this.isInVoid) {
+      const playerPos = this.player.state.position;
+      const distFromCenter = Math.sqrt(playerPos.x ** 2 + playerPos.z ** 2);
+      const arenaRadius = 33.0;
+      
+      if (distFromCenter > arenaRadius) {
+        this.hud.showMessage('💀 УПАЛ В БЕЗДНУ!', 'purple');
+        this.audio.playSFX('kill');
+        this.screenShake = 2.0;
+        this.enterVoid();
+      }
+    }
 
     // Притяжение вихря чёрного босса
     const vortexPull = this.targetManager.getVortexPull(this.player.state.position);
@@ -505,6 +698,31 @@ export class Game {
         this.checkSplashAttack();
       }
     }
+    
+    // Стрельба дротиками (ПКМ зажата - автоматическая стрельба)
+    this.dartCooldown -= dt;
+    if (this.input.state.altFire && this.darts > 0 && this.dartCooldown <= 0) {
+      this.fireDart();
+      this.dartCooldown = this.DART_FIRE_RATE;
+    }
+    
+    // Обновляем летящие дротики
+    this.updateDarts(dt);
+    
+    // Бросок гранаты (колёсико мыши)
+    if (this.input.state.throwGrenade && this.grenadeCount > 0) {
+      this.throwGrenade();
+      this.input.state.throwGrenade = false; // Сбрасываем сразу
+    } else {
+      this.input.state.throwGrenade = false; // Сбрасываем даже если нет гранат
+    }
+    
+    // Обновляем гранаты и взрывы
+    this.updateGrenades(dt);
+    this.updateExplosions(dt);
+    
+    // === ПОРТАЛ В ВОЙД ===
+    this.updateVoidPortal(dt);
 
     // Обновляем катану
     const isMoving = this.input.state.forward || this.input.state.backward ||
@@ -519,7 +737,51 @@ export class Game {
 
     // Обновляем врагов
     const playerPos = this.player.getEyePosition();
-    this.targetManager.update(dt, playerPos, this.gameTime);
+    if (!this.isInVoid) {
+      // Обычный режим - полное обновление
+      this.targetManager.update(dt, playerPos, this.gameTime);
+    } else {
+      // В войде - обновляем врагов войда (движение + столкновения)
+      // Уменьшаем кулдауны
+      for (const [id, cd] of this.voidPhantomCooldown) {
+        if (cd > 0) {
+          this.voidPhantomCooldown.set(id, cd - dt);
+        }
+      }
+      
+      for (const target of this.targetManager.targets) {
+        if (target.active && this.voidEnemyIds.includes(target.id)) {
+          target.update(dt, playerPos, this.gameTime);
+          
+          // Проверяем столкновение фантома с игроком (с кулдауном!)
+          const cooldown = this.voidPhantomCooldown.get(target.id) || 0;
+          if (cooldown <= 0 && target.checkPlayerCollision(playerPos)) {
+            // Фантом пролетел сквозь игрока - наносим урон
+            this.player.takeDamage(8); // Уменьшенный урон
+            this.voidPhantomCooldown.set(target.id, 1.5); // 1.5 сек кулдаун
+            
+            // Отталкивание от фантома
+            const knockbackDir = {
+              x: playerPos.x - target.position.x,
+              y: 0,
+              z: playerPos.z - target.position.z
+            };
+            const knockDist = Math.sqrt(knockbackDir.x ** 2 + knockbackDir.z ** 2);
+            if (knockDist > 0.1) {
+              const knockForce = 8; // Сила отталкивания
+              this.player.state.velocity.x += (knockbackDir.x / knockDist) * knockForce;
+              this.player.state.velocity.z += (knockbackDir.z / knockDist) * knockForce;
+            }
+            
+            this.audio.playSFX('phantom_hit');
+            this.audio.playSFX('player_hurt'); // Вскрик героя
+            this.screenShake = 0.8;
+            this.hud.showDamage('purple');
+            this.hud.showMessage('💀 ФАНТОМ!', 'purple');
+          }
+        }
+      }
+    }
 
     // Звуки приближения врагов
     this.updateEnemyProximitySounds(playerPos);
@@ -548,14 +810,8 @@ export class Game {
       this.onPickup(pickedUp);
     }
 
-    // Звук приближения ближайшего врага
-    const closestDist = this.targetManager.getClosestEnemyDistance(playerPos);
-    if (closestDist < 15) {
-      const proximity = Math.max(0, 1 - closestDist / 15);
-      this.audio.updateProximitySound(proximity);
-    } else {
-      this.audio.updateProximitySound(0);
-    }
+    // Общий proximity звук отключён - у каждого врага свой звук
+    this.audio.updateProximitySound(0);
 
     // Тряска экрана
     if (this.screenShake > 0) {
@@ -573,6 +829,12 @@ export class Game {
     this.hud.updateFrags(this.state.frags);
     this.hud.updateSplashCharges(this.weapon.splashCharges);
     this.hud.updateDoubleJump(this.player.getDoubleJumpCooldown(), this.player.isDoubleJumpReady());
+    
+    // Обновляем очки
+    this.hud.updateCarryingScore(this.carryingScore);
+    const totalAltarScore = this.altars.reduce((sum, a) => sum + a.score, 0);
+    this.hud.updateAltarScore(totalAltarScore);
+    this.hud.updateDarts(this.darts);
     
     // Проверка низкого HP для тревожной музыки (меньше 30%)
     const hpPercent = this.player.state.health / this.player.state.maxHealth;
@@ -628,8 +890,314 @@ export class Game {
     this.player.state.health = 100;
     this.state.frags = 0;
     this.state.isPaused = false;
+    this.isInVoid = false;
     this.targetManager.startGame();
     this.pickupManager.pickups = [];
+  }
+
+  /** === VOID MODE === */
+
+  /** Вход в войд - ECLIPSE (Берсерк) */
+  private enterVoidMode(): void {
+    this.isInVoid = true;
+    this.player.isInVoid = true; // Отключаем collision для игрока
+    this.voidEnemyIds = [];
+    this.voidFallOffset = 0;
+    this.voidPhantomCooldown.clear(); // Очищаем кулдауны
+
+    // Включаем глубокий low pass фильтр
+    this.audio.enterVoidAudio();
+
+    // Сохраняем позицию для возврата
+    this.savedPosition = { ...this.player.state.position };
+    this.savedYaw = this.player.state.yaw;
+
+    // Телепортируем игрока в центр войда
+    this.player.state.position = vec3(0, 2, 0);
+    this.player.state.velocity = vec3(0, 0, 0);
+    this.player.state.grounded = true; // Может бежать!
+
+    // Создаём портал выхода в случайном направлении
+    const portalAngle = Math.random() * Math.PI * 2;
+    this.portalPos = vec3(
+      Math.cos(portalAngle) * this.PORTAL_DISTANCE,
+      3, // Немного над землёй
+      Math.sin(portalAngle) * this.PORTAL_DISTANCE
+    );
+
+    // Сохраняем состояние волны
+    this.savedWaveActive = this.targetManager.waveActive;
+    
+    // Сохраняем и "замораживаем" всех врагов (не удаляем!)
+    this.savedEnemyIds = [];
+    for (const target of this.targetManager.targets) {
+      if (target.active) {
+        this.savedEnemyIds.push(target.id);
+        target.active = false;
+        // Устанавливаем большой таймер чтобы враги не удалились пока мы в войде
+        target.removeTimer = 9999;
+      }
+    }
+
+    // Эффекты входа
+    this.hud.showVoidEnter();
+    this.screenShake = 1.5;
+    
+    // Спавним первого фантома сразу
+    this.voidSpawnTimer = 1.0;
+    this.voidEnemyIds = [];
+  }
+
+  /** Обновление void mode - ECLIPSE */
+  private updateVoidMode(dt: number): void {
+    if (!this.isInVoid) return;
+
+    // === ЭФФЕКТ ПАДЕНИЯ (визуальный) ===
+    this.voidFallOffset += dt * 5.0;
+    
+    // Лёгкая тряска для атмосферы
+    this.screenShake = Math.max(this.screenShake, 0.03);
+
+    // Игрок может СВОБОДНО двигаться и бежать к порталу!
+    const playerPos = this.player.state.position;
+    
+    // === ПРОВЕРКА ПАДЕНИЯ С ОСТРОВОВ И ОБЛОМКОВ ===
+    // Главный остров (центр, радиус 10 - уменьшен!)
+    const distToMainIsland = Math.sqrt(playerPos.x ** 2 + playerPos.z ** 2);
+    const onMainIsland = distToMainIsland < 10;
+    
+    // Остров у портала (радиус 5 - уменьшен!)
+    const distToPortalIsland = Math.sqrt(
+      (playerPos.x - this.portalPos.x) ** 2 + 
+      (playerPos.z - this.portalPos.z) ** 2
+    );
+    const onPortalIsland = distToPortalIsland < 5;
+    
+    // Обломки между островами (нужно прыгать!)
+    const toPortalDir = { x: this.portalPos.x, z: this.portalPos.z };
+    const portalDist = Math.sqrt(toPortalDir.x ** 2 + toPortalDir.z ** 2);
+    if (portalDist > 0) {
+      toPortalDir.x /= portalDist;
+      toPortalDir.z /= portalDist;
+    }
+    
+    // Проверяем все 8 обломков
+    const bridgeLen = portalDist - 5.0 - 10.0; // Синхронизировано с шейдером
+    let onFragment = false;
+    let fragmentFloorY = -100;
+    
+    for (let i = 0; i < 8; i++) {
+      // Позиция обломка (должна совпадать с шейдером!)
+      const fragmentPos = 12.0 + i * (bridgeLen / 7.0);
+      const randX = Math.sin(i * 73.1) * 2.0;
+      const randZ = Math.cos(i * 47.3) * 2.0;
+      const randY = Math.sin(i * 91.7) * 0.8 - 0.3;
+      
+      // Размер (2-4м) - используем такую же псевдослучайность как в шейдере
+      const fract = (x: number) => x - Math.floor(x);
+      const fragmentSize = 2.0 + fract(Math.sin(i * 127.3) * 43758.5) * 2.0;
+      const sizeX = fragmentSize * (0.8 + fract(Math.sin(i * 31.7) * 100.0) * 0.4);
+      const sizeZ = fragmentSize * (0.8 + fract(Math.sin(i * 57.3) * 100.0) * 0.4);
+      
+      // Центр обломка
+      const fragCenterX = toPortalDir.x * fragmentPos + randX;
+      const fragCenterZ = toPortalDir.z * fragmentPos + randZ;
+      const fragY = randY + 0.5; // Высота поверхности
+      
+      // Проверяем XZ
+      const rotAngle = i * 0.7;
+      const localX = (playerPos.x - fragCenterX) * Math.cos(-rotAngle) - (playerPos.z - fragCenterZ) * Math.sin(-rotAngle);
+      const localZ = (playerPos.x - fragCenterX) * Math.sin(-rotAngle) + (playerPos.z - fragCenterZ) * Math.cos(-rotAngle);
+      
+      if (Math.abs(localX) < sizeX && Math.abs(localZ) < sizeZ) {
+        onFragment = true;
+        fragmentFloorY = Math.max(fragmentFloorY, fragY + 1.8); // Высота глаз
+      }
+    }
+    
+    // Определяем высоту пола под игроком
+    let floorY = -100; // Нет пола
+    
+    if (onMainIsland || onPortalIsland) {
+      floorY = 2.0; // Высота островов
+    } else if (onFragment) {
+      floorY = fragmentFloorY;
+    }
+    
+    // Упали в бездну?
+    if (playerPos.y < -5) {
+      this.fallFromVoid();
+      return;
+    }
+    
+    // Физика
+    if (floorY > -50 && playerPos.y <= floorY) {
+      // На твёрдой поверхности
+      this.player.state.position.y = floorY;
+      this.player.state.grounded = true;
+      this.player.state.velocity.y = 0;
+    } else {
+      // В воздухе - гравитация!
+      this.player.state.grounded = false;
+      this.player.state.velocity.y -= 30 * dt; // Гравитация (усилил)
+      this.player.state.position.y += this.player.state.velocity.y * dt;
+    }
+    
+    // === МОНЕТЫ КРОВИ ===
+    this.updateBloodCoins(dt);
+
+    // === ПРОВЕРКА ДОСТИЖЕНИЯ ПОРТАЛА ===
+    const dx = this.player.state.position.x - this.portalPos.x;
+    const dz = this.player.state.position.z - this.portalPos.z;
+    const distToPortal = Math.sqrt(dx * dx + dz * dz);
+
+    if (distToPortal < this.PORTAL_RADIUS) {
+      // Достигли портала - выход!
+      this.exitVoidMode(true);
+      return;
+    }
+
+    // === СПАВН ФАНТОМОВ-ОХОТНИКОВ ===
+    this.voidSpawnTimer -= dt;
+    if (this.voidSpawnTimer <= 0) {
+      this.spawnVoidHunter();
+      this.voidSpawnTimer = this.VOID_SPAWN_INTERVAL;
+    }
+
+    // Обновляем HUD с расстоянием до портала
+    this.hud.showVoidMode(Math.floor(distToPortal), this.PORTAL_DISTANCE);
+
+    // Проверяем смерть
+    if (this.player.isDead()) {
+      this.exitVoidMode(false);
+    }
+  }
+
+  /** Спавн фантома-охотника в войде */
+  private spawnVoidHunter(): void {
+    const playerPos = this.player.state.position;
+    
+    // Спавним позади или сбоку от игрока (не перед ним)
+    const playerYaw = this.player.state.yaw;
+    const offsetAngle = (Math.random() - 0.5) * Math.PI + Math.PI; // Сзади ± 90°
+    const angle = playerYaw + offsetAngle;
+    const dist = 15 + Math.random() * 10; // 15-25 единиц
+
+    const spawnPos = vec3(
+      playerPos.x + Math.cos(angle) * dist,
+      2.0,
+      playerPos.z + Math.sin(angle) * dist
+    );
+
+    // Быстрый агрессивный фантом!
+    const phantomId = Date.now() + Math.floor(Math.random() * 1000);
+    const phantom = new Target(
+      spawnPos,
+      12.0 + Math.random() * 4, // Скорость 12-16
+      phantomId,
+      'phantom',
+      this.collision
+    );
+
+    phantom.active = true;
+    this.targetManager.targets.push(phantom);
+    this.voidEnemyIds.push(phantomId);
+    
+    // Жуткий звук появления
+    this.audio.playSFX('void_whistle');
+  }
+
+  /** Падение из войда в обычный мир */
+  private fallFromVoid(): void {
+    this.isInVoid = false;
+    this.player.isInVoid = false;
+    this.voidCoins = []; // Очищаем монеты
+    
+    // Убираем фильтр
+    this.audio.exitVoidAudio();
+    this.hud.hideVoidMode();
+    
+    // Выходим через случайный портал (как враги)
+    const portal = Math.random() < 0.5 ? PORTAL_POSITIONS.left : PORTAL_POSITIONS.right;
+    // Чуть впереди портала чтобы выйти из него
+    const exitOffset = portal.x > 0 ? -3 : 3;
+    
+    this.player.state.position = { 
+      x: portal.x + exitOffset, 
+      y: portal.y, 
+      z: portal.z 
+    };
+    this.player.state.velocity = { x: 0, y: 0, z: 0 };
+    this.player.state.grounded = true;
+    
+    // Эффекты
+    this.screenShake = 1.0;
+    this.audio.playSFX('player_hurt');
+    this.hud.showMessage('💀 ВЫШВЫРНУЛО ИЗ БЕЗДНЫ!', 'purple');
+    
+    // Небольшой урон за падение
+    this.player.state.health -= 15;
+    this.hud.showDamage();
+    this.hud.updateHealth(this.player.state.health, this.player.state.maxHealth);
+    
+    if (this.player.isDead()) {
+      this.gameOver();
+    }
+  }
+  
+  /** Выход из войда */
+  private exitVoidMode(success: boolean): void {
+    this.isInVoid = false;
+    this.player.isInVoid = false; // Включаем collision обратно
+    this.hud.hideVoidMode();
+    
+    // Закрываем портал и сбрасываем таймер чтобы не попасть обратно
+    this.voidPortalActive = false;
+    this.voidPortalTimer = this.VOID_PORTAL_COOLDOWN + 3; // +3 секунды запаса
+    this.voidCoins = []; // Очищаем монеты
+    
+    // Убираем фильтр - возвращаем нормальный звук
+    this.audio.exitVoidAudio();
+
+    // Убираем всех void-врагов (фантомов созданных в войде)
+    for (const target of this.targetManager.targets) {
+      if (this.voidEnemyIds.includes(target.id)) {
+        target.active = false;
+      }
+    }
+    this.voidEnemyIds = [];
+
+    // ВОССТАНАВЛИВАЕМ врагов которые были активны до войда
+    for (const target of this.targetManager.targets) {
+      if (this.savedEnemyIds.includes(target.id)) {
+        target.active = true;
+        target.removeTimer = 0; // Сбрасываем таймер удаления
+      }
+    }
+    this.savedEnemyIds = [];
+    
+    // Восстанавливаем состояние волны
+    this.targetManager.waveActive = this.savedWaveActive;
+
+    // Возвращаем игрока
+    this.player.state.position = { ...this.savedPosition };
+    this.player.state.yaw = this.savedYaw;
+    this.player.state.velocity = vec3(0, 0, 0);
+    this.player.state.grounded = true;
+
+    // Эффекты выхода из войда
+    this.screenShake = 0.5;
+
+    if (success) {
+      this.hud.showVoidExit(true);
+      // Бонус за выживание
+      this.state.frags += 500;
+      this.hud.showMessage(`+500 БОНУС ЗА ВОЙД!`, 'cyan');
+    } else {
+      this.hud.showVoidExit(false);
+      // Урон за провал
+      this.player.takeDamage(50);
+    }
   }
 
   /** Проверка прицепившихся раннеров */
@@ -648,8 +1216,11 @@ export class Game {
     }
   }
 
-  /** Звуки приближения врагов */
+  /** Звуки приближения врагов - у каждого свой звук */
   private updateEnemyProximitySounds(playerPos: Vec3): void {
+    // В войде не играем звуки приближения (кроме свиста при спавне)
+    if (this.isInVoid) return;
+
     for (const target of this.targetManager.targets) {
       if (!target.active) continue;
 
@@ -658,7 +1229,7 @@ export class Game {
       const dz = target.position.z - playerPos.z;
       const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-      // Звук при приближении
+      // Каждый тип врага издаёт свой звук при приближении
       this.audio.playEnemyProximitySound(target.enemyType, dist);
     }
   }
@@ -680,14 +1251,24 @@ export class Game {
   /** Подбор предмета */
   private onPickup(type: string): void {
     if (type === 'health') {
-      // Аптечка - восстанавливает HP
-      const heal = 30;
+      // Маленькая аптечка (в воде) - восстанавливает 20 HP
+      const heal = 20;
       this.player.state.health = Math.min(
         this.player.state.maxHealth,
         this.player.state.health + heal
       );
       this.audio.playSFX('jump'); // Временный звук
       this.hud.showMessage('+' + heal + ' HP', 'lime');
+      this.hud.updateHealth(this.player.state.health, this.player.state.maxHealth);
+    } else if (type === 'health_big') {
+      // БОЛЬШАЯ аптечка (на краях) - восстанавливает 60 HP!
+      const heal = 60;
+      this.player.state.health = Math.min(
+        this.player.state.maxHealth,
+        this.player.state.health + heal
+      );
+      this.audio.playSFX('jump'); // Временный звук
+      this.hud.showMessage('+' + heal + ' HP!', 'lime');
       this.hud.updateHealth(this.player.state.health, this.player.state.maxHealth);
       
     } else if (type === 'stimpack') {
@@ -714,7 +1295,8 @@ export class Game {
       playerPos,
       this.player.state.yaw,
       this.weapon.attackRange,
-      this.weapon.attackAngle
+      this.weapon.attackAngle,
+      this.player.state.grounded // Передаём состояние - на земле ли игрок
     );
     
     if (hit) {
@@ -744,6 +1326,469 @@ export class Game {
         }
       }
     }
+    
+    // === ПРОВЕРКА ПОПАДАНИЯ ПО АЛТАРЮ ===
+    const altarHit = this.checkAltarHit(playerPos);
+    if (altarHit !== null) {
+      // Приоритет 1: Монеты крови → Гранаты
+      if (this.bloodCoins >= this.GRENADE_COST) {
+        this.bloodCoins -= this.GRENADE_COST;
+        this.grenadeCount += 1;
+        this.altars[altarHit].score += this.GRENADE_COST;
+        this.audio.playSFX('kill');
+        this.hud.showMessage(`💣 +1 ГРАНАТА! (🩸${this.bloodCoins})`, 'purple');
+        this.screenShake = 0.3;
+      }
+      // Приоритет 2: Очки → Дротики
+      else if (this.carryingScore > 0) {
+        const dartsEarned = this.carryingScore * this.DARTS_PER_POINT;
+        this.darts += dartsEarned;
+        this.altars[altarHit].score += this.carryingScore;
+        this.audio.playSFX('kill');
+        this.hud.showMessage(`🎯 +${dartsEarned} ДРОТИКОВ!`, 'cyan');
+        this.carryingScore = 0;
+        this.screenShake = 0.3;
+      } else {
+        // Нет ни монет ни очков
+        this.hud.showMessage(`НУЖНЫ ОЧКИ ИЛИ 🩸${this.GRENADE_COST} МОНЕТ!`, 'purple');
+      }
+    }
+  }
+  
+  /** Спавн монет крови в войде */
+  private spawnBloodCoins(): void {
+    this.voidCoins = [];
+    
+    // Направление к порталу
+    const toPortalDir = { x: this.portalPos.x, z: this.portalPos.z };
+    const portalDist = Math.sqrt(toPortalDir.x ** 2 + toPortalDir.z ** 2);
+    if (portalDist > 0) {
+      toPortalDir.x /= portalDist;
+      toPortalDir.z /= portalDist;
+    }
+    const bridgeLen = portalDist - 6.0 - 12.0;
+    
+    // Монеты на обломках (одна на каждом)
+    const fract = (x: number) => x - Math.floor(x);
+    for (let i = 0; i < 8; i++) {
+      const fragmentPos = 14.0 + i * (bridgeLen / 7.0);
+      const randX = Math.sin(i * 73.1) * 2.0;
+      const randZ = Math.cos(i * 47.3) * 2.0;
+      const randY = Math.sin(i * 91.7) * 0.8 - 0.3 + 2.0; // На поверхности обломка
+      
+      const coinX = toPortalDir.x * fragmentPos + randX;
+      const coinZ = toPortalDir.z * fragmentPos + randZ;
+      
+      this.voidCoins.push({
+        position: { x: coinX, y: randY, z: coinZ },
+        active: true,
+        phase: Math.random() * Math.PI * 2,
+      });
+    }
+    
+    // Дополнительные монеты на островах
+    const islandCoins = [
+      { x: 8, z: 8 },
+      { x: -8, z: 8 },
+      { x: 8, z: -8 },
+      { x: -8, z: -8 },
+    ];
+    
+    for (const pos of islandCoins) {
+      this.voidCoins.push({
+        position: { x: pos.x, y: 2.0, z: pos.z },
+        active: true,
+        phase: Math.random() * Math.PI * 2,
+      });
+    }
+  }
+  
+  /** Обновление монет крови */
+  private updateBloodCoins(dt: number): void {
+    if (!this.isInVoid) return;
+    
+    const playerPos = this.player.state.position;
+    
+    for (const coin of this.voidCoins) {
+      if (!coin.active) continue;
+      
+      // Анимация парения
+      coin.position.y = 1.5 + Math.sin(this.gameTime * 3 + coin.phase) * 0.3;
+      
+      // Проверка подбора
+      const dx = coin.position.x - playerPos.x;
+      const dy = coin.position.y - playerPos.y;
+      const dz = coin.position.z - playerPos.z;
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      
+      if (dist < 2.0) {
+        coin.active = false;
+        this.bloodCoins++;
+        this.audio.playSFX('kill');
+        this.hud.showMessage(`🩸 +1 МОНЕТА КРОВИ (${this.bloodCoins})`, 'purple');
+      }
+    }
+  }
+  
+  /** Обновление портала в войд */
+  private updateVoidPortal(dt: number): void {
+    // Не в войде и не на паузе
+    if (this.isInVoid || this.isPaused) return;
+    
+    if (this.voidPortalActive) {
+      // Портал открыт - уменьшаем время жизни
+      this.voidPortalLifetime -= dt;
+      
+      // Проверяем вход игрока в портал
+      const playerPos = this.player.state.position;
+      const distToPortal = Math.sqrt(playerPos.x ** 2 + playerPos.z ** 2);
+      
+      if (distToPortal < 2.5) {
+        // Игрок вошёл в портал!
+        this.enterVoid();
+        return;
+      }
+      
+      if (this.voidPortalLifetime <= 0) {
+        // Портал закрывается
+        this.voidPortalActive = false;
+        this.voidPortalTimer = this.VOID_PORTAL_COOLDOWN;
+        this.hud.showMessage('⚫ ПОРТАЛ ЗАКРЫЛСЯ', 'purple');
+      }
+    } else {
+      // Ждём появления портала
+      this.voidPortalTimer -= dt;
+      
+      if (this.voidPortalTimer <= 0) {
+        // Открываем портал!
+        this.voidPortalActive = true;
+        this.voidPortalLifetime = this.VOID_PORTAL_DURATION;
+        this.audio.playSFX('kill'); // Звук открытия
+        this.hud.showMessage('🌀 ПОРТАЛ В ВОЙД ОТКРЫЛСЯ!', 'purple');
+        this.screenShake = 0.5;
+      } else if (this.voidPortalTimer <= 5) {
+        // Предупреждение за 5 секунд
+        if (Math.floor(this.voidPortalTimer) !== Math.floor(this.voidPortalTimer + dt)) {
+          this.hud.showMessage(`⚫ ПОРТАЛ ЧЕРЕЗ ${Math.ceil(this.voidPortalTimer)}...`, 'purple');
+        }
+      }
+    }
+  }
+  
+  /** Вход в войд через портал */
+  private enterVoid(): void {
+    this.isInVoid = true;
+    this.player.isInVoid = true; // Включаем режим войда для игрока!
+    this.voidPortalActive = false;
+    this.voidEnemyIds = [];
+    this.voidFallOffset = 0;
+    
+    // Случайный вариант войда (разные цвета/атмосфера)
+    this.voidVariant = Math.floor(Math.random() * 4); // 0-3
+    
+    // Сохраняем позицию для возврата
+    this.savedPosition = { ...this.player.state.position };
+    this.savedYaw = this.player.state.yaw;
+    
+    const voidNames = ['БАГРОВЫЙ', 'ИЗУМРУДНЫЙ', 'ЗОЛОТОЙ', 'ЛЕДЯНОЙ'];
+    this.hud.showMessage(`🌀 ${voidNames[this.voidVariant]} ВОЙД!`, 'purple');
+    this.audio.playSFX('kill');
+    this.screenShake = 1.0;
+    
+    // Включаем глубокий low pass фильтр
+    this.audio.enterVoidAudio();
+    
+    // Телепортируем игрока на остров в войде
+    this.player.state.position = { x: 0, y: 2, z: 0 };
+    this.player.state.velocity = { x: 0, y: 0, z: 0 };
+    this.player.state.grounded = true;
+    
+    // Устанавливаем позицию портала выхода (случайное направление, дальше!)
+    const portalAngle = Math.random() * Math.PI * 2;
+    this.portalPos = { 
+      x: Math.cos(portalAngle) * 40, // Далеко - нужно прыгать по обломкам!
+      y: 2, 
+      z: Math.sin(portalAngle) * 40 
+    };
+    
+    // Спавним монеты крови в войде!
+    this.spawnBloodCoins();
+    
+    // Спавним фантомов
+    this.voidSpawnTimer = 2.0;
+  }
+  
+  /** Выстрел дротиком */
+  private fireDart(): void {
+    if (this.darts <= 0) return;
+    
+    this.darts--;
+    this.audio.playSFX('jump'); // Звук выстрела (временный)
+    
+    const playerPos = this.player.getEyePosition();
+    const yaw = this.player.state.yaw;
+    const pitch = this.player.state.pitch;
+    
+    // Направление взгляда
+    const dirX = Math.sin(yaw) * Math.cos(pitch);
+    const dirY = Math.sin(pitch);
+    const dirZ = -Math.cos(yaw) * Math.cos(pitch);
+    
+    // Небольшой разброс для реализма
+    const spread = 0.03;
+    const spreadX = (Math.random() - 0.5) * spread;
+    const spreadY = (Math.random() - 0.5) * spread;
+    const spreadZ = (Math.random() - 0.5) * spread;
+    
+    const speed = 60; // Очень быстрые дротики
+    
+    this.flyingDarts.push({
+      position: { 
+        x: playerPos.x + dirX * 0.5, // Смещение от камеры
+        y: playerPos.y - 0.2,        // Немного ниже глаз
+        z: playerPos.z + dirZ * 0.5 
+      },
+      velocity: {
+        x: (dirX + spreadX) * speed,
+        y: (dirY + spreadY) * speed,
+        z: (dirZ + spreadZ) * speed,
+      },
+      active: true,
+    });
+  }
+  
+  /** Обновление летящих дротиков */
+  private updateDarts(dt: number): void {
+    for (const dart of this.flyingDarts) {
+      if (!dart.active) continue;
+      
+      // Движение
+      dart.position.x += dart.velocity.x * dt;
+      dart.position.y += dart.velocity.y * dt;
+      dart.position.z += dart.velocity.z * dt;
+      
+      // Гравитация (небольшая)
+      dart.velocity.y -= 15 * dt;
+      
+      // Проверяем попадание по врагам
+      for (const target of this.targetManager.targets) {
+        if (!target.active) continue;
+        
+        const dx = dart.position.x - target.position.x;
+        const dy = dart.position.y - target.position.y;
+        const dz = dart.position.z - target.position.z;
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        
+        if (dist < target.radius + 0.5) {
+          // Попадание!
+          dart.active = false;
+          const killed = target.takeDamage(this.DART_DAMAGE);
+          this.audio.playSFX('kill');
+          this.hud.showHitmarker(false);
+          
+          // Убиваем если HP <= 0
+          if (killed || target.hp <= 0) {
+            const sliceDir = { x: dx / (dist || 1), y: 0, z: dz / (dist || 1) };
+            target.slice(sliceDir);
+            this.targetManager.onTargetDestroyed?.(target);
+          }
+          break;
+        }
+      }
+      
+      // Дезактивируем если улетел далеко или упал
+      if (dart.position.y < -5 || 
+          Math.abs(dart.position.x) > 50 || 
+          Math.abs(dart.position.z) > 50) {
+        dart.active = false;
+      }
+    }
+    
+    // Удаляем неактивные
+    this.flyingDarts = this.flyingDarts.filter(d => d.active);
+  }
+  
+  /** Бросок гранаты */
+  private throwGrenade(): void {
+    if (this.grenadeCount <= 0) return;
+    
+    this.grenadeCount--;
+    this.audio.playSFX('jump'); // Звук броска
+    
+    const playerPos = this.player.getEyePosition();
+    const yaw = this.player.state.yaw;
+    const pitch = this.player.state.pitch;
+    
+    // Направление броска (по взгляду)
+    const dirX = Math.sin(yaw) * Math.cos(pitch);
+    const dirY = Math.sin(pitch);
+    const dirZ = -Math.cos(yaw) * Math.cos(pitch);
+    
+    this.grenades.push({
+      position: { 
+        x: playerPos.x + dirX * 1.0,
+        y: playerPos.y,
+        z: playerPos.z + dirZ * 1.0
+      },
+      velocity: {
+        x: dirX * this.GRENADE_SPEED,
+        y: dirY * this.GRENADE_SPEED + 5, // Немного вверх
+        z: dirZ * this.GRENADE_SPEED
+      },
+      active: true,
+      lifetime: this.GRENADE_FUSE
+    });
+    
+    this.hud.showMessage(`💣 ГРАНАТА! (осталось: ${this.grenadeCount})`, 'purple');
+  }
+  
+  /** Обновление гранат */
+  private updateGrenades(dt: number): void {
+    for (const grenade of this.grenades) {
+      if (!grenade.active) continue;
+      
+      // Движение
+      grenade.position.x += grenade.velocity.x * dt;
+      grenade.position.y += grenade.velocity.y * dt;
+      grenade.position.z += grenade.velocity.z * dt;
+      
+      // Гравитация
+      grenade.velocity.y -= this.GRENADE_GRAVITY * dt;
+      
+      // Отскок от земли
+      if (grenade.position.y < 0.5) {
+        grenade.position.y = 0.5;
+        grenade.velocity.y = -grenade.velocity.y * 0.5; // Потеря энергии
+        grenade.velocity.x *= 0.8;
+        grenade.velocity.z *= 0.8;
+      }
+      
+      // Таймер взрыва
+      grenade.lifetime -= dt;
+      if (grenade.lifetime <= 0) {
+        this.explodeGrenade(grenade.position);
+        grenade.active = false;
+      }
+    }
+    
+    // Удаляем неактивные
+    this.grenades = this.grenades.filter(g => g.active);
+  }
+  
+  /** Взрыв гранаты */
+  private explodeGrenade(position: Vec3): void {
+    // Создаём визуальный взрыв
+    this.explosions.push({
+      position: { ...position },
+      progress: 0,
+      active: true
+    });
+    
+    // Звук взрыва (глитч-эффект)
+    this.audio.playSFX('explosion');
+    this.screenShake = 3.0;
+    
+    // Наносим урон врагам в радиусе
+    for (const target of this.targetManager.targets) {
+      if (!target.active) continue;
+      
+      const dx = position.x - target.position.x;
+      const dy = position.y - target.position.y;
+      const dz = position.z - target.position.z;
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      
+      if (dist < this.EXPLOSION_RADIUS) {
+        // Урон падает с расстоянием
+        const damageMultiplier = 1 - (dist / this.EXPLOSION_RADIUS);
+        const damage = this.EXPLOSION_DAMAGE * damageMultiplier;
+        const killed = target.takeDamage(damage);
+        this.hud.showHitmarker(false);
+        
+        // Убиваем если HP <= 0
+        if (killed || target.hp <= 0) {
+          const sliceDir = { x: dx / (dist || 1), y: 0, z: dz / (dist || 1) };
+          target.slice(sliceDir);
+          this.targetManager.onTargetDestroyed?.(target);
+        }
+      }
+    }
+    
+    // Глитч-эффект: телепортация в радиусе взрыва
+    const playerPos = this.player.state.position;
+    const playerDist = Math.sqrt(
+      (position.x - playerPos.x) ** 2 +
+      (position.y - playerPos.y) ** 2 +
+      (position.z - playerPos.z) ** 2
+    );
+    if (playerDist < this.EXPLOSION_RADIUS) {
+      // Телепортируем игрока в случайное место в радиусе взрыва!
+      const teleportAngle = Math.random() * Math.PI * 2;
+      const teleportDist = Math.random() * this.EXPLOSION_RADIUS;
+      const newX = position.x + Math.cos(teleportAngle) * teleportDist;
+      const newZ = position.z + Math.sin(teleportAngle) * teleportDist;
+      
+      this.player.state.position.x = newX;
+      this.player.state.position.z = newZ;
+      
+      // Небольшой урон за глитч
+      const selfDamage = 10;
+      this.player.state.health -= selfDamage;
+      this.hud.showDamage();
+      this.hud.updateHealth(this.player.state.health, this.player.state.maxHealth);
+      this.hud.showMessage('⚡ GLITCH TELEPORT!', 'cyan');
+      
+      // Дополнительная тряска
+      this.screenShake = 1.5;
+      
+      if (this.player.isDead()) {
+        this.gameOver();
+      }
+    }
+  }
+  
+  /** Обновление взрывов */
+  private updateExplosions(dt: number): void {
+    for (const exp of this.explosions) {
+      if (!exp.active) continue;
+      
+      exp.progress += dt / this.EXPLOSION_DURATION;
+      if (exp.progress >= 1) {
+        exp.active = false;
+      }
+    }
+    
+    this.explosions = this.explosions.filter(e => e.active);
+  }
+  
+  /** Проверка попадания по алтарю */
+  private checkAltarHit(playerPos: Vec3): number | null {
+    const range = this.weapon.attackRange + 1.5; // Немного больше радиус
+    
+    for (let i = 0; i < this.altars.length; i++) {
+      const altar = this.altars[i];
+      const dx = playerPos.x - altar.position.x;
+      const dz = playerPos.z - altar.position.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      
+      if (dist < range) {
+        // Проверяем направление взгляда
+        const toAltarX = altar.position.x - playerPos.x;
+        const toAltarZ = altar.position.z - playerPos.z;
+        const toAltarLen = Math.sqrt(toAltarX * toAltarX + toAltarZ * toAltarZ);
+        
+        if (toAltarLen > 0.1) {
+          const lookX = Math.sin(this.player.state.yaw);
+          const lookZ = -Math.cos(this.player.state.yaw);
+          const dot = (toAltarX / toAltarLen) * lookX + (toAltarZ / toAltarLen) * lookZ;
+          
+          // Если смотрим в сторону алтаря (угол < 60°)
+          if (dot > 0.5) {
+            return i;
+          }
+        }
+      }
+    }
+    return null;
   }
 
   /** Проверка сплеш-атаки - горизонтальная волна */
@@ -817,11 +1862,52 @@ export class Game {
     const acidProjectilesData = this.targetManager.getAcidProjectilesData();
     const acidProjectileCount = this.targetManager.acidProjectiles.length;
 
+    // Данные лазеров спайкеров
+    const spikesData = this.targetManager.getSpikesData();
+    const spikeTargetsData = this.targetManager.getSpikeTargetsData();
+    const spikeCount = Math.min(this.targetManager.spikes.length, 8);
+
     // Данные зон кислотного дождя
     const acidRainZonesData = this.targetManager.getAcidRainZonesData();
     const acidRainZoneCount = this.targetManager.acidRainZones.length;
+    
+    // Данные алтарей [x, y, z, score]
+    const altarsData = new Float32Array(8);
+    for (let i = 0; i < this.altars.length; i++) {
+      altarsData[i * 4 + 0] = this.altars[i].position.x;
+      altarsData[i * 4 + 1] = this.altars[i].position.y;
+      altarsData[i * 4 + 2] = this.altars[i].position.z;
+      altarsData[i * 4 + 3] = this.altars[i].score;
+    }
+    
+    // Данные лучей [x, y, z, active] и направления [dx, dy, dz, speed]
+    const dartsData = new Float32Array(64); // 16 лучей * 4
+    const dartDirsData = new Float32Array(64); // 16 направлений * 4
+    const dartCount = Math.min(this.flyingDarts.length, 16);
+    for (let i = 0; i < dartCount; i++) {
+      const dart = this.flyingDarts[i];
+      dartsData[i * 4 + 0] = dart.position.x;
+      dartsData[i * 4 + 1] = dart.position.y;
+      dartsData[i * 4 + 2] = dart.position.z;
+      dartsData[i * 4 + 3] = dart.active ? 1.0 : 0.0;
+      
+      // Нормализованное направление
+      const speed = Math.sqrt(dart.velocity.x ** 2 + dart.velocity.y ** 2 + dart.velocity.z ** 2);
+      dartDirsData[i * 4 + 0] = dart.velocity.x / (speed || 1);
+      dartDirsData[i * 4 + 1] = dart.velocity.y / (speed || 1);
+      dartDirsData[i * 4 + 2] = dart.velocity.z / (speed || 1);
+      dartDirsData[i * 4 + 3] = speed;
+    }
 
     // Рендерим сцену
+    // Данные гранат для шейдера
+    const grenadesData = this.getGrenadesData();
+    const grenadeCount = this.grenades.filter(g => g.active).length;
+    
+    // Данные взрывов для шейдера
+    const explosionsData = this.getExplosionsData();
+    const explosionCount = this.explosions.filter(e => e.active).length;
+    
     this.renderer.render(
       this.gameTime,
       this.player.getEyePosition(),
@@ -839,13 +1925,74 @@ export class Game {
       crystalsData,
       acidProjectilesData,
       acidProjectileCount,
+      spikesData,
+      spikeTargetsData,
+      spikeCount,
       acidRainZonesData,
       acidRainZoneCount,
-      this.targetManager.greenBossPhase2
+      this.targetManager.greenBossPhase2,
+      this.isInVoid,
+      0, // voidProgress (не используется в Eclipse режиме)
+      this.voidFallOffset,
+      this.isInVoid ? this.portalPos : undefined, // Позиция портала
+      altarsData,
+      dartsData,
+      dartDirsData,
+      dartCount,
+      this.voidPortalActive ? this.voidPortalLifetime : 0,
+      this.getBloodCoinsData(),
+      this.voidCoins.filter(c => c.active).length,
+      grenadesData,
+      grenadeCount,
+      explosionsData,
+      explosionCount,
+      this.voidVariant
     );
 
-    // Рендерим оружие
+    // Рендерим оружие (катана)
     this.weaponRenderer.render(this.weapon.state, this.gameTime);
+  }
+  
+  /** Данные монет крови для шейдера */
+  private getBloodCoinsData(): Float32Array {
+    const data = new Float32Array(48); // 12 монет * 4
+    const activeCoins = this.voidCoins.filter(c => c.active);
+    for (let i = 0; i < Math.min(activeCoins.length, 12); i++) {
+      const coin = activeCoins[i];
+      data[i * 4 + 0] = coin.position.x;
+      data[i * 4 + 1] = coin.position.y;
+      data[i * 4 + 2] = coin.position.z;
+      data[i * 4 + 3] = 1.0; // active
+    }
+    return data;
+  }
+  
+  /** Данные гранат для шейдера */
+  private getGrenadesData(): Float32Array {
+    const data = new Float32Array(32); // 8 гранат * 4
+    const activeGrenades = this.grenades.filter(g => g.active);
+    for (let i = 0; i < Math.min(activeGrenades.length, 8); i++) {
+      const g = activeGrenades[i];
+      data[i * 4 + 0] = g.position.x;
+      data[i * 4 + 1] = g.position.y;
+      data[i * 4 + 2] = g.position.z;
+      data[i * 4 + 3] = g.lifetime;
+    }
+    return data;
+  }
+  
+  /** Данные взрывов для шейдера */
+  private getExplosionsData(): Float32Array {
+    const data = new Float32Array(32); // 8 взрывов * 4
+    const activeExplosions = this.explosions.filter(e => e.active);
+    for (let i = 0; i < Math.min(activeExplosions.length, 8); i++) {
+      const e = activeExplosions[i];
+      data[i * 4 + 0] = e.position.x;
+      data[i * 4 + 1] = e.position.y;
+      data[i * 4 + 2] = e.position.z;
+      data[i * 4 + 3] = e.progress;
+    }
+    return data;
   }
 
   /** Обработка resize */

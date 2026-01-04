@@ -35,15 +35,34 @@ export class WebGLRenderer {
       poolCount: null,
       acidProjectiles: null,
       acidProjectileCount: null,
+      spikes: null,
+      spikeTargets: null,
+      spikeCount: null,
       acidRainZones: null,
       acidRainZoneCount: null,
       era: null,
+      altars: null,
+      darts: null,
+      dartDirs: null,
+      dartCount: null,
+      voidPortalActive: null,
+      bloodCoins: null,
+      bloodCoinCount: null,
       wave: null,
       greenBossPhase2: null,
       pickups: null,
       pickupCount: null,
       crystals: null,
       crystalCount: null,
+      voidMode: null,
+      voidProgress: null,
+      voidFallOffset: null,
+      portalPos: null,
+      grenades: null,
+      grenadeCount: null,
+      explosions: null,
+      explosionCount: null,
+      voidVariant: null,
     };
 
     this.init();
@@ -84,14 +103,33 @@ export class WebGLRenderer {
     this.uniforms.poolCount = gl.getUniformLocation(this.program, 'u_poolCount');
     this.uniforms.acidProjectiles = gl.getUniformLocation(this.program, 'u_acidProjectiles');
     this.uniforms.acidProjectileCount = gl.getUniformLocation(this.program, 'u_acidProjectileCount');
+    this.uniforms.spikes = gl.getUniformLocation(this.program, 'u_spikes');
+    this.uniforms.spikeTargets = gl.getUniformLocation(this.program, 'u_spikeTargets');
+    this.uniforms.spikeCount = gl.getUniformLocation(this.program, 'u_spikeCount');
     this.uniforms.acidRainZones = gl.getUniformLocation(this.program, 'u_acidRainZones');
     this.uniforms.acidRainZoneCount = gl.getUniformLocation(this.program, 'u_acidRainZoneCount');
     this.uniforms.era = gl.getUniformLocation(this.program, 'u_era');
+    this.uniforms.altars = gl.getUniformLocation(this.program, 'u_altars');
+    this.uniforms.darts = gl.getUniformLocation(this.program, 'u_darts');
+    this.uniforms.dartDirs = gl.getUniformLocation(this.program, 'u_dartDirs');
+    this.uniforms.dartCount = gl.getUniformLocation(this.program, 'u_dartCount');
+    this.uniforms.voidPortalActive = gl.getUniformLocation(this.program, 'u_voidPortalActive');
+    this.uniforms.bloodCoins = gl.getUniformLocation(this.program, 'u_bloodCoins');
+    this.uniforms.bloodCoinCount = gl.getUniformLocation(this.program, 'u_bloodCoinCount');
     this.uniforms.wave = gl.getUniformLocation(this.program, 'u_wave');
     this.uniforms.greenBossPhase2 = gl.getUniformLocation(this.program, 'u_greenBossPhase2');
     this.uniforms.pickups = gl.getUniformLocation(this.program, 'u_pickups');
     this.uniforms.pickupCount = gl.getUniformLocation(this.program, 'u_pickupCount');
     this.uniforms.crystals = gl.getUniformLocation(this.program, 'u_crystals');
+    this.uniforms.voidMode = gl.getUniformLocation(this.program, 'u_voidMode');
+    this.uniforms.voidProgress = gl.getUniformLocation(this.program, 'u_voidProgress');
+    this.uniforms.voidFallOffset = gl.getUniformLocation(this.program, 'u_voidFallOffset');
+    this.uniforms.portalPos = gl.getUniformLocation(this.program, 'u_portalPos');
+    this.uniforms.grenades = gl.getUniformLocation(this.program, 'u_grenades');
+    this.uniforms.grenadeCount = gl.getUniformLocation(this.program, 'u_grenadeCount');
+    this.uniforms.explosions = gl.getUniformLocation(this.program, 'u_explosions');
+    this.uniforms.explosionCount = gl.getUniformLocation(this.program, 'u_explosionCount');
+    this.uniforms.voidVariant = gl.getUniformLocation(this.program, 'u_voidVariant');
 
     // Создаём fullscreen quad
     this.createQuad();
@@ -175,9 +213,28 @@ export class WebGLRenderer {
     crystalsData?: Float32Array,
     acidProjectilesData?: Float32Array,
     acidProjectileCount?: number,
+    spikesData?: Float32Array,
+    spikeTargetsData?: Float32Array,
+    spikeCount?: number,
     acidRainZonesData?: Float32Array,
     acidRainZoneCount?: number,
-    greenBossPhase2?: boolean
+    greenBossPhase2?: boolean,
+    voidMode?: boolean,
+    voidProgress?: number,
+    voidFallOffset?: number,
+    portalPos?: { x: number; y: number; z: number },
+    altarsData?: Float32Array,
+    dartsData?: Float32Array,
+    dartDirsData?: Float32Array,
+    dartCount?: number,
+    voidPortalActive?: number,
+    bloodCoinsData?: Float32Array,
+    bloodCoinCount?: number,
+    grenadesData?: Float32Array,
+    grenadeCount?: number,
+    explosionsData?: Float32Array,
+    explosionCount?: number,
+    voidVariant?: number
   ): void {
     const gl = this.gl;
 
@@ -212,6 +269,15 @@ export class WebGLRenderer {
       gl.uniform1i(this.uniforms.acidProjectileCount, 0);
     }
 
+    // Лазеры спайкеров
+    if (spikesData && spikeTargetsData && spikeCount !== undefined && spikeCount > 0) {
+      gl.uniform4fv(this.uniforms.spikes, spikesData);
+      gl.uniform4fv(this.uniforms.spikeTargets, spikeTargetsData);
+      gl.uniform1i(this.uniforms.spikeCount, spikeCount);
+    } else {
+      gl.uniform1i(this.uniforms.spikeCount, 0);
+    }
+
     // Зоны кислотного дождя
     if (acidRainZonesData && acidRainZoneCount !== undefined && acidRainZoneCount > 0) {
       gl.uniform4fv(this.uniforms.acidRainZones, acidRainZonesData);
@@ -241,6 +307,61 @@ export class WebGLRenderer {
     if (crystalsData) {
       gl.uniform4fv(this.uniforms.crystals, crystalsData);
     }
+
+    // Режим войда
+    gl.uniform1i(this.uniforms.voidMode, voidMode ? 1 : 0);
+    gl.uniform1f(this.uniforms.voidProgress, voidProgress || 0.0);
+    gl.uniform1f(this.uniforms.voidFallOffset, voidFallOffset || 0.0);
+    gl.uniform3f(
+      this.uniforms.portalPos,
+      portalPos?.x || 0.0,
+      portalPos?.y || 0.0,
+      portalPos?.z || 0.0
+    );
+    
+    // Алтари
+    if (altarsData) {
+      gl.uniform4fv(this.uniforms.altars, altarsData);
+    }
+    
+    // Энергетические лучи
+    if (dartsData && dartDirsData && dartCount !== undefined && dartCount > 0) {
+      gl.uniform4fv(this.uniforms.darts, dartsData);
+      gl.uniform4fv(this.uniforms.dartDirs, dartDirsData);
+      gl.uniform1i(this.uniforms.dartCount, dartCount);
+    } else {
+      gl.uniform1i(this.uniforms.dartCount, 0);
+    }
+    
+    // Портал в войд
+    gl.uniform1f(this.uniforms.voidPortalActive, voidPortalActive || 0.0);
+    
+    // Монеты крови
+    if (bloodCoinsData && bloodCoinCount !== undefined && bloodCoinCount > 0) {
+      gl.uniform4fv(this.uniforms.bloodCoins, bloodCoinsData);
+      gl.uniform1i(this.uniforms.bloodCoinCount, bloodCoinCount);
+    } else {
+      gl.uniform1i(this.uniforms.bloodCoinCount, 0);
+    }
+    
+    // Гранаты
+    if (grenadesData && grenadeCount !== undefined && grenadeCount > 0) {
+      gl.uniform4fv(this.uniforms.grenades, grenadesData);
+      gl.uniform1i(this.uniforms.grenadeCount, grenadeCount);
+    } else {
+      gl.uniform1i(this.uniforms.grenadeCount, 0);
+    }
+    
+    // Взрывы
+    if (explosionsData && explosionCount !== undefined && explosionCount > 0) {
+      gl.uniform4fv(this.uniforms.explosions, explosionsData);
+      gl.uniform1i(this.uniforms.explosionCount, explosionCount);
+    } else {
+      gl.uniform1i(this.uniforms.explosionCount, 0);
+    }
+    
+    // Вариант войда
+    gl.uniform1i(this.uniforms.voidVariant, voidVariant || 0);
 
     // Рисуем
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);

@@ -2,7 +2,7 @@ import type { Vec3, ICollisionSystem } from '@/types';
 import { vec3, distanceVec3, normalizeVec3 } from '@/utils/math';
 
 /** Тип врага */
-export type EnemyType = 'baneling' | 'phantom' | 'runner' | 'hopper' | 'boss_green' | 'boss_black' | 'boss_blue';
+export type EnemyType = 'baneling' | 'phantom' | 'runner' | 'hopper' | 'spiker' | 'boss_green' | 'boss_black' | 'boss_blue';
 
 /** Осколок после разрубания */
 export interface Fragment {
@@ -75,10 +75,10 @@ export class Target {
   public fragments: Fragment[] = [];
 
   /** Время до удаления */
-  private removeTimer = 0;
+  public removeTimer = 0;
 
   /** Уникальный ID для разного поведения */
-  private id: number;
+  public id: number;
 
   /** Фаза синусоиды */
   private phase: number;
@@ -185,6 +185,20 @@ export class Target {
   /** Callback при смене фазы босса */
   public onPhaseChange?: (phase: number) => void;
 
+  // === СПАЙКЕР (летающий стрелок) ===
+  /** Таймер атаки иголками */
+  private spikeAttackTimer = 0;
+  private spikeAttackCooldown = 2.0;
+  
+  /** Можно убить только в прыжке */
+  public requiresJumpToKill = false;
+  
+  /** Callback при атаке иголкой */
+  public onSpikeAttack?: (startPos: Vec3, targetPos: Vec3) => void;
+  
+  /** Callback при вскрике */
+  public onSpikerScream?: () => void;
+
   /** Система коллизий */
   private collision: ICollisionSystem | null = null;
 
@@ -215,6 +229,14 @@ export class Target {
       this.radius = 0.5;
       this.verticalVelocity = 8;
       this.onGround = false;
+    } else if (type === 'spiker') {
+      // Летающий стрелок - кидает иголки, убивается только с прыжка
+      this.speed = speed * 0.8; // Медленный
+      this.damage = 5; // Урон от столкновения маленький
+      this.radius = 0.6;
+      this.position.y = 5 + Math.random() * 3; // Летает высоко (5-8м)
+      this.spikeAttackCooldown = 2.0; // Атакует каждые 2 секунды
+      this.requiresJumpToKill = true; // Можно убить только в прыжке!
     } else if (type === 'boss_green') {
       // ЗЕЛЁНЫЙ БОСС - плюётся кислотой!
       this.isBoss = true;
@@ -266,6 +288,9 @@ export class Target {
         case 'hopper':
           this.updateHopper(dt, playerPos, time);
           break;
+        case 'spiker':
+          this.updateSpiker(dt, playerPos, time);
+          break;
         case 'boss_green':
           this.updateBossGreen(dt, playerPos, time);
           break;
@@ -289,37 +314,35 @@ export class Target {
     }
   }
 
-  /** Обновление бейнлинга - медленное преследование с паттернами */
+  /** Обновление бейнлинга - катится по земле к игроку */
   private updateBaneling(dt: number, playerPos: Vec3, time: number): void {
+    // Направление к игроку (только по XZ - катимся по земле!)
     const dx = playerPos.x - this.position.x;
-    const dy = (playerPos.y - 0.3) - this.position.y;
     const dz = playerPos.z - this.position.z;
-    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    const dist = Math.sqrt(dx * dx + dz * dz);
 
     if (dist > 0.1) {
       const dirX = dx / dist;
-      const dirY = dy / dist;
       const dirZ = dz / dist;
 
+      // Агрессия растёт при приближении
       const aggression = 1.0 + Math.max(0, (15 - dist) / 15) * 0.8;
       const currentSpeed = this.speed * aggression;
 
-      let offsetX = 0, offsetY = 0, offsetZ = 0;
+      // Горизонтальное "извивание" для интересного движения
+      let offsetX = 0, offsetZ = 0;
       const wave = time * 4 + this.phase;
 
       switch (this.moveType) {
         case 0:
-          offsetX = Math.cos(wave) * 3;
-          offsetZ = Math.sin(wave) * 3;
-          offsetY = Math.sin(wave * 0.5) * 1.5;
+          offsetX = Math.cos(wave) * 2;
+          offsetZ = Math.sin(wave) * 2;
           break;
         case 1:
-          offsetX = Math.sin(wave * 2) * 4;
-          offsetY = Math.cos(wave) * 0.5;
+          offsetX = Math.sin(wave * 2) * 3;
           break;
         case 2:
-          offsetY = Math.sin(wave * 1.5) * 2.5;
-          offsetX = Math.cos(wave * 0.7) * 1;
+          offsetZ = Math.sin(wave * 1.5) * 3;
           break;
         case 3:
           const pulse = Math.sin(wave) > 0 ? 1.5 : 0.5;
@@ -328,12 +351,12 @@ export class Target {
           break;
       }
 
+      // Перпендикуляр для бокового смещения
       const perpX = -dirZ;
       const perpZ = dirX;
 
-      this.velocity.x = dirX * currentSpeed + perpX * offsetX * 0.3 + offsetX * 0.1;
-      this.velocity.y = dirY * currentSpeed + offsetY * 0.3;
-      this.velocity.z = dirZ * currentSpeed + perpZ * offsetZ * 0.3 + offsetZ * 0.1;
+      this.velocity.x = dirX * currentSpeed + perpX * offsetX * 0.3;
+      this.velocity.z = dirZ * currentSpeed + perpZ * offsetZ * 0.3;
 
       // Применяем движение с проверкой коллизий
       const newX = this.position.x + this.velocity.x * dt;
@@ -343,13 +366,10 @@ export class Target {
           !this.collision.checkEnemyCollision({ x: newX, y: this.position.y, z: newZ }, this.radius)) {
         this.position.x = newX;
         this.position.z = newZ;
-      } else {
-        // Облетаем препятствие сверху
-        this.velocity.y += 5 * dt;
       }
       
-      this.position.y += this.velocity.y * dt;
-      this.position.y = Math.max(0.5, Math.min(6.0, this.position.y));
+      // Бейнлинг всегда на земле (его радиус ~0.7)
+      this.position.y = this.radius;
     }
   }
 
@@ -936,6 +956,145 @@ export class Target {
     this.position.y = Math.min(12.0, this.position.y); // Выше могут прыгать
   }
 
+  /** Обновление спайкера - летает сверху, кидает иголки */
+  // Таймер манёвра спайкера
+  private spikerManeuverTimer = 0;
+  private spikerManeuverDir: Vec3 = { x: 0, y: 0, z: 0 };
+  private spikerDodging = false;
+  private spikerDiveTimer = 0;
+  
+  private updateSpiker(dt: number, playerPos: Vec3, time: number): void {
+    const dx = playerPos.x - this.position.x;
+    const dz = playerPos.z - this.position.z;
+    const distXZ = Math.sqrt(dx * dx + dz * dz);
+    
+    // === ПОКАЧИВАНИЕ КРЫЛЬЯМИ (быстрое!) ===
+    const wingCycle = time * 8 + this.phase; // Быстрые взмахи!
+    const wingBeat = Math.sin(wingCycle);
+    const bobAmount = wingBeat * 0.5;
+    
+    // === МАНЁВРЫ И УКЛОНЕНИЯ ===
+    this.spikerManeuverTimer -= dt;
+    this.spikerDiveTimer -= dt;
+    
+    // Случайный манёвр каждые 0.3-0.8 секунды
+    if (this.spikerManeuverTimer <= 0) {
+      this.spikerManeuverTimer = 0.3 + Math.random() * 0.5;
+      
+      // Выбираем тип манёвра
+      const maneuverType = Math.random();
+      
+      if (maneuverType < 0.3) {
+        // Резкий рывок в сторону
+        const sideAngle = Math.atan2(dz, dx) + (Math.random() > 0.5 ? Math.PI / 2 : -Math.PI / 2);
+        this.spikerManeuverDir = {
+          x: Math.cos(sideAngle) * 15,
+          y: (Math.random() - 0.3) * 8,
+          z: Math.sin(sideAngle) * 15
+        };
+        this.spikerDodging = true;
+      } else if (maneuverType < 0.5) {
+        // Пикирование к игроку
+        this.spikerDiveTimer = 0.4;
+        this.spikerManeuverDir = {
+          x: dx / distXZ * 20,
+          y: -8,
+          z: dz / distXZ * 20
+        };
+        this.spikerDodging = false;
+      } else if (maneuverType < 0.7) {
+        // Резкий подъём
+        this.spikerManeuverDir = {
+          x: (Math.random() - 0.5) * 10,
+          y: 12,
+          z: (Math.random() - 0.5) * 10
+        };
+        this.spikerDodging = false;
+      } else {
+        // Отлёт назад
+        this.spikerManeuverDir = {
+          x: -dx / distXZ * 12,
+          y: (Math.random() - 0.5) * 5,
+          z: -dz / distXZ * 12
+        };
+        this.spikerDodging = false;
+      }
+    }
+    
+    // Применяем манёвр с затуханием
+    const maneuverFade = Math.max(0, this.spikerManeuverTimer / 0.5);
+    this.position.x += this.spikerManeuverDir.x * dt * maneuverFade;
+    this.position.y += this.spikerManeuverDir.y * dt * maneuverFade;
+    this.position.z += this.spikerManeuverDir.z * dt * maneuverFade;
+    
+    // === БАЗОВОЕ КРУЖЕНИЕ (быстрое!) ===
+    if (!this.spikerDodging && this.spikerDiveTimer <= 0) {
+      const orbitRadius = 8 + Math.sin(time * 2 + this.phase) * 3; // Радиус меняется!
+      
+      if (distXZ > 0.1) {
+        const angle = Math.atan2(dz, dx);
+        const orbitSpeed = 3.5; // Быстро кружит!
+        const newAngle = angle + orbitSpeed * dt;
+        
+        // Коррекция расстояния
+        let radialSpeed = 0;
+        if (distXZ < orbitRadius - 2) {
+          radialSpeed = -8;
+        } else if (distXZ > orbitRadius + 2) {
+          radialSpeed = 8;
+        }
+        
+        const targetX = playerPos.x - Math.cos(newAngle) * (distXZ + radialSpeed * dt);
+        const targetZ = playerPos.z - Math.sin(newAngle) * (distXZ + radialSpeed * dt);
+        
+        this.position.x += (targetX - this.position.x) * dt * 5;
+        this.position.z += (targetZ - this.position.z) * dt * 5;
+      }
+    }
+    
+    // === ВЫСОТА ===
+    const baseHeight = 5.0 + Math.sin(time * 1.5 + this.phase * 2) * 2.0;
+    const targetHeight = baseHeight + bobAmount;
+    
+    // После пикирования - резкий подъём
+    if (this.spikerDiveTimer > 0 && this.position.y < 3) {
+      this.spikerManeuverDir.y = 15; // Резко вверх!
+    }
+    
+    // Плавная коррекция высоты
+    if (this.spikerDiveTimer <= 0 && !this.spikerDodging) {
+      const heightDiff = targetHeight - this.position.y;
+      this.position.y += heightDiff * dt * 3;
+    }
+    
+    // === АТАКА ИГОЛКАМИ ===
+    this.spikeAttackTimer -= dt;
+    if (this.spikeAttackTimer <= 0 && distXZ < 20) {
+      this.onSpikerScream?.();
+      
+      // Стреляем быстрее!
+      setTimeout(() => {
+        if (this.active) {
+          this.onSpikeAttack?.(
+            { ...this.position },
+            { ...playerPos }
+          );
+        }
+      }, 200);
+      
+      this.spikeAttackTimer = this.spikeAttackCooldown * 0.7 + Math.random() * 0.5;
+    }
+    
+    // === ОГРАНИЧЕНИЯ ===
+    const arenaRadius = 35;
+    const dist = Math.sqrt(this.position.x ** 2 + this.position.z ** 2);
+    if (dist > arenaRadius) {
+      this.position.x *= arenaRadius / dist;
+      this.position.z *= arenaRadius / dist;
+    }
+    this.position.y = Math.max(2.5, Math.min(12, this.position.y));
+  }
+
   /** Обновление осколков */
   private updateFragments(dt: number): void {
     const gravity = 15.0;
@@ -1021,6 +1180,7 @@ export class Target {
     // 3.0-3.9 = фантом (чёрный)
     // 5.0-5.9 = runner (оранжевый)
     // 7.0-7.9 = hopper (синий)
+    // 9.0-9.9 = spiker (красно-жёлтый, летающий)
     // 11.0-11.9 = boss_green (огромный зелёный)
     // 13.0-13.9 = boss_black (чёрный, искривление)
     // 15.0-15.9 = boss_blue (синий, телепорт)
@@ -1036,6 +1196,9 @@ export class Target {
           break;
         case 'hopper':
           w = 7 + intensity;
+          break;
+        case 'spiker':
+          w = 9 + intensity;
           break;
         case 'boss_green':
           w = 11 + intensity;
@@ -1071,6 +1234,19 @@ export interface PowerCrystal {
   active: boolean;
   platformIndex: number; // На какой платформе
 }
+
+/** Элемент очереди спавна через портал */
+export interface SpawnQueueItem {
+  type: EnemyType;
+  speed: number;
+  portalSide: 'left' | 'right'; // Через какой портал выходит
+}
+
+/** Позиции порталов */
+export const PORTAL_POSITIONS = {
+  left: { x: -21.0, y: 1.5, z: 0 },
+  right: { x: 21.0, y: 1.5, z: 0 }
+} as const;
 
 /**
  * Менеджер врагов с системой волн
@@ -1142,6 +1318,39 @@ export class TargetManager {
   /** Система коллизий */
   private collision: ICollisionSystem | null = null;
 
+  // === СИСТЕМА ПОРТАЛОВ ===
+  /** Очередь спавна врагов */
+  private spawnQueue: SpawnQueueItem[] = [];
+  
+  /** Таймеры порталов (левый и правый) */
+  private portalTimers = { left: 0, right: 0 };
+  
+  /** Интервал между спавнами через один портал (сек) */
+  private readonly PORTAL_SPAWN_INTERVAL = 0.7;
+  
+  /** Callback при спавне врага через портал (для звука) */
+  public onEnemySpawn?: (type: EnemyType, portalSide: 'left' | 'right') => void;
+  
+  /** Callback при атаке иголкой спайкера */
+  public onSpikerAttack?: (startPos: Vec3, targetPos: Vec3) => void;
+  
+  /** Callback при вскрике спайкера */
+  public onSpikerScream?: () => void;
+  
+  /** Callback при попадании иголки в игрока */
+  public onSpikeHit?: () => void;
+  
+  // === СИСТЕМА ЛАЗЕРОВ СПАЙКЕРОВ ===
+  /** Активные лазеры */
+  public spikes: Array<{
+    start: Vec3;      // Начало луча (позиция спайкера)
+    end: Vec3;        // Конец луча (позиция игрока)
+    active: boolean;
+    lifetime: number; // Время существования
+    intensity: number; // Интенсивность (для затухания)
+    damageDealt: boolean; // Урон уже нанесён?
+  }> = [];
+
   constructor(collision?: ICollisionSystem) {
     this.collision = collision || null;
   }
@@ -1163,6 +1372,8 @@ export class TargetManager {
     this.targets = [];
     this.toxicPools = [];
     this.greenBossPhase2 = false;
+    this.spawnQueue = []; // Очищаем очередь порталов
+    this.portalTimers = { left: 0, right: 0 };
     this.startNextWave();
   }
 
@@ -1281,6 +1492,7 @@ export class TargetManager {
     let phantomCount: number;
     let runnerCount: number;
     let hopperCount: number;
+    let spikerCount: number;
     
     if (wave <= 5) {
       // Эпоха 1: кислотная - простая
@@ -1288,83 +1500,171 @@ export class TargetManager {
       phantomCount = wave >= 3 ? Math.floor((wave - 2) * 0.8) : 0;
       runnerCount = 0; // Нет раннеров
       hopperCount = wave >= 4 ? Math.floor((wave - 3) * 0.5) : 0;
+      spikerCount = wave >= 2 ? Math.floor((wave - 1) * 0.5) : 0; // С 2й волны
     } else if (wave <= 10) {
       // Эпоха 2: чёрная дыра - средняя сложность
       banelingCount = Math.floor(wave * 0.8); // Меньше бейнлингов
       phantomCount = Math.floor((wave - 3) * 0.6); // Меньше фантомов
       runnerCount = 0; // Нет раннеров до 11 волны!
       hopperCount = Math.floor((wave - 4) * 0.6); // Меньше хопперов
+      spikerCount = Math.floor((wave - 2) * 0.6); // Больше спайкеров
     } else {
       // Эпоха 3: космическая - с раннерами
       banelingCount = Math.floor(wave * 0.7);
       phantomCount = Math.floor((wave - 5) * 0.5);
       runnerCount = Math.floor((wave - 10) * 1.5); // Раннеры с 11 волны!
       hopperCount = Math.floor((wave - 6) * 0.5);
+      spikerCount = Math.floor((wave - 5) * 0.7); // Много спайкеров
     }
 
-    const totalCount = Math.max(1, banelingCount + phantomCount + runnerCount + hopperCount);
-    let idx = 0;
-
-    // Спавним бейнлингов (зелёные)
+    // === ДОБАВЛЯЕМ ВРАГОВ В ОЧЕРЕДЬ ПОРТАЛОВ ===
+    // Очищаем очередь перед новой волной
+    this.spawnQueue = [];
+    
+    // Чередуем порталы для равномерного спавна
+    let useLeftPortal = true;
+    
+    // Добавляем бейнлингов (зелёные) в очередь
     for (let i = 0; i < banelingCount; i++) {
-      const angle = (idx / totalCount) * Math.PI * 2 + Math.random() * 0.3;
-      const height = 1.0 + Math.random() * 2.5;
-
-      const pos = vec3(
-        Math.cos(angle) * spawnRadius,
-        height,
-        Math.sin(angle) * spawnRadius
-      );
-
       const speed = baseSpeed + Math.random() * 1.5;
-      this.targets.push(new Target(pos, speed, this.enemyIdCounter++, 'baneling', this.collision || undefined));
-      idx++;
+      this.spawnQueue.push({
+        type: 'baneling',
+        speed,
+        portalSide: useLeftPortal ? 'left' : 'right'
+      });
+      useLeftPortal = !useLeftPortal;
     }
 
-    // Спавним раннеров (оранжевые, бегут по земле)
+    // Добавляем раннеров (оранжевые)
     for (let i = 0; i < runnerCount; i++) {
-      const angle = (idx / totalCount) * Math.PI * 2 + Math.random() * 0.3;
-
-      const pos = vec3(
-        Math.cos(angle) * spawnRadius,
-        0.5,
-        Math.sin(angle) * spawnRadius
-      );
-
       const speed = baseSpeed + Math.random() * 1.0;
-      this.targets.push(new Target(pos, speed, this.enemyIdCounter++, 'runner', this.collision || undefined));
-      idx++;
+      this.spawnQueue.push({
+        type: 'runner',
+        speed,
+        portalSide: useLeftPortal ? 'left' : 'right'
+      });
+      useLeftPortal = !useLeftPortal;
     }
 
-    // Спавним хопперов (синие, прыгают)
+    // Добавляем хопперов (синие)
     for (let i = 0; i < hopperCount; i++) {
-      const angle = (idx / totalCount) * Math.PI * 2 + Math.random() * 0.3;
-
-      const pos = vec3(
-        Math.cos(angle) * spawnRadius,
-        0.5,
-        Math.sin(angle) * spawnRadius
-      );
-
       const speed = baseSpeed + Math.random() * 1.0;
-      this.targets.push(new Target(pos, speed, this.enemyIdCounter++, 'hopper', this.collision || undefined));
-      idx++;
+      this.spawnQueue.push({
+        type: 'hopper',
+        speed,
+        portalSide: useLeftPortal ? 'left' : 'right'
+      });
+      useLeftPortal = !useLeftPortal;
     }
 
-    // Спавним фантомов (чёрные)
+    // Добавляем фантомов (чёрные)
     for (let i = 0; i < phantomCount; i++) {
-      const angle = ((banelingCount + i) / totalCount) * Math.PI * 2 + Math.random() * 0.3;
-      const height = 1.5 + Math.random() * 2.0;
-
-      const pos = vec3(
-        Math.cos(angle) * spawnRadius,
-        height,
-        Math.sin(angle) * spawnRadius
-      );
-
       const speed = baseSpeed + Math.random() * 1.0;
-      this.targets.push(new Target(pos, speed, this.enemyIdCounter++, 'phantom', this.collision || undefined));
+      this.spawnQueue.push({
+        type: 'phantom',
+        speed,
+        portalSide: useLeftPortal ? 'left' : 'right'
+      });
+      useLeftPortal = !useLeftPortal;
     }
+
+    // Добавляем спайкеров (летающие стрелки)
+    for (let i = 0; i < spikerCount; i++) {
+      const speed = baseSpeed * 0.6; // Медленные
+      this.spawnQueue.push({
+        type: 'spiker',
+        speed,
+        portalSide: useLeftPortal ? 'left' : 'right'
+      });
+      useLeftPortal = !useLeftPortal;
+    }
+    
+    // Перемешиваем очередь для разнообразия
+    this.shuffleSpawnQueue();
+  }
+  
+  /** Перемешать очередь спавна (Fisher-Yates) */
+  private shuffleSpawnQueue(): void {
+    for (let i = this.spawnQueue.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [this.spawnQueue[i], this.spawnQueue[j]] = [this.spawnQueue[j], this.spawnQueue[i]];
+    }
+  }
+  
+  /** Спавн врага из портала */
+  private spawnFromPortal(item: SpawnQueueItem): void {
+    const portal = PORTAL_POSITIONS[item.portalSide];
+    
+    // Позиция появления - немного перед порталом
+    const offsetX = item.portalSide === 'left' ? 1.5 : -1.5;
+    const offsetZ = (Math.random() - 0.5) * 2; // Случайный сдвиг по Z
+    
+    // Высота зависит от типа врага
+    let height: number;
+    if (item.type === 'baneling') {
+      // Бейнлинги катятся по земле (их радиус ~0.7)
+      height = 0.7;
+    } else if (item.type === 'runner') {
+      // Раннеры бегут по земле
+      height = 0.5;
+    } else if (item.type === 'hopper') {
+      // Хопперы прыгают, начинают с земли
+      height = 0.5;
+    } else if (item.type === 'phantom') {
+      // Фантомы летают
+      height = 1.5 + Math.random() * 1.5;
+    } else if (item.type === 'spiker') {
+      // Спайкеры летают высоко
+      height = 5 + Math.random() * 3;
+    } else {
+      // По умолчанию на земле
+      height = 0.7;
+    }
+    
+    const pos = vec3(
+      portal.x + offsetX,
+      height,
+      portal.z + offsetZ
+    );
+    
+    const enemy = new Target(pos, item.speed, this.enemyIdCounter++, item.type, this.collision || undefined);
+    
+    // Подключаем callbacks для спайкеров
+    if (item.type === 'spiker') {
+      enemy.onSpikeAttack = (startPos, targetPos) => {
+        this.fireSpike(startPos, targetPos);
+        this.onSpikerAttack?.(startPos, targetPos);
+      };
+      enemy.onSpikerScream = () => {
+        this.onSpikerScream?.();
+      };
+    }
+    
+    this.targets.push(enemy);
+    
+    // Callback для звука появления
+    this.onEnemySpawn?.(item.type, item.portalSide);
+  }
+  
+  /** Выстрел иголкой спайкера */
+  private fireSpike(startPos: Vec3, targetPos: Vec3): void {
+    const dist = Math.sqrt(
+      (targetPos.x - startPos.x) ** 2 +
+      (targetPos.y - startPos.y) ** 2 +
+      (targetPos.z - startPos.z) ** 2
+    );
+    
+    if (dist < 0.1) return;
+    
+    // Создаём лазер - мгновенный луч от спайкера к игроку
+    this.spikes.push({
+      start: { ...startPos },
+      end: { ...targetPos },
+      active: true,
+      lifetime: 0.4, // Лазер виден 0.4 секунды
+      intensity: 1.0,
+      damageDealt: false,
+    });
   }
 
   /** Кулдаун на урон от фантомов (чтобы не спамил урон) */
@@ -1379,6 +1679,34 @@ export class TargetManager {
         this.startNextWave();
       }
       return;
+    }
+
+    // === ОБРАБОТКА ОЧЕРЕДИ СПАВНА ЧЕРЕЗ ПОРТАЛЫ ===
+    // Обновляем таймеры порталов
+    if (this.portalTimers.left > 0) this.portalTimers.left -= dt;
+    if (this.portalTimers.right > 0) this.portalTimers.right -= dt;
+    
+    // Спавним врагов из очереди когда порталы готовы
+    if (this.spawnQueue.length > 0) {
+      // Ищем следующего врага для левого портала
+      if (this.portalTimers.left <= 0) {
+        const leftIdx = this.spawnQueue.findIndex(item => item.portalSide === 'left');
+        if (leftIdx !== -1) {
+          const item = this.spawnQueue.splice(leftIdx, 1)[0];
+          this.spawnFromPortal(item);
+          this.portalTimers.left = this.PORTAL_SPAWN_INTERVAL;
+        }
+      }
+      
+      // Ищем следующего врага для правого портала
+      if (this.portalTimers.right <= 0) {
+        const rightIdx = this.spawnQueue.findIndex(item => item.portalSide === 'right');
+        if (rightIdx !== -1) {
+          const item = this.spawnQueue.splice(rightIdx, 1)[0];
+          this.spawnFromPortal(item);
+          this.portalTimers.right = this.PORTAL_SPAWN_INTERVAL;
+        }
+      }
     }
 
     // Уменьшаем кулдауны фантомов
@@ -1449,6 +1777,74 @@ export class TargetManager {
     // Удаляем приземлившиеся снаряды
     this.acidProjectiles = this.acidProjectiles.filter(p => p.progress < 1);
 
+    // === ЛАЗЕРЫ СПАЙКЕРОВ ===
+    for (const laser of this.spikes) {
+      if (!laser.active) continue;
+      
+      // Уменьшаем время жизни
+      laser.lifetime -= dt;
+      
+      // Затухание интенсивности
+      laser.intensity = Math.max(0, laser.lifetime / 0.4);
+      
+      if (laser.lifetime <= 0) {
+        laser.active = false;
+        continue;
+      }
+      
+      // Проверка попадания - луч проходит мгновенно
+      // Урон наносится только один раз в начале
+      if (!laser.damageDealt) {
+        // Расстояние от игрока до линии лазера
+        const laserDir = {
+          x: laser.end.x - laser.start.x,
+          y: laser.end.y - laser.start.y,
+          z: laser.end.z - laser.start.z,
+        };
+        const laserLen = Math.sqrt(laserDir.x ** 2 + laserDir.y ** 2 + laserDir.z ** 2);
+        
+        if (laserLen > 0.1) {
+          // Нормализуем направление
+          laserDir.x /= laserLen;
+          laserDir.y /= laserLen;
+          laserDir.z /= laserLen;
+          
+          // Вектор от начала лазера к игроку
+          const toPlayer = {
+            x: playerPos.x - laser.start.x,
+            y: playerPos.y - laser.start.y,
+            z: playerPos.z - laser.start.z,
+          };
+          
+          // Проекция на линию лазера
+          const proj = toPlayer.x * laserDir.x + toPlayer.y * laserDir.y + toPlayer.z * laserDir.z;
+          const clampedProj = Math.max(0, Math.min(laserLen, proj));
+          
+          // Ближайшая точка на лазере
+          const closest = {
+            x: laser.start.x + laserDir.x * clampedProj,
+            y: laser.start.y + laserDir.y * clampedProj,
+            z: laser.start.z + laserDir.z * clampedProj,
+          };
+          
+          // Расстояние до игрока
+          const dist = Math.sqrt(
+            (playerPos.x - closest.x) ** 2 +
+            (playerPos.y - closest.y) ** 2 +
+            (playerPos.z - closest.z) ** 2
+          );
+          
+          // Попадание если близко к лучу
+          if (dist < 1.2) {
+            laser.damageDealt = true;
+            this.onSpikeHit?.();
+          }
+        }
+      }
+    }
+    // Удаляем неактивные лазеры
+    this.spikes = this.spikes.filter(s => s.active);
+
     // === ТОКСИЧНЫЕ ЛУЖИ (остаются навсегда) ===
     for (const pool of this.toxicPools) {
       // Растекание: радиус увеличивается в первые 1.5 сек
@@ -1513,8 +1909,8 @@ export class TargetManager {
       }
     }
 
-    // Проверяем завершение волны
-    if (this.waveActive && this.getActiveCount() === 0) {
+    // Проверяем завершение волны (все враги убиты И очередь пуста)
+    if (this.waveActive && this.getActiveCount() === 0 && this.spawnQueue.length === 0) {
       this.waveActive = false;
       this.waveTimer = this.waveDelay;
       this.onWaveComplete?.(this.wave);
@@ -1523,18 +1919,29 @@ export class TargetManager {
   }
 
   /** Попытка разрубить катаной */
-  public trySlice(playerPos: Vec3, playerYaw: number, range: number, angle: number): Target | null {
+  public trySlice(playerPos: Vec3, playerYaw: number, range: number, angle: number, playerGrounded = true): Target | null {
     for (const target of this.targets) {
       if (!target.active) continue;
 
-      // Расстояние (для боссов увеличиваем хитбокс)
+      // Спайкеры требуют удара в прыжке!
+      if (target.requiresJumpToKill && playerGrounded) {
+        continue; // Пропускаем - игрок на земле
+      }
+
+      // Расстояние (для боссов увеличиваем хитбокс, для спайкеров добавляем вертикальную проверку)
       const dx = target.position.x - playerPos.x;
+      const dy = target.position.y - playerPos.y;
       const dz = target.position.z - playerPos.z;
-      const dist = Math.sqrt(dx * dx + dz * dz);
+      const distXZ = Math.sqrt(dx * dx + dz * dz);
+      const dist3D = Math.sqrt(dx * dx + dy * dy + dz * dz);
       
-      // Учитываем размер врага
-      const effectiveRange = range + (target.isBoss ? target.radius : 0);
-      if (dist > effectiveRange) continue;
+      // Для спайкеров используем 3D расстояние и увеличенную дальность в прыжке
+      const effectiveRange = target.requiresJumpToKill 
+        ? range + 2.5 // Увеличенная дальность для спайкеров
+        : range + (target.isBoss ? target.radius : 0);
+      
+      const checkDist = target.requiresJumpToKill ? dist3D : distXZ;
+      if (checkDist > effectiveRange) continue;
 
       // Угол
       const angleToTarget = Math.atan2(dx, -dz);
@@ -1723,6 +2130,33 @@ export class TargetManager {
       data[i * 4 + 1] = proj.position.y;
       data[i * 4 + 2] = proj.position.z;
       data[i * 4 + 3] = proj.progress;
+    }
+    return data;
+  }
+
+  /** Данные иголок спайкеров для шейдера [x, y, z, lifetime] */
+  /** Данные начальных точек лазеров [startX, startY, startZ, lifetime] */
+  public getSpikesData(): Float32Array {
+    const data = new Float32Array(Math.min(this.spikes.length, 8) * 4);
+    for (let i = 0; i < Math.min(this.spikes.length, 8); i++) {
+      const laser = this.spikes[i];
+      data[i * 4 + 0] = laser.start.x;
+      data[i * 4 + 1] = laser.start.y;
+      data[i * 4 + 2] = laser.start.z;
+      data[i * 4 + 3] = laser.lifetime;
+    }
+    return data;
+  }
+
+  /** Данные конечных точек лазеров [endX, endY, endZ, intensity] */
+  public getSpikeTargetsData(): Float32Array {
+    const data = new Float32Array(Math.min(this.spikes.length, 8) * 4);
+    for (let i = 0; i < Math.min(this.spikes.length, 8); i++) {
+      const laser = this.spikes[i];
+      data[i * 4 + 0] = laser.end.x;
+      data[i * 4 + 1] = laser.end.y;
+      data[i * 4 + 2] = laser.end.z;
+      data[i * 4 + 3] = laser.intensity;
     }
     return data;
   }

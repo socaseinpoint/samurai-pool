@@ -14,6 +14,10 @@ export class AudioManager {
   private reverb: ConvolverNode | null = null;
   private distortion: WaveShaperNode | null = null;
   private compressor: DynamicsCompressorNode | null = null;
+  
+  // Войд фильтр (low pass + pitch shift)
+  private voidFilter: BiquadFilterNode | null = null;
+  private isInVoidMode = false;
 
   /** Аудио запущено */
   public isStarted = false;
@@ -58,6 +62,19 @@ export class AudioManager {
     this.sfxGain = this.ctx.createGain();
     this.sfxGain.gain.value = 0.3;
     this.sfxGain.connect(this.distortion);
+    
+    // Войд фильтр (low pass для приглушённого звука)
+    this.voidFilter = this.ctx.createBiquadFilter();
+    this.voidFilter.type = 'lowpass';
+    this.voidFilter.frequency.value = 20000; // Выключен по умолчанию (полный диапазон)
+    this.voidFilter.Q.value = 1.0;
+    
+    // Вставляем фильтр перед мастером
+    this.musicGain.disconnect();
+    this.sfxGain.disconnect();
+    this.musicGain.connect(this.voidFilter);
+    this.sfxGain.connect(this.voidFilter);
+    this.voidFilter.connect(this.distortion);
 
     this.isStarted = true;
 
@@ -122,6 +139,55 @@ export class AudioManager {
     }
   }
 
+  /** Войти в войд режим - глубокий low pass фильтр */
+  public enterVoidAudio(): void {
+    if (!this.ctx || !this.voidFilter || this.isInVoidMode) return;
+    
+    this.isInVoidMode = true;
+    const now = this.ctx.currentTime;
+    
+    // Плавно опускаем частоту фильтра для "подводного" эффекта
+    this.voidFilter.frequency.cancelScheduledValues(now);
+    this.voidFilter.frequency.setValueAtTime(this.voidFilter.frequency.value, now);
+    this.voidFilter.frequency.exponentialRampToValueAtTime(400, now + 0.5); // Низкий cutoff
+    
+    // Увеличиваем резонанс для глубины
+    this.voidFilter.Q.cancelScheduledValues(now);
+    this.voidFilter.Q.setValueAtTime(this.voidFilter.Q.value, now);
+    this.voidFilter.Q.linearRampToValueAtTime(4.0, now + 0.5);
+    
+    // Понижаем громкость музыки
+    if (this.musicGain) {
+      this.musicGain.gain.cancelScheduledValues(now);
+      this.musicGain.gain.setValueAtTime(this.musicGain.gain.value, now);
+      this.musicGain.gain.linearRampToValueAtTime(0.05, now + 0.5);
+    }
+  }
+
+  /** Выйти из войд режима - убираем фильтр */
+  public exitVoidAudio(): void {
+    if (!this.ctx || !this.voidFilter || !this.isInVoidMode) return;
+    
+    this.isInVoidMode = false;
+    const now = this.ctx.currentTime;
+    
+    // Возвращаем фильтр в норму
+    this.voidFilter.frequency.cancelScheduledValues(now);
+    this.voidFilter.frequency.setValueAtTime(this.voidFilter.frequency.value, now);
+    this.voidFilter.frequency.exponentialRampToValueAtTime(20000, now + 0.3);
+    
+    this.voidFilter.Q.cancelScheduledValues(now);
+    this.voidFilter.Q.setValueAtTime(this.voidFilter.Q.value, now);
+    this.voidFilter.Q.linearRampToValueAtTime(1.0, now + 0.3);
+    
+    // Возвращаем громкость музыки
+    if (this.musicGain) {
+      this.musicGain.gain.cancelScheduledValues(now);
+      this.musicGain.gain.setValueAtTime(this.musicGain.gain.value, now);
+      this.musicGain.gain.linearRampToValueAtTime(0.12, now + 0.3);
+    }
+  }
+
   // Звук приближения врага
   private proximityOsc: OscillatorNode | null = null;
   private proximityGain: GainNode | null = null;
@@ -174,6 +240,24 @@ export class AudioManager {
       case 'acid_spit':
         this.playAcidSpit();
         break;
+      case 'void_whistle':
+        this.playVoidWhistle();
+        break;
+      case 'phantom_hit':
+        this.playPhantomHit();
+        break;
+      case 'player_hurt':
+        this.playPlayerHurt();
+        break;
+      case 'spiker_scream':
+        this.playSpikerScream();
+        break;
+      case 'spiker_shoot':
+        this.playSpikerShoot();
+        break;
+      case 'explosion':
+        this.playExplosion();
+        break;
     }
   }
 
@@ -220,16 +304,16 @@ export class AudioManager {
   /** Звук приближения врага определённого типа */
   public playEnemyProximitySound(enemyType: string, distance: number): void {
     if (!this.ctx || !this.sfxGain || this.isMuted) return;
-    if (distance > 8) return; // Слишком далеко
+    if (distance > 15) return; // Дистанция 15 - слышно издалека
 
     // Кулдаун для каждого типа врага
     const now = Date.now();
     const lastPlayed = this.enemySoundCooldowns.get(enemyType) || 0;
-    const cooldown = enemyType.startsWith('boss') ? 500 : 300; // Боссы чаще
+    const cooldown = enemyType.startsWith('boss') ? 800 : 500; // Реже чтобы не спамить
     if (now - lastPlayed < cooldown) return;
     this.enemySoundCooldowns.set(enemyType, now);
 
-    const volume = Math.max(0.1, (8 - distance) / 8) * 0.4; // Громче когда ближе
+    const volume = Math.max(0.2, (15 - distance) / 15) * 0.8; // Громче!
     const ctxNow = this.ctx.currentTime;
 
     switch (enemyType) {
@@ -651,6 +735,715 @@ export class AudioManager {
   }
 
   /** Фантом пролетает сквозь игрока */
+  /** Свист фантома в войде - нарастающий зловещий звук */
+  private playVoidWhistle(): void {
+    if (!this.ctx || !this.sfxGain) return;
+
+    const now = this.ctx.currentTime;
+
+    // Нарастающий высокий свист
+    const whistle = this.ctx.createOscillator();
+    const whistleGain = this.ctx.createGain();
+    const whistleFilter = this.ctx.createBiquadFilter();
+
+    whistle.type = 'sine';
+    // Частота нарастает - приближается!
+    whistle.frequency.setValueAtTime(600, now);
+    whistle.frequency.exponentialRampToValueAtTime(1200, now + 0.8);
+    whistle.frequency.exponentialRampToValueAtTime(800, now + 1.2);
+
+    whistleFilter.type = 'bandpass';
+    whistleFilter.frequency.setValueAtTime(800, now);
+    whistleFilter.frequency.linearRampToValueAtTime(1500, now + 0.8);
+    whistleFilter.Q.value = 8;
+
+    // Громкость нарастает потом спадает
+    whistleGain.gain.setValueAtTime(0.0, now);
+    whistleGain.gain.linearRampToValueAtTime(0.25, now + 0.3);
+    whistleGain.gain.setValueAtTime(0.25, now + 0.8);
+    whistleGain.gain.exponentialRampToValueAtTime(0.01, now + 1.3);
+
+    whistle.connect(whistleFilter);
+    whistleFilter.connect(whistleGain);
+    whistleGain.connect(this.sfxGain);
+    whistleGain.connect(this.reverb!);
+
+    whistle.start(now);
+    whistle.stop(now + 1.4);
+
+    // Второй слой - низкий гул для атмосферы
+    const hum = this.ctx.createOscillator();
+    const humGain = this.ctx.createGain();
+
+    hum.type = 'triangle';
+    hum.frequency.setValueAtTime(150, now);
+    hum.frequency.linearRampToValueAtTime(200, now + 1.0);
+
+    humGain.gain.setValueAtTime(0.0, now);
+    humGain.gain.linearRampToValueAtTime(0.1, now + 0.2);
+    humGain.gain.setValueAtTime(0.1, now + 0.8);
+    humGain.gain.exponentialRampToValueAtTime(0.01, now + 1.2);
+
+    hum.connect(humGain);
+    humGain.connect(this.sfxGain);
+
+    hum.start(now);
+    hum.stop(now + 1.3);
+  }
+
+  /** Удар фантома по игроку - жёсткий удар с искажением */
+  private playPhantomHit(): void {
+    if (!this.ctx || !this.sfxGain) return;
+
+    const now = this.ctx.currentTime;
+
+    // Резкий удар
+    const impact = this.ctx.createOscillator();
+    const impactGain = this.ctx.createGain();
+    const impactFilter = this.ctx.createBiquadFilter();
+
+    impact.type = 'sawtooth';
+    impact.frequency.setValueAtTime(80, now);
+    impact.frequency.exponentialRampToValueAtTime(30, now + 0.2);
+
+    impactFilter.type = 'lowpass';
+    impactFilter.frequency.setValueAtTime(500, now);
+    impactFilter.frequency.exponentialRampToValueAtTime(100, now + 0.15);
+    impactFilter.Q.value = 3;
+
+    impactGain.gain.setValueAtTime(0.5, now);
+    impactGain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+
+    impact.connect(impactFilter);
+    impactFilter.connect(impactGain);
+    impactGain.connect(this.sfxGain);
+
+    impact.start(now);
+    impact.stop(now + 0.3);
+
+    // Шум удара
+    const noiseBuffer = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.15, this.ctx.sampleRate);
+    const noiseData = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < noiseData.length; i++) {
+      noiseData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (noiseData.length * 0.3));
+    }
+    
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = noiseBuffer;
+    
+    const noiseGain = this.ctx.createGain();
+    const noiseFilter = this.ctx.createBiquadFilter();
+    
+    noiseFilter.type = 'lowpass';
+    noiseFilter.frequency.value = 400;
+    
+    noiseGain.gain.setValueAtTime(0.4, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+    
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(this.sfxGain);
+    
+    noise.start(now);
+  }
+
+  /** Вскрик героя при получении урона - громкий и выразительный */
+  private playPlayerHurt(): void {
+    if (!this.ctx || !this.sfxGain) return;
+
+    const now = this.ctx.currentTime;
+
+    // Основной вскрик - резкий громкий "АХ!"
+    const voice1 = this.ctx.createOscillator();
+    const voice1Gain = this.ctx.createGain();
+    
+    voice1.type = 'sawtooth';
+    // Высокая начальная частота для резкости
+    voice1.frequency.setValueAtTime(300 + Math.random() * 50, now);
+    voice1.frequency.exponentialRampToValueAtTime(150, now + 0.1);
+    voice1.frequency.exponentialRampToValueAtTime(100, now + 0.2);
+
+    // ГРОМКО!
+    voice1Gain.gain.setValueAtTime(0.6, now);
+    voice1Gain.gain.linearRampToValueAtTime(0.4, now + 0.05);
+    voice1Gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+
+    voice1.connect(voice1Gain);
+    voice1Gain.connect(this.sfxGain);
+
+    voice1.start(now);
+    voice1.stop(now + 0.25);
+
+    // Второй голосовой слой - более низкий для глубины
+    const voice2 = this.ctx.createOscillator();
+    const voice2Gain = this.ctx.createGain();
+    
+    voice2.type = 'square';
+    voice2.frequency.setValueAtTime(150, now);
+    voice2.frequency.exponentialRampToValueAtTime(80, now + 0.15);
+
+    voice2Gain.gain.setValueAtTime(0.3, now);
+    voice2Gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+
+    voice2.connect(voice2Gain);
+    voice2Gain.connect(this.sfxGain);
+
+    voice2.start(now);
+    voice2.stop(now + 0.2);
+
+    // Шумовой компонент - выдох/хрип (громче!)
+    const noiseLen = Math.floor(this.ctx.sampleRate * 0.15);
+    const noiseBuffer = this.ctx.createBuffer(1, noiseLen, this.ctx.sampleRate);
+    const noiseData = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < noiseLen; i++) {
+      noiseData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (noiseLen * 0.4));
+    }
+
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = noiseBuffer;
+    const noiseGain = this.ctx.createGain();
+    const noiseFilter = this.ctx.createBiquadFilter();
+
+    noiseFilter.type = 'bandpass';
+    noiseFilter.frequency.value = 2000;
+    noiseFilter.Q.value = 1;
+
+    // Громкий шум!
+    noiseGain.gain.setValueAtTime(0.5, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(this.sfxGain);
+
+    noise.start(now);
+  }
+
+  // === ЗВУКИ ПОЯВЛЕНИЯ ВРАГОВ ИЗ ПОРТАЛОВ ===
+  
+  /** Звук появления бейнлинга - хлюпающий слизистый звук */
+  public playBanelingSpawn(): void {
+    if (!this.ctx || !this.sfxGain) return;
+    
+    const now = this.ctx.currentTime;
+    
+    // Хлюпающий звук - несколько пузырей
+    for (let i = 0; i < 4; i++) {
+      const delay = i * 0.05 + Math.random() * 0.02;
+      const bubble = this.ctx.createOscillator();
+      const bubbleGain = this.ctx.createGain();
+      const bubbleFilter = this.ctx.createBiquadFilter();
+      
+      bubble.type = 'sine';
+      const baseFreq = 200 + Math.random() * 300;
+      bubble.frequency.setValueAtTime(baseFreq, now + delay);
+      bubble.frequency.exponentialRampToValueAtTime(baseFreq * 0.4, now + delay + 0.12);
+      
+      bubbleFilter.type = 'lowpass';
+      bubbleFilter.frequency.value = 800;
+      bubbleFilter.Q.value = 4;
+      
+      bubbleGain.gain.setValueAtTime(0.2, now + delay);
+      bubbleGain.gain.exponentialRampToValueAtTime(0.01, now + delay + 0.15);
+      
+      bubble.connect(bubbleFilter);
+      bubbleFilter.connect(bubbleGain);
+      bubbleGain.connect(this.sfxGain);
+      
+      bubble.start(now + delay);
+      bubble.stop(now + delay + 0.2);
+    }
+    
+    // Влажный шум
+    const noiseLen = Math.floor(this.ctx.sampleRate * 0.2);
+    const noiseBuffer = this.ctx.createBuffer(1, noiseLen, this.ctx.sampleRate);
+    const noiseData = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < noiseLen; i++) {
+      noiseData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (noiseLen * 0.3)) * 0.3;
+    }
+    
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = noiseBuffer;
+    const noiseGain = this.ctx.createGain();
+    const noiseFilter = this.ctx.createBiquadFilter();
+    
+    noiseFilter.type = 'lowpass';
+    noiseFilter.frequency.value = 600;
+    
+    noiseGain.gain.setValueAtTime(0.25, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+    
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(this.sfxGain);
+    
+    noise.start(now);
+  }
+  
+  /** Звук появления фантома - зловещий свист из портала */
+  public playPhantomSpawn(): void {
+    if (!this.ctx || !this.sfxGain) return;
+    
+    const now = this.ctx.currentTime;
+    
+    // Зловещий свист - появление из тьмы
+    const whistle = this.ctx.createOscillator();
+    const whistleGain = this.ctx.createGain();
+    const whistleFilter = this.ctx.createBiquadFilter();
+    
+    whistle.type = 'triangle';
+    // Частота растёт от низкой к высокой
+    whistle.frequency.setValueAtTime(150, now);
+    whistle.frequency.exponentialRampToValueAtTime(600, now + 0.3);
+    whistle.frequency.setValueAtTime(500, now + 0.35);
+    
+    whistleFilter.type = 'bandpass';
+    whistleFilter.frequency.setValueAtTime(300, now);
+    whistleFilter.frequency.linearRampToValueAtTime(800, now + 0.3);
+    whistleFilter.Q.value = 6;
+    
+    whistleGain.gain.setValueAtTime(0.0, now);
+    whistleGain.gain.linearRampToValueAtTime(0.2, now + 0.1);
+    whistleGain.gain.setValueAtTime(0.2, now + 0.25);
+    whistleGain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+    
+    whistle.connect(whistleFilter);
+    whistleFilter.connect(whistleGain);
+    whistleGain.connect(this.sfxGain);
+    whistleGain.connect(this.reverb!);
+    
+    whistle.start(now);
+    whistle.stop(now + 0.55);
+    
+    // Низкий гул для атмосферы
+    const hum = this.ctx.createOscillator();
+    const humGain = this.ctx.createGain();
+    
+    hum.type = 'sine';
+    hum.frequency.setValueAtTime(80, now);
+    hum.frequency.linearRampToValueAtTime(120, now + 0.3);
+    
+    humGain.gain.setValueAtTime(0.0, now);
+    humGain.gain.linearRampToValueAtTime(0.15, now + 0.1);
+    humGain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+    
+    hum.connect(humGain);
+    humGain.connect(this.sfxGain);
+    
+    hum.start(now);
+    hum.stop(now + 0.45);
+  }
+  
+  /** Звук появления раннера - быстрый шорох/скрежет */
+  public playRunnerSpawn(): void {
+    if (!this.ctx || !this.sfxGain) return;
+    
+    const now = this.ctx.currentTime;
+    
+    // Быстрый скрежет когтей
+    const scrape = this.ctx.createOscillator();
+    const scrapeGain = this.ctx.createGain();
+    const scrapeFilter = this.ctx.createBiquadFilter();
+    
+    scrape.type = 'sawtooth';
+    // Быстрое вибрато для эффекта бега
+    scrape.frequency.setValueAtTime(200, now);
+    scrape.frequency.linearRampToValueAtTime(400, now + 0.05);
+    scrape.frequency.linearRampToValueAtTime(250, now + 0.1);
+    scrape.frequency.linearRampToValueAtTime(350, now + 0.15);
+    scrape.frequency.linearRampToValueAtTime(200, now + 0.2);
+    
+    scrapeFilter.type = 'highpass';
+    scrapeFilter.frequency.value = 1000;
+    scrapeFilter.Q.value = 2;
+    
+    scrapeGain.gain.setValueAtTime(0.15, now);
+    scrapeGain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+    
+    scrape.connect(scrapeFilter);
+    scrapeFilter.connect(scrapeGain);
+    scrapeGain.connect(this.sfxGain);
+    
+    scrape.start(now);
+    scrape.stop(now + 0.3);
+    
+    // Шум шагов
+    const noiseLen = Math.floor(this.ctx.sampleRate * 0.15);
+    const noiseBuffer = this.ctx.createBuffer(1, noiseLen, this.ctx.sampleRate);
+    const noiseData = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < noiseLen; i++) {
+      // Пульсирующий шум для эффекта шагов
+      const pulse = Math.sin(i / this.ctx.sampleRate * 60 * Math.PI * 2) * 0.5 + 0.5;
+      noiseData[i] = (Math.random() * 2 - 1) * pulse * Math.exp(-i / (noiseLen * 0.5));
+    }
+    
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = noiseBuffer;
+    const noiseGain = this.ctx.createGain();
+    const noiseFilter = this.ctx.createBiquadFilter();
+    
+    noiseFilter.type = 'highpass';
+    noiseFilter.frequency.value = 2000;
+    
+    noiseGain.gain.setValueAtTime(0.2, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+    
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(this.sfxGain);
+    
+    noise.start(now);
+  }
+  
+  /** Звук появления хоппера - пружинистый прыжковый звук */
+  public playHopperSpawn(): void {
+    if (!this.ctx || !this.sfxGain) return;
+    
+    const now = this.ctx.currentTime;
+    
+    // Пружинистый звук - "бойнг"
+    const boing = this.ctx.createOscillator();
+    const boingGain = this.ctx.createGain();
+    
+    boing.type = 'sine';
+    // Частота прыгает вверх-вниз
+    boing.frequency.setValueAtTime(150, now);
+    boing.frequency.exponentialRampToValueAtTime(400, now + 0.08);
+    boing.frequency.exponentialRampToValueAtTime(200, now + 0.2);
+    boing.frequency.exponentialRampToValueAtTime(300, now + 0.25);
+    
+    boingGain.gain.setValueAtTime(0.3, now);
+    boingGain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+    
+    boing.connect(boingGain);
+    boingGain.connect(this.sfxGain);
+    
+    boing.start(now);
+    boing.stop(now + 0.4);
+    
+    // Электрический "чирик" (хоппер синий/электрический)
+    const zap = this.ctx.createOscillator();
+    const zapGain = this.ctx.createGain();
+    const zapFilter = this.ctx.createBiquadFilter();
+    
+    zap.type = 'square';
+    zap.frequency.setValueAtTime(800, now + 0.05);
+    zap.frequency.linearRampToValueAtTime(1200, now + 0.1);
+    zap.frequency.linearRampToValueAtTime(600, now + 0.15);
+    
+    zapFilter.type = 'bandpass';
+    zapFilter.frequency.value = 1000;
+    zapFilter.Q.value = 5;
+    
+    zapGain.gain.setValueAtTime(0.0, now + 0.05);
+    zapGain.gain.linearRampToValueAtTime(0.15, now + 0.08);
+    zapGain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+    
+    zap.connect(zapFilter);
+    zapFilter.connect(zapGain);
+    zapGain.connect(this.sfxGain);
+    
+    zap.start(now + 0.05);
+    zap.stop(now + 0.25);
+  }
+  
+  /** Звук появления босса - мощный рёв из портала */
+  public playBossSpawn(): void {
+    if (!this.ctx || !this.sfxGain) return;
+    
+    const now = this.ctx.currentTime;
+    
+    // Мощный низкий рёв
+    const roar = this.ctx.createOscillator();
+    const roarGain = this.ctx.createGain();
+    const roarFilter = this.ctx.createBiquadFilter();
+    
+    roar.type = 'sawtooth';
+    roar.frequency.setValueAtTime(60, now);
+    roar.frequency.linearRampToValueAtTime(100, now + 0.3);
+    roar.frequency.exponentialRampToValueAtTime(40, now + 0.8);
+    
+    roarFilter.type = 'lowpass';
+    roarFilter.frequency.setValueAtTime(300, now);
+    roarFilter.frequency.linearRampToValueAtTime(500, now + 0.3);
+    roarFilter.frequency.exponentialRampToValueAtTime(200, now + 0.8);
+    roarFilter.Q.value = 2;
+    
+    roarGain.gain.setValueAtTime(0.0, now);
+    roarGain.gain.linearRampToValueAtTime(0.5, now + 0.1);
+    roarGain.gain.setValueAtTime(0.5, now + 0.4);
+    roarGain.gain.exponentialRampToValueAtTime(0.01, now + 1.0);
+    
+    roar.connect(roarFilter);
+    roarFilter.connect(roarGain);
+    roarGain.connect(this.sfxGain);
+    roarGain.connect(this.reverb!);
+    
+    roar.start(now);
+    roar.stop(now + 1.1);
+    
+    // Второй слой - более высокий для глубины
+    const roar2 = this.ctx.createOscillator();
+    const roar2Gain = this.ctx.createGain();
+    
+    roar2.type = 'triangle';
+    roar2.frequency.setValueAtTime(120, now);
+    roar2.frequency.linearRampToValueAtTime(180, now + 0.3);
+    roar2.frequency.exponentialRampToValueAtTime(80, now + 0.8);
+    
+    roar2Gain.gain.setValueAtTime(0.0, now);
+    roar2Gain.gain.linearRampToValueAtTime(0.3, now + 0.1);
+    roar2Gain.gain.exponentialRampToValueAtTime(0.01, now + 0.9);
+    
+    roar2.connect(roar2Gain);
+    roar2Gain.connect(this.sfxGain);
+    
+    roar2.start(now);
+    roar2.stop(now + 1.0);
+    
+    // Шум для грубости
+    const noiseLen = Math.floor(this.ctx.sampleRate * 0.8);
+    const noiseBuffer = this.ctx.createBuffer(1, noiseLen, this.ctx.sampleRate);
+    const noiseData = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < noiseLen; i++) {
+      const env = Math.sin(i / noiseLen * Math.PI);
+      noiseData[i] = (Math.random() * 2 - 1) * env * 0.3;
+    }
+    
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = noiseBuffer;
+    const noiseGain = this.ctx.createGain();
+    const noiseFilter = this.ctx.createBiquadFilter();
+    
+    noiseFilter.type = 'lowpass';
+    noiseFilter.frequency.value = 400;
+    
+    noiseGain.gain.setValueAtTime(0.0, now);
+    noiseGain.gain.linearRampToValueAtTime(0.25, now + 0.1);
+    noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.8);
+    
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(this.sfxGain);
+    noiseGain.connect(this.reverb!);
+    
+    noise.start(now);
+  }
+  
+  /** Звук активации портала - пространственное гудение */
+  public playPortalActivate(): void {
+    if (!this.ctx || !this.sfxGain) return;
+    
+    const now = this.ctx.currentTime;
+    
+    // Пространственный гул
+    const hum = this.ctx.createOscillator();
+    const humGain = this.ctx.createGain();
+    
+    hum.type = 'sine';
+    hum.frequency.setValueAtTime(100, now);
+    // Вибрато
+    const lfo = this.ctx.createOscillator();
+    const lfoGain = this.ctx.createGain();
+    lfo.frequency.value = 5;
+    lfoGain.gain.value = 15;
+    lfo.connect(lfoGain);
+    lfoGain.connect(hum.frequency);
+    
+    humGain.gain.setValueAtTime(0.2, now);
+    humGain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+    
+    hum.connect(humGain);
+    humGain.connect(this.sfxGain);
+    humGain.connect(this.reverb!);
+    
+    lfo.start(now);
+    hum.start(now);
+    hum.stop(now + 0.6);
+    lfo.stop(now + 0.6);
+  }
+
+  /** Вскрик спайкера перед атакой - пронзительный крик */
+  private playSpikerScream(): void {
+    if (!this.ctx || !this.sfxGain) return;
+    
+    const now = this.ctx.currentTime;
+    
+    // Пронзительный крик - высокочастотный визг
+    const scream = this.ctx.createOscillator();
+    const screamGain = this.ctx.createGain();
+    const screamFilter = this.ctx.createBiquadFilter();
+    
+    scream.type = 'sawtooth';
+    // Резкий подъём частоты
+    scream.frequency.setValueAtTime(800, now);
+    scream.frequency.exponentialRampToValueAtTime(2000, now + 0.1);
+    scream.frequency.exponentialRampToValueAtTime(1500, now + 0.2);
+    
+    screamFilter.type = 'bandpass';
+    screamFilter.frequency.value = 1500;
+    screamFilter.Q.value = 3;
+    
+    screamGain.gain.setValueAtTime(0.3, now);
+    screamGain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+    
+    scream.connect(screamFilter);
+    screamFilter.connect(screamGain);
+    screamGain.connect(this.sfxGain);
+    
+    scream.start(now);
+    scream.stop(now + 0.3);
+    
+    // Вибрирующий компонент - дрожь в голосе
+    const vibrato = this.ctx.createOscillator();
+    const vibratoGain = this.ctx.createGain();
+    
+    vibrato.type = 'sine';
+    vibrato.frequency.setValueAtTime(1200, now);
+    
+    // LFO для вибрато
+    const lfo = this.ctx.createOscillator();
+    const lfoGain = this.ctx.createGain();
+    lfo.frequency.value = 25; // Быстрое дрожание
+    lfoGain.gain.value = 100;
+    lfo.connect(lfoGain);
+    lfoGain.connect(vibrato.frequency);
+    
+    vibratoGain.gain.setValueAtTime(0.15, now);
+    vibratoGain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+    
+    vibrato.connect(vibratoGain);
+    vibratoGain.connect(this.sfxGain);
+    
+    lfo.start(now);
+    vibrato.start(now);
+    vibrato.stop(now + 0.25);
+    lfo.stop(now + 0.25);
+  }
+  
+  /** Звук выстрела иголкой спайкера */
+  private playSpikerShoot(): void {
+    if (!this.ctx || !this.sfxGain) return;
+    
+    const now = this.ctx.currentTime;
+    
+    // Свист иглы - быстрый "фьюить"
+    const whistle = this.ctx.createOscillator();
+    const whistleGain = this.ctx.createGain();
+    const whistleFilter = this.ctx.createBiquadFilter();
+    
+    whistle.type = 'sine';
+    // Падающая частота - игла летит
+    whistle.frequency.setValueAtTime(3000, now);
+    whistle.frequency.exponentialRampToValueAtTime(800, now + 0.15);
+    
+    whistleFilter.type = 'highpass';
+    whistleFilter.frequency.value = 1000;
+    
+    whistleGain.gain.setValueAtTime(0.2, now);
+    whistleGain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+    
+    whistle.connect(whistleFilter);
+    whistleFilter.connect(whistleGain);
+    whistleGain.connect(this.sfxGain);
+    
+    whistle.start(now);
+    whistle.stop(now + 0.2);
+    
+    // Щелчок выстрела
+    const click = this.ctx.createOscillator();
+    const clickGain = this.ctx.createGain();
+    
+    click.type = 'square';
+    click.frequency.setValueAtTime(600, now);
+    click.frequency.exponentialRampToValueAtTime(200, now + 0.03);
+    
+    clickGain.gain.setValueAtTime(0.25, now);
+    clickGain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+    
+    click.connect(clickGain);
+    clickGain.connect(this.sfxGain);
+    
+    click.start(now);
+    click.stop(now + 0.08);
+  }
+  
+  /** Звук взрыва гранаты - глитч эффект */
+  private playExplosion(): void {
+    if (!this.ctx || !this.sfxGain) return;
+    
+    const now = this.ctx.currentTime;
+    
+    // Глитч-взрыв - резкий цифровой шум
+    const noiseBuffer = this.ctx.createBuffer(1, this.ctx.sampleRate * 0.5, this.ctx.sampleRate);
+    const noiseData = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < noiseData.length; i++) {
+      // Битовый шум - резкий цифровой звук
+      noiseData[i] = Math.random() > 0.5 ? 1 : -1;
+      // Добавляем глитч-паттерн
+      if (i % 100 < 30) noiseData[i] *= 0.3;
+    }
+    
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = noiseBuffer;
+    
+    const noiseGain = this.ctx.createGain();
+    const noiseFilter = this.ctx.createBiquadFilter();
+    
+    noiseFilter.type = 'bandpass';
+    noiseFilter.frequency.setValueAtTime(2000, now);
+    noiseFilter.frequency.exponentialRampToValueAtTime(100, now + 0.3);
+    noiseFilter.Q.value = 3;
+    
+    noiseGain.gain.setValueAtTime(0.8, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+    
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(this.sfxGain);
+    
+    noise.start(now);
+    noise.stop(now + 0.5);
+    
+    // Низкий удар
+    const boom = this.ctx.createOscillator();
+    const boomGain = this.ctx.createGain();
+    
+    boom.type = 'sine';
+    boom.frequency.setValueAtTime(80, now);
+    boom.frequency.exponentialRampToValueAtTime(20, now + 0.3);
+    
+    boomGain.gain.setValueAtTime(0.9, now);
+    boomGain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+    
+    boom.connect(boomGain);
+    boomGain.connect(this.sfxGain);
+    
+    boom.start(now);
+    boom.stop(now + 0.4);
+    
+    // Высокочастотный писк (глитч)
+    const glitch = this.ctx.createOscillator();
+    const glitchGain = this.ctx.createGain();
+    
+    glitch.type = 'square';
+    glitch.frequency.setValueAtTime(4000, now);
+    glitch.frequency.setValueAtTime(100, now + 0.05);
+    glitch.frequency.setValueAtTime(3000, now + 0.1);
+    glitch.frequency.setValueAtTime(50, now + 0.15);
+    
+    glitchGain.gain.setValueAtTime(0.3, now);
+    glitchGain.gain.setValueAtTime(0.5, now + 0.05);
+    glitchGain.gain.setValueAtTime(0.2, now + 0.1);
+    glitchGain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+    
+    glitch.connect(glitchGain);
+    glitchGain.connect(this.sfxGain);
+    
+    glitch.start(now);
+    glitch.stop(now + 0.3);
+  }
+
   private playPhantomPass(): void {
     if (!this.ctx || !this.sfxGain) return;
 

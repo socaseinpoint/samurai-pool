@@ -151,6 +151,8 @@ export interface InputState {
   altFire: boolean;
   /** Перезарядка */
   reload: boolean;
+  /** Бросок гранаты (колёсико) */
+  throwGrenade: boolean;
 }
 
 // ========== АУДИО ==========
@@ -171,7 +173,13 @@ export type SFXType =
   | 'katana_swing'
   | 'splash_wave'
   | 'charge_pickup'
-  | 'acid_spit';
+  | 'acid_spit'
+  | 'void_whistle'
+  | 'phantom_hit'
+  | 'player_hurt'
+  | 'spiker_scream'
+  | 'spiker_shoot'
+  | 'explosion';
 
 // ========== РЕНДЕРИНГ ==========
 
@@ -203,6 +211,12 @@ export interface ShaderUniforms {
   acidProjectiles: WebGLUniformLocation | null;
   /** Количество снарядов */
   acidProjectileCount: WebGLUniformLocation | null;
+  /** Начальные точки лазеров спайкеров */
+  spikes: WebGLUniformLocation | null;
+  /** Конечные точки лазеров */
+  spikeTargets: WebGLUniformLocation | null;
+  /** Количество лазеров */
+  spikeCount: WebGLUniformLocation | null;
   /** Зоны кислотного дождя */
   acidRainZones: WebGLUniformLocation | null;
   /** Количество зон дождя */
@@ -221,6 +235,38 @@ export interface ShaderUniforms {
   crystals: WebGLUniformLocation | null;
   /** Количество кристаллов */
   crystalCount: WebGLUniformLocation | null;
+  /** Режим войда (засосан Владыкой пустоты) */
+  voidMode: WebGLUniformLocation | null;
+  /** Прогресс войда (0-1) */
+  voidProgress: WebGLUniformLocation | null;
+  /** Смещение падения в войде */
+  voidFallOffset: WebGLUniformLocation | null;
+  /** Позиция портала выхода в войде */
+  portalPos: WebGLUniformLocation | null;
+  /** Алтари [x, y, z, score] */
+  altars: WebGLUniformLocation | null;
+  /** Летящие лучи */
+  darts: WebGLUniformLocation | null;
+  /** Направления лучей */
+  dartDirs: WebGLUniformLocation | null;
+  /** Количество лучей */
+  dartCount: WebGLUniformLocation | null;
+  /** Портал в войд активен */
+  voidPortalActive: WebGLUniformLocation | null;
+  /** Монеты крови */
+  bloodCoins: WebGLUniformLocation | null;
+  /** Количество монет крови */
+  bloodCoinCount: WebGLUniformLocation | null;
+  /** Гранаты [x, y, z, lifetime] */
+  grenades: WebGLUniformLocation | null;
+  /** Количество гранат */
+  grenadeCount: WebGLUniformLocation | null;
+  /** Взрывы [x, y, z, progress] */
+  explosions: WebGLUniformLocation | null;
+  /** Количество взрывов */
+  explosionCount: WebGLUniformLocation | null;
+  /** Вариант войда (0-3 разные цветовые схемы) */
+  voidVariant: WebGLUniformLocation | null;
 }
 
 // ========== КОЛЛИЗИИ ==========

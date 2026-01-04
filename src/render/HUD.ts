@@ -13,6 +13,9 @@ export class HUD {
   private messageEl: HTMLElement | null;
   private damageOverlay: HTMLElement | null;
   private weaponEl: HTMLElement | null;
+  private scoreEl: HTMLElement | null;
+  private altarScoreEl: HTMLElement | null;
+  private dartsEl: HTMLElement | null;
 
   constructor() {
     this.healthEl = document.getElementById('health-value');
@@ -32,6 +35,96 @@ export class HUD {
     this.messageEl = this.createMessageElement();
     this.damageOverlay = this.createDamageOverlay();
     this.weaponEl = this.createWeaponElement();
+    this.scoreEl = this.createScoreElement();
+    this.altarScoreEl = this.createAltarScoreElement();
+    this.dartsEl = this.createDartsElement();
+  }
+  
+  /** Создать элемент количества дротиков */
+  private createDartsElement(): HTMLElement {
+    let el = document.getElementById('darts-count');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'darts-count';
+      el.style.cssText = `
+        position: fixed;
+        bottom: 80px;
+        right: 20px;
+        font-family: 'Orbitron', sans-serif;
+        font-size: 16px;
+        color: #ff6600;
+        text-shadow: 
+          0 0 10px #ff6600,
+          0 0 20px rgba(255, 102, 0, 0.5);
+        padding: 6px 12px;
+        border: 1px solid rgba(255, 102, 0, 0.5);
+        border-radius: 4px;
+        background: rgba(0, 0, 0, 0.6);
+        pointer-events: none;
+        z-index: 1000;
+      `;
+      el.innerHTML = '🎯 ДРОТИКИ: <span id="darts-value">0</span>';
+      document.body.appendChild(el);
+    }
+    return el;
+  }
+  
+  /** Создать элемент текущих очков */
+  private createScoreElement(): HTMLElement {
+    let el = document.getElementById('score-carrying');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'score-carrying';
+      el.style.cssText = `
+        position: fixed;
+        bottom: 120px;
+        right: 20px;
+        font-family: 'Orbitron', sans-serif;
+        font-size: 18px;
+        color: #ffcc00;
+        text-shadow: 
+          0 0 10px #ffcc00,
+          0 0 20px rgba(255, 204, 0, 0.5);
+        padding: 8px 15px;
+        border: 1px solid rgba(255, 204, 0, 0.5);
+        border-radius: 4px;
+        background: rgba(0, 0, 0, 0.6);
+        pointer-events: none;
+        z-index: 1000;
+      `;
+      el.innerHTML = '⚔ ОЧКИ: <span id="score-value">0</span>';
+      document.body.appendChild(el);
+    }
+    return el;
+  }
+  
+  /** Создать элемент общего счёта алтарей */
+  private createAltarScoreElement(): HTMLElement {
+    let el = document.getElementById('altar-score');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'altar-score';
+      el.style.cssText = `
+        position: fixed;
+        bottom: 160px;
+        right: 20px;
+        font-family: 'Orbitron', sans-serif;
+        font-size: 22px;
+        color: #00ffaa;
+        text-shadow: 
+          0 0 10px #00ffaa,
+          0 0 20px rgba(0, 255, 170, 0.5);
+        padding: 10px 20px;
+        border: 2px solid rgba(0, 255, 170, 0.5);
+        border-radius: 4px;
+        background: rgba(0, 0, 0, 0.7);
+        pointer-events: none;
+        z-index: 1000;
+      `;
+      el.innerHTML = '⛩ АЛТАРЬ: <span id="altar-value">0</span>';
+      document.body.appendChild(el);
+    }
+    return el;
   }
 
   /** Создать элемент волны */
@@ -318,6 +411,55 @@ export class HUD {
       }
     }
   }
+  
+  /** Обновить текущие очки (несёт игрок) */
+  public updateCarryingScore(score: number): void {
+    const valueEl = document.getElementById('score-value');
+    if (valueEl) {
+      valueEl.textContent = score.toString();
+      
+      // Пульсация при изменении
+      if (this.scoreEl) {
+        this.scoreEl.style.transform = 'scale(1.1)';
+        setTimeout(() => {
+          if (this.scoreEl) this.scoreEl.style.transform = 'scale(1)';
+        }, 100);
+      }
+    }
+  }
+  
+  /** Обновить общий счёт алтарей */
+  public updateAltarScore(total: number): void {
+    const valueEl = document.getElementById('altar-value');
+    if (valueEl) {
+      valueEl.textContent = total.toString();
+      
+      // Яркая вспышка при обновлении
+      if (this.altarScoreEl) {
+        this.altarScoreEl.style.boxShadow = '0 0 30px #00ffaa';
+        setTimeout(() => {
+          if (this.altarScoreEl) this.altarScoreEl.style.boxShadow = '';
+        }, 300);
+      }
+    }
+  }
+  
+  /** Обновить количество дротиков */
+  public updateDarts(count: number): void {
+    const valueEl = document.getElementById('darts-value');
+    if (valueEl) {
+      valueEl.textContent = count.toString();
+      
+      // Цвет в зависимости от количества
+      if (this.dartsEl) {
+        if (count === 0) {
+          this.dartsEl.style.opacity = '0.5';
+        } else {
+          this.dartsEl.style.opacity = '1';
+        }
+      }
+    }
+  }
 
   /** Обновить заряды сплеш-волны */
   public updateSplashCharges(charges: number): void {
@@ -591,6 +733,11 @@ export class HUD {
   private bossHealthBar: HTMLElement | null = null;
   private bossHealthFill: HTMLElement | null = null;
   private bossNameEl: HTMLElement | null = null;
+
+  /** Оверлей войда */
+  private voidOverlay: HTMLElement | null = null;
+  private voidTimerEl: HTMLElement | null = null;
+  private voidKillsEl: HTMLElement | null = null;
 
   public showRageOverlay(duration: number): void {
     if (!this.rageOverlay) {
@@ -881,5 +1028,160 @@ export class HUD {
         onComplete?.();
       }, 500);
     }, 2500);
+  }
+
+  /** Показать UI войда (расстояние до портала) */
+  public showVoidMode(distance: number, maxDistance: number): void {
+    if (!this.voidOverlay) {
+      this.createVoidOverlay();
+    }
+
+    if (this.voidOverlay) {
+      this.voidOverlay.style.display = 'flex';
+      
+      // Заголовок
+      if (this.voidTimerEl) {
+        this.voidTimerEl.textContent = `НАЙДИ ПОРТАЛ`;
+        this.voidTimerEl.style.color = '#aa55ff';
+        this.voidTimerEl.style.textShadow = '0 0 20px #8800ff, 0 0 40px rgba(136, 0, 255, 0.5)';
+      }
+      
+      // Расстояние до портала
+      if (this.voidKillsEl) {
+        this.voidKillsEl.textContent = `🌀 ${distance}м`;
+        
+        // Цвет по расстоянию
+        if (distance < 15) {
+          this.voidKillsEl.style.color = '#00ff88';
+          this.voidKillsEl.style.textShadow = '0 0 15px #00ff88';
+        } else if (distance < 30) {
+          this.voidKillsEl.style.color = '#cc88ff';
+          this.voidKillsEl.style.textShadow = '0 0 15px #aa55ff';
+        } else {
+          this.voidKillsEl.style.color = '#8855cc';
+          this.voidKillsEl.style.textShadow = '0 0 15px #6633aa';
+        }
+      }
+    }
+  }
+
+  /** Скрыть UI войда */
+  public hideVoidMode(): void {
+    if (this.voidOverlay) {
+      this.voidOverlay.style.display = 'none';
+    }
+  }
+
+  /** Создать оверлей войда - фиолетовая тема */
+  private createVoidOverlay(): void {
+    this.voidOverlay = document.createElement('div');
+    this.voidOverlay.id = 'void-overlay';
+    this.voidOverlay.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: none;
+      flex-direction: column;
+      justify-content: flex-start;
+      align-items: center;
+      padding-top: 80px;
+      pointer-events: none;
+      z-index: 1200;
+      background: radial-gradient(ellipse at center, transparent 0%, rgba(30, 0, 50, 0.3) 100%);
+    `;
+
+    // Заголовок "ВОЙД"
+    const titleEl = document.createElement('div');
+    titleEl.style.cssText = `
+      font-family: 'Orbitron', sans-serif;
+      font-size: 48px;
+      font-weight: 900;
+      color: #aa55ff;
+      text-shadow: 
+        0 0 30px #8800ff,
+        0 0 60px rgba(136, 0, 255, 0.5),
+        0 0 90px rgba(100, 0, 200, 0.3);
+      letter-spacing: 15px;
+      margin-bottom: 20px;
+      animation: voidPulse 1s ease-in-out infinite;
+    `;
+    titleEl.textContent = 'В О Й Д';
+
+    // Инструкция
+    this.voidTimerEl = document.createElement('div');
+    this.voidTimerEl.style.cssText = `
+      font-family: 'Orbitron', sans-serif;
+      font-size: 32px;
+      font-weight: 700;
+      color: #aa55ff;
+      text-shadow: 0 0 20px #8800ff, 0 0 40px rgba(136, 0, 255, 0.5);
+      letter-spacing: 5px;
+      margin-bottom: 15px;
+    `;
+
+    // Расстояние до портала
+    this.voidKillsEl = document.createElement('div');
+    this.voidKillsEl.style.cssText = `
+      font-family: 'Orbitron', sans-serif;
+      font-size: 28px;
+      color: #cc88ff;
+      text-shadow: 0 0 15px #aa55ff;
+      letter-spacing: 3px;
+    `;
+
+    // Подсказка
+    const hintEl = document.createElement('div');
+    hintEl.style.cssText = `
+      font-family: 'Orbitron', sans-serif;
+      font-size: 16px;
+      color: #7744aa;
+      margin-top: 30px;
+      letter-spacing: 2px;
+      text-shadow: 0 0 10px rgba(136, 0, 255, 0.3);
+    `;
+    hintEl.textContent = 'БЕГИ ПО МОСТУ К ПОРТАЛУ';
+
+    // Добавляем CSS анимацию
+    if (!document.getElementById('void-anim-style')) {
+      const style = document.createElement('style');
+      style.id = 'void-anim-style';
+      style.textContent = `
+        @keyframes voidPulse {
+          0%, 100% { 
+            opacity: 1; 
+            transform: scale(1);
+            filter: brightness(1);
+          }
+          50% { 
+            opacity: 0.8; 
+            transform: scale(1.02);
+            filter: brightness(1.3);
+          }
+        }
+      `;
+      document.head.appendChild(style);
+    }
+
+    this.voidOverlay.appendChild(titleEl);
+    this.voidOverlay.appendChild(this.voidTimerEl);
+    this.voidOverlay.appendChild(this.voidKillsEl);
+    this.voidOverlay.appendChild(hintEl);
+    document.body.appendChild(this.voidOverlay);
+  }
+
+  /** Показать сообщение входа в войд */
+  public showVoidEnter(): void {
+    this.showMessage('🌀 ВЛАДЫКА ЗАСОСАЛ ТЕБЯ В ВОЙД! 🌀', '#aa55ff');
+  }
+
+  /** Показать сообщение выхода из войда */
+  public showVoidExit(success: boolean): void {
+    if (success) {
+      this.showMessage('✓ ВЫРВАЛСЯ ИЗ ВОЙДА!', '#00ff88');
+    } else {
+      this.showMessage('☠️ ВОЙД ПОГЛОТИЛ ТЕБЯ...', '#aa00ff');
+    }
   }
 }

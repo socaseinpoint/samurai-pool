@@ -27,6 +27,9 @@ export class Player {
   /** Система коллизий */
   private collision: ICollisionSystem;
 
+  /** В режиме войда - отключаем collision */
+  public isInVoid = false;
+
   /** Скорость подъёма/спуска по лестницам */
   private stepSpeed = 12.0;
 
@@ -59,6 +62,10 @@ export class Player {
   /** Модификатор скорости (стимпак) */
   public speedBoost = 1.0;
   public speedBoostTimer = 0;
+  
+  /** Замедление в воде */
+  public inWater = false;
+  private readonly WATER_SLOW_FACTOR = 0.5; // 50% скорости в воде
 
   constructor(
     startPosition: Vec3 = vec3(0, 1.7, 5),
@@ -211,16 +218,23 @@ export class Player {
     const worldMoveX = moveX * cos - moveZ * sin;
     const worldMoveZ = moveX * sin + moveZ * cos;
 
-    // Скорость (бег или ходьба) с учётом буста
+    // Проверяем, находится ли игрок в воде (центральный бассейн)
+    const distFromCenter = Math.sqrt(state.position.x ** 2 + state.position.z ** 2);
+    const onBridge = Math.abs(state.position.z) < 2.5 || Math.abs(state.position.x) < 2.5;
+    this.inWater = distFromCenter > 2.5 && distFromCenter < 7.7 && !onBridge && state.position.y < 1.5;
+    
+    // Скорость (бег или ходьба) с учётом буста и воды
     const baseSpeed = input.run ? config.runSpeed : config.walkSpeed;
-    const speed = baseSpeed * this.speedBoost;
+    const waterFactor = this.inWater ? this.WATER_SLOW_FACTOR : 1.0;
+    const speed = baseSpeed * this.speedBoost * waterFactor;
 
     // Целевая скорость
     const targetVx = worldMoveX * speed;
     const targetVz = worldMoveZ * speed;
 
     // Получаем высоту пола в текущей позиции
-    const currentFloorHeight = this.collision.getFloorHeight(state.position);
+    // В войде пол управляется из Game.updateVoidMode - не трогаем здесь
+    const currentFloorHeight = this.isInVoid ? (state.position.y - state.eyeHeight) : this.collision.getFloorHeight(state.position);
     const targetY = currentFloorHeight + state.eyeHeight;
 
     if (state.grounded) {
@@ -274,7 +288,7 @@ export class Player {
     // Проверяем коллизии по осям отдельно
     // X
     const testPosX = { x: newPosX, y: state.position.y, z: state.position.z };
-    if (!this.collision.checkCollision(testPosX)) {
+    if (this.isInVoid || !this.collision.checkCollision(testPosX)) {
       state.position.x = newPosX;
     } else {
       state.velocity.x = 0;
@@ -282,45 +296,52 @@ export class Player {
 
     // Z
     const testPosZ = { x: state.position.x, y: state.position.y, z: newPosZ };
-    if (!this.collision.checkCollision(testPosZ)) {
+    if (this.isInVoid || !this.collision.checkCollision(testPosZ)) {
       state.position.z = newPosZ;
     } else {
       state.velocity.z = 0;
     }
 
     // Y (вертикаль) - с учётом пола
-    const newFloorHeight = this.collision.getFloorHeight(state.position);
-    const minY = newFloorHeight + state.eyeHeight;
-
-    if (!state.grounded) {
-      // В воздухе - проверяем приземление
-      if (newPosY <= minY) {
-        // Приземлились
-        state.position.y = minY;
-        state.velocity.y = 0;
-        state.grounded = true;
-        this.canAirJump = false;
-        this.airJumpsLeft = 0; // Сброс воздушных прыжков
-      } else {
-        // Ещё летим
-        const testPosY = { x: state.position.x, y: newPosY, z: state.position.z };
-        const ceilingHeight = this.collision.getCeilingHeight(state.position);
-        
-        if (newPosY < ceilingHeight - 0.3 && !this.collision.checkCollision(testPosY)) {
-          state.position.y = newPosY;
-        } else {
-          // Упёрлись в потолок
-          state.velocity.y = Math.min(state.velocity.y, 0);
-        }
-      }
+    // В войде логика пола управляется из Game.updateVoidMode!
+    if (this.isInVoid) {
+      // В войде - просто применяем Y без проверки пола
+      // Гравитация и коллизия с платформами в Game.updateVoidMode
+      state.position.y = newPosY;
     } else {
-      // На земле - плавно следуем за полом
-      state.position.y += state.velocity.y * dt;
-      
-      // Не проваливаемся ниже пола
-      if (state.position.y < minY) {
-        state.position.y = minY;
-        state.velocity.y = 0;
+      const newFloorHeight = this.collision.getFloorHeight(state.position);
+      const minY = newFloorHeight + state.eyeHeight;
+
+      if (!state.grounded) {
+        // В воздухе - проверяем приземление
+        if (newPosY <= minY) {
+          // Приземлились
+          state.position.y = minY;
+          state.velocity.y = 0;
+          state.grounded = true;
+          this.canAirJump = false;
+          this.airJumpsLeft = 0; // Сброс воздушных прыжков
+        } else {
+          // Ещё летим
+          const testPosY = { x: state.position.x, y: newPosY, z: state.position.z };
+          const ceilingHeight = this.collision.getCeilingHeight(state.position);
+          
+          if (newPosY < ceilingHeight - 0.3 && !this.collision.checkCollision(testPosY)) {
+            state.position.y = newPosY;
+          } else {
+            // Упёрлись в потолок
+            state.velocity.y = Math.min(state.velocity.y, 0);
+          }
+        }
+      } else {
+        // На земле - плавно следуем за полом
+        state.position.y += state.velocity.y * dt;
+        
+        // Не проваливаемся ниже пола
+        if (state.position.y < minY) {
+          state.position.y = minY;
+          state.velocity.y = 0;
+        }
       }
     }
   }

@@ -2,7 +2,7 @@ import type { Vec3 } from '@/types';
 import { vec3, distanceVec3 } from '@/utils/math';
 
 /** Тип предмета */
-export type PickupType = 'health' | 'stimpack' | 'charge';
+export type PickupType = 'health' | 'health_big' | 'stimpack' | 'charge';
 
 /**
  * Предмет для подбора
@@ -65,12 +65,13 @@ export class Pickup {
 
   /** Данные для шейдера [x, y, z, type] */
   public getShaderData(): [number, number, number, number] {
-    // type: 0 = неактивен, 9 = health, 10 = stimpack, 11 = charge
+    // type: 0 = неактивен, 9 = health, 10 = stimpack, 11 = charge, 12 = health_big
     let w = 0;
     if (this.active) {
       if (this.type === 'health') w = 9;
       else if (this.type === 'stimpack') w = 10;
       else if (this.type === 'charge') w = 11;
+      else if (this.type === 'health_big') w = 12;
     }
     return [this.position.x, this.position.y, this.position.z, w];
   }
@@ -89,14 +90,25 @@ export class PickupManager {
   /** Таймер спавна на возвышенности */
   private platformSpawnTimer = 30;
 
-  /** Позиции возвышенностей */
-  private platformPositions = [
-    { x: -20, y: 2.5, z: 0 },  // Левая платформа
-    { x: 20, y: 2.5, z: 0 },   // Правая платформа
+  /** 4 позиции на фонтане (центр арены) - в воде */
+  private fountainPositions = [
+    { x: 0, y: 0.3, z: 5 },    // Север (в воде)
+    { x: 5, y: 0.3, z: 0 },    // Восток (в воде)
+    { x: 0, y: 0.3, z: -5 },   // Юг (в воде)
+    { x: -5, y: 0.3, z: 0 },   // Запад (в воде)
   ];
 
-  /** Текущая платформа для спавна */
-  private currentPlatform = 0;
+  /** 2 позиции рядом с алтарями (большие аптечки) */
+  private edgePositions = [
+    { x: 5, y: 1.0, z: 28 },   // Рядом с северным алтарём
+    { x: -5, y: 1.0, z: -28 }, // Рядом с южным алтарём
+  ];
+
+  /** Текущая позиция для спавна */
+  private currentFountainIndex = 0;
+  
+  /** Таймер спавна на краях */
+  private edgeSpawnTimer = 30;
 
   /** Максимум предметов на карте */
   private maxPickups = 5;
@@ -129,11 +141,18 @@ export class PickupManager {
       this.spawnTimer = 8 + Math.random() * 7; // 8-15 сек между спавнами
     }
 
-    // Спавн аптечки на возвышенности каждые 30 секунд
+    // Спавн аптечки в воде каждые 30 секунд
     this.platformSpawnTimer -= dt;
     if (this.platformSpawnTimer <= 0) {
-      this.spawnOnPlatform();
-      this.platformSpawnTimer = 30;
+      this.spawnInWater();
+      this.platformSpawnTimer = 25; // Чаще, т.к. маленькие
+    }
+    
+    // Спавн БОЛЬШИХ аптечек на дальних краях каждые 30 секунд
+    this.edgeSpawnTimer -= dt;
+    if (this.edgeSpawnTimer <= 0) {
+      this.spawnOnEdges();
+      this.edgeSpawnTimer = 30;
     }
 
     // Обновляем респавн заряда
@@ -157,48 +176,109 @@ export class PickupManager {
     return null;
   }
 
-  /** Спавн случайного предмета */
+  /** Спавн аптечки на фонтане (одно из 4 мест) */
   private spawnRandom(): void {
-    const spawnRadius = 15;
-    const angle = Math.random() * Math.PI * 2;
-    const dist = 5 + Math.random() * spawnRadius;
+    // Выбираем случайную позицию из 4х на фонтане
+    const randomIndex = Math.floor(Math.random() * this.fountainPositions.length);
+    const spot = this.fountainPositions[randomIndex];
     
-    const pos = vec3(
-      Math.cos(angle) * dist,
-      1.0,
-      Math.sin(angle) * dist
+    const pos = vec3(spot.x, spot.y, spot.z);
+
+    // Проверяем что там ещё нет аптечки
+    const existing = this.pickups.find(p => 
+      p.active && 
+      p.type === 'health' && 
+      Math.abs(p.position.x - pos.x) < 2 && 
+      Math.abs(p.position.z - pos.z) < 2
     );
-
-    // Только аптечки (стимпаки за быстрые убийства)
-    this.pickups.push(new Pickup(pos, 'health'));
-  }
-
-  /** Спавн аптечки на возвышенности */
-  private spawnOnPlatform(): void {
-    // Чередуем платформы
-    const platform = this.platformPositions[this.currentPlatform];
-    this.currentPlatform = (this.currentPlatform + 1) % this.platformPositions.length;
-
-    const pos = vec3(
-      platform.x + (Math.random() - 0.5) * 4, // Небольшой разброс по X
-      platform.y,
-      platform.z + (Math.random() - 0.5) * 8  // Разброс по Z
-    );
-
-    // На платформе всегда аптечка
-    this.pickups.push(new Pickup(pos, 'health'));
-  }
-
-  /** Принудительный спавн после убийства */
-  public spawnAfterKill(position: Vec3): void {
-    // 25% шанс выпадения аптечки (стимпаки за быстрые убийства)
-    if (Math.random() < 0.25) {
-      const pos = vec3(
-        position.x + (Math.random() - 0.5) * 2,
-        1.0,
-        position.z + (Math.random() - 0.5) * 2
-      );
+    
+    if (!existing) {
       this.pickups.push(new Pickup(pos, 'health'));
+    }
+  }
+
+  /** Спавн маленькой аптечки в воде (фонтан) */
+  private spawnInWater(): void {
+    // Чередуем 4 позиции в воде
+    const spot = this.fountainPositions[this.currentFountainIndex];
+    this.currentFountainIndex = (this.currentFountainIndex + 1) % this.fountainPositions.length;
+
+    const pos = vec3(spot.x, spot.y, spot.z);
+
+    // Проверяем что там ещё нет аптечки
+    const existing = this.pickups.find(p => 
+      p.active && 
+      p.type === 'health' && 
+      Math.abs(p.position.x - pos.x) < 2 && 
+      Math.abs(p.position.z - pos.z) < 2
+    );
+    
+    if (!existing) {
+      this.pickups.push(new Pickup(pos, 'health')); // Маленькая в воде
+    }
+  }
+  
+  /** Спавн БОЛЬШИХ аптечек на краях карты */
+  private spawnOnEdges(): void {
+    // Спавним на обоих краях
+    for (const spot of this.edgePositions) {
+      const pos = vec3(spot.x, spot.y, spot.z);
+      
+      // Проверяем что там ещё нет аптечки
+      const existing = this.pickups.find(p => 
+        p.active && 
+        (p.type === 'health' || p.type === 'health_big') && 
+        Math.abs(p.position.x - pos.x) < 3 && 
+        Math.abs(p.position.z - pos.z) < 3
+      );
+      
+      if (!existing) {
+        this.pickups.push(new Pickup(pos, 'health_big')); // Большая на краю!
+      }
+    }
+  }
+
+  /** Спавн аптечки на фонтане (по очереди) - УСТАРЕВШИЙ */
+  private spawnOnPlatform(): void {
+    // Чередуем 4 позиции на фонтане
+    const spot = this.fountainPositions[this.currentFountainIndex];
+    this.currentFountainIndex = (this.currentFountainIndex + 1) % this.fountainPositions.length;
+
+    const pos = vec3(spot.x, spot.y, spot.z);
+
+    // Проверяем что там ещё нет аптечки
+    const existing = this.pickups.find(p => 
+      p.active && 
+      p.type === 'health' && 
+      Math.abs(p.position.x - pos.x) < 2 && 
+      Math.abs(p.position.z - pos.z) < 2
+    );
+    
+    if (!existing) {
+      this.pickups.push(new Pickup(pos, 'health'));
+    }
+  }
+
+  /** Принудительный спавн после убийства - аптечка на фонтане */
+  public spawnAfterKill(_position: Vec3): void {
+    // 25% шанс выпадения аптечки на фонтане
+    if (Math.random() < 0.25) {
+      // Выбираем случайную позицию на фонтане
+      const randomIndex = Math.floor(Math.random() * this.fountainPositions.length);
+      const spot = this.fountainPositions[randomIndex];
+      const pos = vec3(spot.x, spot.y, spot.z);
+
+      // Проверяем что там ещё нет аптечки
+      const existing = this.pickups.find(p => 
+        p.active && 
+        p.type === 'health' && 
+        Math.abs(p.position.x - pos.x) < 2 && 
+        Math.abs(p.position.z - pos.z) < 2
+      );
+      
+      if (!existing) {
+        this.pickups.push(new Pickup(pos, 'health'));
+      }
     }
   }
 
