@@ -267,6 +267,24 @@ export interface ShaderUniforms {
   explosionCount: WebGLUniformLocation | null;
   /** Вариант войда (0-3 разные цветовые схемы) */
   voidVariant: WebGLUniformLocation | null;
+  /** Атака катаной (0-1) */
+  katanaAttack: WebGLUniformLocation | null;
+  /** Покачивание катаны */
+  katanaBob: WebGLUniformLocation | null;
+  /** Заряды катаны */
+  katanaCharges: WebGLUniformLocation | null;
+  /** Угол к цели */
+  katanaTargetAngle: WebGLUniformLocation | null;
+  /** Расстояние до цели */
+  katanaTargetDist: WebGLUniformLocation | null;
+  /** Тип атаки (0 - обычная, 1 - сплеш) */
+  katanaAttackType: WebGLUniformLocation | null;
+  /** Эффекты смерти [x, y, z, progress] */
+  deathEffects: WebGLUniformLocation | null;
+  /** Фрагменты врагов */
+  fragments: WebGLUniformLocation | null;
+  /** Количество фрагментов */
+  fragmentCount: WebGLUniformLocation | null;
 }
 
 // ========== КОЛЛИЗИИ ==========
