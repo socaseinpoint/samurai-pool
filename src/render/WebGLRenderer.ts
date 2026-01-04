@@ -63,6 +63,15 @@ export class WebGLRenderer {
       explosions: null,
       explosionCount: null,
       voidVariant: null,
+      katanaAttack: null,
+      katanaBob: null,
+      katanaCharges: null,
+      katanaTargetAngle: null,
+      katanaTargetDist: null,
+      katanaAttackType: null,
+      deathEffects: null,
+      fragments: null,
+      fragmentCount: null,
     };
 
     this.init();
@@ -130,6 +139,21 @@ export class WebGLRenderer {
     this.uniforms.explosions = gl.getUniformLocation(this.program, 'u_explosions');
     this.uniforms.explosionCount = gl.getUniformLocation(this.program, 'u_explosionCount');
     this.uniforms.voidVariant = gl.getUniformLocation(this.program, 'u_voidVariant');
+    
+    // Катана 3D
+    this.uniforms.katanaAttack = gl.getUniformLocation(this.program, 'u_katanaAttack');
+    this.uniforms.katanaBob = gl.getUniformLocation(this.program, 'u_katanaBob');
+    this.uniforms.katanaCharges = gl.getUniformLocation(this.program, 'u_katanaCharges');
+    this.uniforms.katanaTargetAngle = gl.getUniformLocation(this.program, 'u_katanaTargetAngle');
+    this.uniforms.katanaTargetDist = gl.getUniformLocation(this.program, 'u_katanaTargetDist');
+    this.uniforms.katanaAttackType = gl.getUniformLocation(this.program, 'u_katanaAttackType');
+    
+    // Эффекты смерти врагов
+    this.uniforms.deathEffects = gl.getUniformLocation(this.program, 'u_deathEffects');
+    
+    // Фрагменты врагов
+    this.uniforms.fragments = gl.getUniformLocation(this.program, 'u_fragments');
+    this.uniforms.fragmentCount = gl.getUniformLocation(this.program, 'u_fragmentCount');
 
     // Создаём fullscreen quad
     this.createQuad();
@@ -234,7 +258,16 @@ export class WebGLRenderer {
     grenadeCount?: number,
     explosionsData?: Float32Array,
     explosionCount?: number,
-    voidVariant?: number
+    voidVariant?: number,
+    katanaAttack?: number,
+    katanaBob?: number,
+    katanaCharges?: number,
+    katanaTargetAngle?: number,
+    katanaTargetDist?: number,
+    katanaAttackType?: number,
+    deathEffectsData?: Float32Array,
+    fragmentsData?: Float32Array,
+    fragmentCount?: number
   ): void {
     const gl = this.gl;
 
@@ -362,6 +395,33 @@ export class WebGLRenderer {
     
     // Вариант войда
     gl.uniform1i(this.uniforms.voidVariant, voidVariant || 0);
+    
+    // Катана 3D
+    gl.uniform1f(this.uniforms.katanaAttack, katanaAttack || 0);
+    gl.uniform1f(this.uniforms.katanaBob, katanaBob || 0);
+    gl.uniform1i(this.uniforms.katanaCharges, katanaCharges || 0);
+    gl.uniform1f(this.uniforms.katanaTargetAngle, katanaTargetAngle !== undefined ? katanaTargetAngle : -1);
+    gl.uniform1f(this.uniforms.katanaTargetDist, katanaTargetDist || 100);
+    gl.uniform1i(this.uniforms.katanaAttackType, katanaAttackType || 0);
+    
+    // Эффекты смерти врагов
+    if (deathEffectsData) {
+      gl.uniform4fv(this.uniforms.deathEffects, deathEffectsData);
+    } else {
+      gl.uniform4fv(this.uniforms.deathEffects, new Float32Array(32)); // 8 * 4
+    }
+    
+    // Фрагменты врагов
+    if (fragmentsData && fragmentsData.length > 0) {
+      // Расширяем массив до 128 элементов (32 фрагмента * 4 компонента)
+      const paddedData = new Float32Array(128);
+      paddedData.set(fragmentsData.subarray(0, Math.min(fragmentsData.length, 128)));
+      gl.uniform4fv(this.uniforms.fragments, paddedData);
+      gl.uniform1i(this.uniforms.fragmentCount, Math.min(fragmentCount || 0, 32));
+    } else {
+      gl.uniform4fv(this.uniforms.fragments, new Float32Array(128)); // 32 * 4
+      gl.uniform1i(this.uniforms.fragmentCount, 0);
+    }
 
     // Рисуем
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);

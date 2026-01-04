@@ -52,36 +52,60 @@
       <h1>⚔ SAMURAI POOL ⚔</h1>
       <p>Руби врагов катаной!</p>
       
-      <!-- Настройки -->
-      <div id="settings">
-        <div class="setting">
-          <label>🔊 ГРОМКОСТЬ</label>
-          <input type="range" id="volume-slider" min="0" max="100" value="50">
-          <span id="volume-value">50%</span>
-        </div>
-        <div class="setting">
-          <label>🎯 ЧУВСТВИТЕЛЬНОСТЬ</label>
-          <input type="range" id="sens-slider" min="1" max="100" value="50">
-          <span id="sens-value">50%</span>
-        </div>
-      </div>
-      
-      <div id="controls-list">
-        <span>WASD</span> — движение<br>
-        <span>SHIFT</span> — бег<br>
-        <span>SPACE</span> — прыжок (2x = двойной)<br>
-        <span>LMB</span> — удар катаной<br>
-        <span>F</span> — полный экран<br>
-        <span>M</span> — звук
-      </div>
-      
       <!-- Кнопки старта -->
       <div id="start-buttons">
-        <button id="btn-start" class="start-btn">▶ НАЧАТЬ</button>
+        <button id="btn-start" class="start-btn">НАЧАТЬ</button>
+        <div id="menu-buttons">
+          <button id="btn-settings" class="menu-btn">⚙ НАСТРОЙКИ</button>
+          <button id="btn-help" class="menu-btn">? УПРАВЛЕНИЕ</button>
+        </div>
         <div id="boss-buttons">
-          <button id="btn-boss5" class="boss-btn green">🟢 БОСС 5</button>
-          <button id="btn-boss10" class="boss-btn purple">⚫ БОСС 10</button>
-          <button id="btn-boss15" class="boss-btn blue">🔵 БОСС 15</button>
+          <button id="btn-boss5" class="boss-btn green">ВОЛНА 5</button>
+          <button id="btn-boss10" class="boss-btn purple">ВОЛНА 10</button>
+          <button id="btn-boss15" class="boss-btn blue">ВОЛНА 15</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Модалка настроек -->
+    <div id="modal-settings" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <span class="modal-title">НАСТРОЙКИ</span>
+          <button class="modal-close" data-modal="modal-settings">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="setting">
+            <label>ГРОМКОСТЬ</label>
+            <input type="range" id="volume-slider" min="0" max="100" value="50">
+            <span id="volume-value">50%</span>
+          </div>
+          <div class="setting">
+            <label>ЧУВСТВИТЕЛЬНОСТЬ</label>
+            <input type="range" id="sens-slider" min="1" max="100" value="50">
+            <span id="sens-value">50%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Модалка управления -->
+    <div id="modal-help" class="modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <span class="modal-title">УПРАВЛЕНИЕ</span>
+          <button class="modal-close" data-modal="modal-help">✕</button>
+        </div>
+        <div class="modal-body">
+          <div id="controls-list">
+            <div class="control-row"><span>WASD</span><span>движение</span></div>
+            <div class="control-row"><span>SHIFT</span><span>бег</span></div>
+            <div class="control-row"><span>SPACE</span><span>прыжок (2x = двойной)</span></div>
+            <div class="control-row"><span>LMB</span><span>удар катаной</span></div>
+            <div class="control-row"><span>F</span><span>полный экран</span></div>
+            <div class="control-row"><span>M</span><span>звук вкл/выкл</span></div>
+            <div class="control-row"><span>ESC</span><span>пауза</span></div>
+          </div>
         </div>
       </div>
     </div>

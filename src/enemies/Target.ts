@@ -135,6 +135,18 @@ export class Target {
   /** Босс: это босс? */
   public isBoss = false;
 
+  /** СМЕРТЬ: враг умирает (падает/растекается) */
+  public isDying = false;
+  
+  /** СМЕРТЬ: прогресс смерти (0-1) */
+  public deathProgress = 0;
+  
+  /** СМЕРТЬ: скорость падения */
+  public deathVelocity = 0;
+  
+  /** СМЕРТЬ: высота при падении */
+  public deathY = 0;
+
   /** Синий босс: таймер телепортации */
   private teleportTimer = 0;
 
@@ -307,6 +319,9 @@ export class Target {
 
     // Обновление осколков
     this.updateFragments(dt);
+    
+    // Обновление анимации смерти (падение + растекание)
+    this.updateDeath(dt);
 
     // Таймер удаления
     if (!this.active && this.removeTimer > 0) {
@@ -1095,29 +1110,46 @@ export class Target {
     this.position.y = Math.max(2.5, Math.min(12, this.position.y));
   }
 
-  /** Обновление осколков */
+  /** Обновление капель слизи */
   private updateFragments(dt: number): void {
-    const gravity = 15.0;
+    const gravity = 35.0; // Сильная гравитация - капли быстро падают
+    const airDrag = 0.96; // Сопротивление воздуха
+    const splatFriction = 0.3; // Сильное затухание при падении на пол
 
     for (let i = this.fragments.length - 1; i >= 0; i--) {
       const f = this.fragments[i];
 
-      // Физика
+      // Физика движения
       f.position.x += f.velocity.x * dt;
       f.position.y += f.velocity.y * dt;
       f.position.z += f.velocity.z * dt;
 
-      // Гравитация
+      // Сильная гравитация - капли падают быстро
       f.velocity.y -= gravity * dt;
+      
+      // Сопротивление воздуха
+      f.velocity.x *= airDrag;
+      f.velocity.z *= airDrag;
 
-      // Вращение
-      f.rotation += f.rotationSpeed * dt;
+      // Падение на пол - СПЛАТ! (не отскакивают, а расплёскиваются)
+      if (f.position.y < f.size * 0.3) {
+        f.position.y = f.size * 0.3;
+        
+        // Слизь расплющивается на полу
+        f.velocity.y = 0; // Не отскакивает
+        f.velocity.x *= splatFriction;
+        f.velocity.z *= splatFriction;
+        
+        // Капля сплющивается (уменьшаем размер быстрее)
+        f.size *= 0.95;
+        f.lifetime -= dt * 2; // Быстрее исчезает на полу
+      }
 
       // Время жизни
       f.lifetime -= dt;
 
-      // Удаляем мёртвые
-      if (f.lifetime <= 0 || f.position.y < -5) {
+      // Удаляем когда слишком маленькие или старые
+      if (f.lifetime <= 0 || f.size < 0.03 || f.position.y < -5) {
         this.fragments.splice(i, 1);
       }
     }
@@ -1131,40 +1163,58 @@ export class Target {
     return dist < this.radius + 0.5; // Радиус игрока ~0.5
   }
 
-  /** Разрубить на куски! */
+  /** Убить врага - МГНОВЕННО падает замертво! */
   public slice(sliceDirection: Vec3): void {
-    if (!this.active) return;
+    if (!this.active || this.isDying) return;
 
+    // Враг СРАЗУ мёртв на земле
     this.active = false;
-    this.removeTimer = 3.0;
-
-    // Создаём осколки
-    const numFragments = 4 + Math.floor(Math.random() * 4); // 4-7 кусков
-
-    for (let i = 0; i < numFragments; i++) {
-      // Случайное направление разлёта
+    this.isDying = true;
+    this.deathProgress = 0;
+    this.deathY = 0.1; // Сразу на земле!
+    this.deathVelocity = 0;
+    this.removeTimer = 2.0; // Время пока лужа исчезнет
+    
+    // Небольшой сдвиг от удара
+    const sliceLen = Math.sqrt(sliceDirection.x ** 2 + sliceDirection.y ** 2 + sliceDirection.z ** 2) || 1;
+    this.position.x += (sliceDirection.x / sliceLen) * 0.3;
+    this.position.z += (sliceDirection.z / sliceLen) * 0.3;
+    
+    // Брызги при ударе
+    const numSplash = 4 + Math.floor(Math.random() * 4); // 4-7 брызг
+    for (let i = 0; i < numSplash; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const upAngle = Math.random() * Math.PI * 0.5;
-      
-      const speed = 8 + Math.random() * 12;
-      
-      // Основное направление - от удара + случайное
-      const vx = sliceDirection.x * speed * 0.5 + Math.cos(angle) * Math.cos(upAngle) * speed;
-      const vy = Math.sin(upAngle) * speed + 3;
-      const vz = sliceDirection.z * speed * 0.5 + Math.sin(angle) * Math.cos(upAngle) * speed;
-
+      const speed = 5 + Math.random() * 8;
       this.fragments.push({
         position: { 
-          x: this.position.x + (Math.random() - 0.5) * this.radius,
-          y: this.position.y + (Math.random() - 0.5) * this.radius,
-          z: this.position.z + (Math.random() - 0.5) * this.radius,
+          x: this.position.x,
+          y: 0.3,
+          z: this.position.z,
         },
-        velocity: { x: vx, y: vy, z: vz },
-        size: 0.15 + Math.random() * 0.25,
-        lifetime: 1.5 + Math.random() * 1.0,
-        rotation: Math.random() * Math.PI * 2,
-        rotationSpeed: (Math.random() - 0.5) * 15,
+        velocity: { 
+          x: Math.cos(angle) * speed, 
+          y: 3 + Math.random() * 4, 
+          z: Math.sin(angle) * speed 
+        },
+        size: 0.08 + Math.random() * 0.1,
+        lifetime: 0.6 + Math.random() * 0.4,
+        rotation: 0,
+        rotationSpeed: 0,
       });
+    }
+  }
+  
+  /** Обновить анимацию смерти (быстрое растекание) */
+  public updateDeath(dt: number): void {
+    if (!this.isDying) return;
+    
+    // Быстрое растекание!
+    this.deathProgress += dt * 4.0;
+    
+    // Завершение анимации
+    if (this.deathProgress >= 1.0) {
+      this.deathProgress = 1.0;
+      this.isDying = false;
     }
   }
 
@@ -1184,8 +1234,11 @@ export class Target {
     // 11.0-11.9 = boss_green (огромный зелёный)
     // 13.0-13.9 = boss_black (чёрный, искривление)
     // 15.0-15.9 = boss_blue (синий, телепорт)
+    // +100 = умирает (добавляется к типу)
     let w = 0;
-    if (this.active) {
+    
+    // Рендерим и живых и умирающих врагов
+    if (this.active || this.isDying) {
       const intensity = this.fireIntensity * 0.5;
       switch (this.enemyType) {
         case 'phantom':
@@ -1212,8 +1265,24 @@ export class Target {
         default: // baneling
           w = 1 + intensity;
       }
+      
+      // Если умирает - добавляем 100 к типу + deathProgress в дробную часть
+      if (this.isDying || this.deathProgress > 0) {
+        w += 100 + this.deathProgress * 0.5; // 0-0.5 в дробной части
+      }
     }
-    return [this.position.x, this.position.y, this.position.z, w];
+    
+    // Y позиция = deathY при умирании (враг падает)
+    const y = (this.isDying || this.deathProgress > 0) ? this.deathY : this.position.y;
+    return [this.position.x, y, this.position.z, w];
+  }
+  
+  /** Данные смерти для шейдера [x, z, progress, radius] */
+  public getDeathData(): [number, number, number, number] {
+    if (!this.isDying && this.deathProgress < 1.0) {
+      return [0, 0, 0, 0];
+    }
+    return [this.position.x, this.position.z, this.deathProgress, this.radius];
   }
 
   /** Данные осколков для шейдера */
@@ -1890,6 +1959,26 @@ export class TargetManager {
         }
       }
       
+      // Урон от мёртвых врагов (кислотная слизь на полу)
+      // Пока враг не впитался - на него нельзя наступать!
+      for (const target of this.targets) {
+        // Только мёртвые бейнлинги (растекающиеся)
+        if ((target.isDying || target.deathProgress > 0) && target.enemyType === 'baneling') {
+          const dx = playerPos.x - target.position.x;
+          const dz = playerPos.z - target.position.z;
+          const dist = Math.sqrt(dx * dx + dz * dz);
+          
+          // Радиус лужи увеличивается при растекании
+          const poolRadius = target.radius * (1.0 + target.deathProgress * 0.8);
+          
+          // Проверяем только на земле
+          if (dist < poolRadius && playerPos.y < 0.8) {
+            this.onPoolDamage?.(8); // Урон от кислотного тела
+            break;
+          }
+        }
+      }
+      
       // Урон от кислотного дождя (если не под платформой)
       for (const zone of this.acidRainZones) {
         if (!zone.isRaining) continue;
@@ -1919,7 +2008,25 @@ export class TargetManager {
   }
 
   /** Попытка разрубить катаной */
-  public trySlice(playerPos: Vec3, playerYaw: number, range: number, angle: number, playerGrounded = true): Target | null {
+  public trySlice(playerPos: Vec3, playerYaw: number, range: number, angle: number, playerGrounded = true, attackType = 0): Target | null {
+    // Направление взмаха зависит от типа атаки
+    const forwardX = Math.sin(playerYaw);
+    const forwardZ = -Math.cos(playerYaw);
+    const rightX = Math.cos(playerYaw);
+    const rightZ = Math.sin(playerYaw);
+    
+    let swingDirX: number, swingDirZ: number;
+    
+    if (attackType === 0) {
+      // ТИП 0: Справа сверху - диагональный удар слева
+      swingDirX = -rightX * 0.8 + forwardX * 0.4;
+      swingDirZ = -rightZ * 0.8 + forwardZ * 0.4;
+    } else {
+      // ТИП 1: Слева локтевой - удар вправо
+      swingDirX = rightX * 0.9 + forwardX * 0.3;
+      swingDirZ = rightZ * 0.9 + forwardZ * 0.3;
+    }
+    
     for (const target of this.targets) {
       if (!target.active) continue;
 
@@ -1952,7 +2059,13 @@ export class TargetManager {
 
       if (Math.abs(angleDiff) > angle / 2) continue;
 
-      // Попали!
+      // Попали! Направление разлёта = направление ВЗМАХА + немного вперёд
+      const sliceDir: Vec3 = { 
+        x: swingDirX * 0.7 + forwardX * 0.5, 
+        y: 0.3, // Немного вверх
+        z: swingDirZ * 0.7 + forwardZ * 0.5 
+      };
+
       if (target.isBoss) {
         // Босс - уменьшаем HP
         const killed = target.takeDamage(1);
@@ -1968,7 +2081,6 @@ export class TargetManager {
         
         if (killed) {
           // Босс убит! Эпичный взрыв
-          const sliceDir = normalizeVec3({ x: dx, y: 0, z: dz });
           target.slice(sliceDir);
           this.score += 1000 * this.wave; // Много очков за босса!
           this.onTargetDestroyed?.(target);
@@ -1999,8 +2111,7 @@ export class TargetManager {
         // Возвращаем даже если не убит - чтобы был хитмаркер
         return target;
       } else {
-        // Обычный враг - убиваем сразу
-        const sliceDir = normalizeVec3({ x: dx, y: 0, z: dz });
+        // Обычный враг - убиваем сразу направлением ВЗМАХА!
         target.slice(sliceDir);
         
         this.score += 100 * this.wave;
@@ -2017,6 +2128,10 @@ export class TargetManager {
   public trySplashWave(playerPos: Vec3, playerYaw: number, radius: number): number {
     let killCount = 0;
     
+    // Направление волны - вперёд от игрока с расширением в стороны
+    const waveForwardX = Math.sin(playerYaw);
+    const waveForwardZ = -Math.cos(playerYaw);
+    
     for (const target of this.targets) {
       if (!target.active) continue;
 
@@ -2028,6 +2143,14 @@ export class TargetManager {
       // Учитываем размер врага для радиуса
       const effectiveRadius = radius + (target.isBoss ? target.radius : target.radius);
       if (dist > effectiveRadius) continue;
+
+      // Направление разлёта = от игрока к врагу + импульс волны
+      const toTargetLen = dist || 1;
+      const sliceDir: Vec3 = { 
+        x: (dx / toTargetLen) * 0.6 + waveForwardX * 0.5, 
+        y: 0.4, // Подбрасываем выше
+        z: (dz / toTargetLen) * 0.6 + waveForwardZ * 0.5 
+      };
 
       // Попали!
       if (target.isBoss) {
@@ -2044,7 +2167,6 @@ export class TargetManager {
         
         if (killed) {
           // Босс убит!
-          const sliceDir = normalizeVec3({ x: dx, y: 0, z: dz });
           target.slice(sliceDir);
           this.score += 1000 * this.wave;
           this.onTargetDestroyed?.(target);
@@ -2072,8 +2194,7 @@ export class TargetManager {
           target.applyKnockback(dx, dz, knockbackForce);
         }
       } else {
-        // Обычный враг - убиваем сразу
-        const sliceDir = normalizeVec3({ x: dx, y: 0, z: dz });
+        // Обычный враг - убиваем направлением волны!
         target.slice(sliceDir);
         
         this.score += 100 * this.wave;

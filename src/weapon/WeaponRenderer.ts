@@ -14,6 +14,13 @@ interface Particle {
   type: 'fragment' | 'spark' | 'trail';
 }
 
+/** Параметры освещения сцены */
+interface SceneLighting {
+  ambient: [number, number, number];  // RGB 0-1
+  accentColor: [number, number, number];
+  brightness: number;  // 0-1
+}
+
 /**
  * Рендерер катаны в стиле Retrowave
  * Неоновые эффекты при взмахе + частицы осколков
@@ -53,6 +60,13 @@ export class WeaponRenderer {
   /** Направление волны (yaw) */
   private splashWaveYaw = 0;
 
+  /** Текущее освещение сцены */
+  private sceneLighting: SceneLighting = {
+    ambient: [0.12, 0.15, 0.2],
+    accentColor: [0.15, 0.7, 1.0],
+    brightness: 0.7
+  };
+
   constructor(canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
     this.width = canvas.width;
@@ -64,25 +78,76 @@ export class WeaponRenderer {
     this.height = height;
   }
 
-  /** Показать эффект попадания - взрыв осколков! */
+  /** Установить освещение сцены для тонирования катаны */
+  public setSceneLighting(era: number): void {
+    // Параметры освещения по эпохам (соответствуют шейдеру)
+    if (era === 1) {
+      // Кислотная
+      this.sceneLighting = {
+        ambient: [0.08, 0.12, 0.08],
+        accentColor: [0.4, 1.0, 0.2],
+        brightness: 0.75
+      };
+    } else if (era === 2) {
+      // Чёрная дыра
+      this.sceneLighting = {
+        ambient: [0.07, 0.05, 0.12],
+        accentColor: [0.7, 0.15, 1.0],
+        brightness: 0.7
+      };
+    } else {
+      // Космическая (по умолчанию)
+      this.sceneLighting = {
+        ambient: [0.08, 0.1, 0.14],
+        accentColor: [0.15, 0.7, 1.0],
+        brightness: 0.75
+      };
+    }
+  }
+
+  /** Применить тонирование цвета под освещение сцены */
+  private tintColor(color: string, intensity: number = 1.0): string {
+    // Парсим цвет
+    const match = color.match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+    if (!match) return color;
+
+    let r = parseInt(match[1], 16) / 255;
+    let g = parseInt(match[2], 16) / 255;
+    let b = parseInt(match[3], 16) / 255;
+
+    const [ar, ag, ab] = this.sceneLighting.ambient;
+    const brightness = this.sceneLighting.brightness;
+
+    // Применяем тонирование: смешиваем с ambient и применяем яркость
+    r = r * brightness * (0.6 + ar * 2) * intensity;
+    g = g * brightness * (0.6 + ag * 2) * intensity;
+    b = b * brightness * (0.6 + ab * 2) * intensity;
+
+    // Clamp
+    r = Math.min(1, Math.max(0, r));
+    g = Math.min(1, Math.max(0, g));
+    b = Math.min(1, Math.max(0, b));
+
+    return `rgb(${Math.floor(r * 255)}, ${Math.floor(g * 255)}, ${Math.floor(b * 255)})`;
+  }
+
+  /** Показать эффект попадания */
   public showHitEffect(): void {
-    this.hitFlash = 1.0;
-    this.spawnFragments();
+    // 2D частицы отключены - всё в 3D шейдере
+    this.hitFlash = 0.5;
   }
 
-  /** Показать эффект сплеш-атаки топором! */
+  /** Показать эффект сплеш-атаки */
   public showSplashEffect(): void {
-    this.hitFlash = 1.2;
-    this.spawnAxeSplash();
+    // 2D частицы отключены
+    this.hitFlash = 0.6;
   }
 
-  /** Показать горизонтальную сплеш-волну! */
+  /** Показать сплеш-волну */
   public showSplashWave(yaw: number): void {
-    this.splashWaveActive = true;
-    this.splashWaveProgress = 0;
+    // 2D частицы отключены
     this.splashWaveYaw = yaw;
-    this.hitFlash = 1.5;
-    this.spawnWaveParticles();
+    this.hitFlash = 0.5;
   }
 
   /** Создать частицы волны (оптимизировано) */
@@ -248,16 +313,7 @@ export class WeaponRenderer {
     const ctx = this.ctx;
     ctx.clearRect(0, 0, this.width, this.height);
 
-    // Обновляем частицы
-    this.updateParticles(1 / 60);
-
-    // Обновляем сплеш-волну
-    if (this.splashWaveActive) {
-      this.splashWaveProgress += 0.03;
-      if (this.splashWaveProgress >= 1) {
-        this.splashWaveActive = false;
-      }
-    }
+    // 2D частицы и волны отключены - всё в 3D шейдере
 
     const scale = Math.min(this.width, this.height) / 600;
 
@@ -270,10 +326,7 @@ export class WeaponRenderer {
       this.hitFlash -= 0.04;
     }
 
-    // Рисуем сплеш-волну на фоне
-    if (this.splashWaveActive) {
-      this.drawSplashWaveEffect(ctx, time);
-    }
+    // 2D сплеш-волна отключена - всё в 3D шейдере
 
     ctx.save();
 
@@ -301,37 +354,46 @@ export class WeaponRenderer {
     ctx.rotate(rotation);
     ctx.scale(scale, scale);
 
-    // Эффект следа
-    if (this.isAttacking && this.attackProgress > 0.05 && this.attackProgress < 0.8) {
-      if (this.isSplashAttack) {
-        this.drawSplashSlash(ctx, this.attackProgress, time);
-      } else {
-        this.drawRetrowaveSlash(ctx, this.attackProgress, time);
-      }
-    }
-
-    // Катана (всегда катана теперь)
-    this.drawKatana(ctx, state, time);
-
-    // Индикатор заряда сверху катаны если есть заряды
-    if (this.splashCharges > 0) {
-      this.drawChargeIndicator(ctx, time);
-    }
-
-    // Эффект попадания
-    if (this.hitFlash > 0) {
-      this.drawHitGlow(ctx, this.hitFlash, this.isSplashAttack ? 'charged' : 'katana');
-    }
-
+    // Катана теперь в 3D шейдере!
+    // 2D эффекты взмаха отключены - всё в 3D
+    
     ctx.restore();
 
-    // Рендерим частицы поверх всего
-    this.renderParticles(ctx);
+    // 2D частицы отключены - всё в 3D шейдере
 
     // Полноэкранная вспышка при попадании
     if (this.hitFlash > 0.5) {
       this.drawScreenFlash(ctx, this.isSplashAttack ? 'charged' : 'katana');
     }
+  }
+
+  /** Применить тонирование под освещение сцены */
+  private applySceneLighting(ctx: CanvasRenderingContext2D): void {
+    const [ar, ag, ab] = this.sceneLighting.ambient;
+    const brightness = this.sceneLighting.brightness;
+    
+    // Сначала затемняем (multiply) - только поверх катаны
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-atop';
+    
+    // Тёмный слой для затемнения
+    const darkFactor = brightness * 0.6; // Затемняем до 60% от яркости сцены
+    ctx.fillStyle = `rgba(0, 0, 0, ${1 - darkFactor})`;
+    ctx.fillRect(0, 0, this.width, this.height);
+    ctx.restore();
+    
+    // Добавляем цветовой оттенок сцены
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-atop';
+    
+    // Цвет ambient сцены
+    const tintR = Math.floor(ar * 255 * 2);
+    const tintG = Math.floor(ag * 255 * 2);
+    const tintB = Math.floor(ab * 255 * 2);
+    
+    ctx.fillStyle = `rgba(${tintR}, ${tintG}, ${tintB}, 0.25)`;
+    ctx.fillRect(0, 0, this.width, this.height);
+    ctx.restore();
   }
 
   /** Рисуем индикатор заряда */

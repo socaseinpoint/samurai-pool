@@ -55,13 +55,28 @@ uniform vec4 u_explosions[8]; // Взрывы [x, y, z, progress]
 uniform int u_explosionCount;
 uniform int u_voidVariant; // Вариант войда (0-3: багровый, изумрудный, золотой, ледяной)
 
+// === КАТАНА (3D viewmodel) ===
+uniform float u_katanaAttack; // Прогресс атаки 0-1
+uniform float u_katanaBob; // Фаза покачивания
+uniform int u_katanaCharges; // Заряды сплеша (0-3)
+uniform float u_katanaTargetAngle; // Угол к ближайшему врагу (-1 = нет врага)
+uniform float u_katanaTargetDist; // Расстояние до ближайшего врага
+uniform int u_katanaAttackType; // Тип удара: 0=справа сверху, 1=слева локтевой, 2=сплеш
+
+// === ЭФФЕКТЫ СМЕРТИ ВРАГОВ ===
+uniform vec4 u_deathEffects[8]; // [x, y, z, progress] - до 8 одновременных смертей
+
+// === ФРАГМЕНТЫ ВРАГОВ (разрубленные куски) ===
+uniform vec4 u_fragments[32]; // [x, y, z, size] - до 32 фрагментов
+uniform int u_fragmentCount;
+
 in vec2 v_uv;
 out vec4 fragColor;
 
-// === ПАРАМЕТРЫ РЕЙТРЕЙСИНГА (ГРАФОН) ===
-#define MAX_STEPS 64
-#define MAX_DIST 55.0
-#define SURF_DIST 0.003
+// === ПАРАМЕТРЫ РЕЙТРЕЙСИНГА (ОПТИМИЗИРОВАНО) ===
+#define MAX_STEPS 48
+#define MAX_DIST 100.0
+#define SURF_DIST 0.005
 #define PI 3.14159265
 
 // === РАЗМЕРЫ АРЕНЫ ===
@@ -80,6 +95,62 @@ out vec4 fragColor;
 // === NOISE ===
 float hash(vec2 p) {
   return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+float hash3(vec3 p) {
+  return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453);
+}
+
+// === GLITCH DISSOLVE ЭФФЕКТ СМЕРТИ ===
+// Возвращает: x = dissolve factor (0=живой, 1=растворён), y = glitch offset
+vec2 getDeathEffect(vec3 worldPos) {
+  float totalDissolve = 0.0;
+  float totalGlitch = 0.0;
+  
+  for (int i = 0; i < 8; i++) {
+    vec4 death = u_deathEffects[i];
+    if (death.w > 0.01) {
+      float dist = length(worldPos - death.xyz);
+      float progress = death.w;
+      
+      // Волна растворения распространяется от центра
+      float waveRadius = progress * 3.0;
+      float waveFront = smoothstep(waveRadius + 0.5, waveRadius - 0.5, dist);
+      
+      // Шумовой dissolve
+      float noiseVal = hash3(worldPos * 10.0 + progress * 5.0);
+      float dissolve = waveFront * step(noiseVal, progress * 1.5);
+      
+      // Glitch distortion
+      float glitch = 0.0;
+      if (progress > 0.1 && progress < 0.9) {
+        float glitchNoise = hash3(worldPos * 50.0 + vec3(progress * 20.0));
+        if (glitchNoise > 0.92) {
+          glitch = (glitchNoise - 0.92) * 2.0 * sin(progress * 50.0);
+        }
+      }
+      
+      totalDissolve = max(totalDissolve, dissolve);
+      totalGlitch = max(totalGlitch, glitch * waveFront);
+    }
+  }
+  
+  return vec2(totalDissolve, totalGlitch);
+}
+
+// Цвет распада - яркие частицы
+vec3 getDeathColor(vec3 worldPos, vec3 baseColor, float progress) {
+  // Яркие искры на границе распада
+  float sparkle = hash3(worldPos * 30.0 + progress * 10.0);
+  if (sparkle > 0.95) {
+    return vec3(1.0, 0.5, 0.0) * 3.0; // Оранжевые искры
+  }
+  
+  // Энергетическое свечение
+  float glow = sin(progress * 20.0 + length(worldPos) * 5.0) * 0.5 + 0.5;
+  vec3 energyColor = mix(vec3(1.0, 0.3, 0.0), vec3(0.0, 1.0, 0.5), glow);
+  
+  return mix(baseColor, energyColor, progress * 2.0);
 }
 
 float noise(vec2 p) {
@@ -493,20 +564,63 @@ float map(vec3 p) {
       
       // Парящая сфера/куб
       if (pType == 9.0) {
-        // Аптечка - красный крест (сфера + кубы)
-        float sphere = length(p - pickupPos) - 0.4;
-        // Простая сфера для производительности
-        if (sphere < d) {
-          d = sphere;
-          materialId = 14; // Аптечка
+        // === РОЗА (аптечка) ===
+        vec3 localP = p - pickupPos;
+        float bob = sin(u_time * 2.0 + pickupPos.x) * 0.1;
+        localP.y -= bob;
+        
+        // Вращение
+        float rotAngle = u_time * 1.5;
+        float cs = cos(rotAngle), sn = sin(rotAngle);
+        localP.xz = mat2(cs, -sn, sn, cs) * localP.xz;
+        
+        // Стебель
+        float stem = sdCylinder(localP + vec3(0.0, 0.3, 0.0), 0.04, 0.35);
+        if (stem < d) { d = stem; materialId = 79; } // Стебель зелёный
+        
+        // Бутон розы (несколько лепестков - торусы под углом)
+        float bud = 1000.0;
+        for (int j = 0; j < 5; j++) {
+          float angle = float(j) * 1.256 + u_time * 0.3;
+          float cj = cos(angle), sj = sin(angle);
+          vec3 petalP = localP;
+          petalP.xz = mat2(cj, -sj, sj, cj) * petalP.xz;
+          petalP.x *= 1.5; // Сплюснуть
+          float petal = sdTorus(petalP + vec3(0.0, 0.1, 0.0), vec2(0.18, 0.08));
+          bud = min(bud, petal);
         }
+        // Центр бутона
+        float center = sdSphere(localP, 0.15);
+        bud = min(bud, center);
+        
+        if (bud < d) { d = bud; materialId = 14; } // Лепестки красные
+        
       } else if (pType == 10.0) {
-        // Стимпак - жёлтая звезда (сфера)
-        float sphere = length(p - pickupPos) - 0.35;
-        if (sphere < d) {
-          d = sphere;
-          materialId = 15; // Стимпак
-        }
+        // === ЭНЕРГЕТИЧЕСКАЯ СУЩНОСТЬ (баф) ===
+        vec3 localP = p - pickupPos;
+        float bob = sin(u_time * 3.0 + pickupPos.z) * 0.15;
+        localP.y -= bob;
+        
+        // Вращение по двум осям
+        float rotY = u_time * 2.0;
+        float rotX = u_time * 1.3;
+        float cy = cos(rotY), sy = sin(rotY);
+        float cx = cos(rotX), sx = sin(rotX);
+        localP.xz = mat2(cy, -sy, sy, cy) * localP.xz;
+        localP.yz = mat2(cx, -sx, sx, cx) * localP.yz;
+        
+        // Ядро (пульсирующая сфера)
+        float pulse = 0.25 + 0.05 * sin(u_time * 8.0);
+        float core = sdSphere(localP, pulse);
+        if (core < d) { d = core; materialId = 80; } // Ядро энергии
+        
+        // Орбитальные кольца (3 пересекающихся тора)
+        float ring1 = sdTorus(localP.xzy, vec2(0.4, 0.03));
+        float ring2 = sdTorus(localP.yxz, vec2(0.4, 0.03));
+        float ring3 = sdTorus(localP.zyx, vec2(0.4, 0.03));
+        float rings = min(ring1, min(ring2, ring3));
+        if (rings < d) { d = rings; materialId = 81; } // Кольца энергии
+        
       } else if (pType == 11.0) {
         // Заряд катаны - энергетическая сфера
         float chargeSphere = length(p - pickupPos) - 0.5;
@@ -515,22 +629,35 @@ float map(vec3 p) {
           materialId = 17; // Заряд
         }
       } else if (pType == 12.0) {
-        // БОЛЬШАЯ аптечка (на краях карты) - крест с аурой
-        float healthBig = length(p - pickupPos) - 0.6; // Больше обычной
-        
-        // Вертикальный крест (3D)
+        // === БОЛЬШАЯ РОЗА (на краях карты) ===
         vec3 localP = p - pickupPos;
-        float crossV = sdBox(localP, vec3(0.15, 0.5, 0.15));
-        float crossH = sdBox(localP, vec3(0.5, 0.15, 0.15));
-        float cross = min(crossV, crossH);
+        float bob = sin(u_time * 1.5) * 0.15;
+        localP.y -= bob;
         
-        // Светящаяся аура вокруг
-        float aura = length(localP) - 0.8;
+        // Вращение
+        float rotAngle = u_time * 1.0;
+        float cs = cos(rotAngle), sn = sin(rotAngle);
+        localP.xz = mat2(cs, -sn, sn, cs) * localP.xz;
         
-        if (cross < d) {
-          d = cross;
-          materialId = 31; // Большая аптечка
+        // Толстый стебель
+        float stem = sdCylinder(localP + vec3(0.0, 0.5, 0.0), 0.08, 0.55);
+        if (stem < d) { d = stem; materialId = 79; }
+        
+        // Большой бутон
+        float bud = 1000.0;
+        for (int j = 0; j < 7; j++) {
+          float angle = float(j) * 0.898;
+          float cj = cos(angle), sj = sin(angle);
+          vec3 petalP = localP;
+          petalP.xz = mat2(cj, -sj, sj, cj) * petalP.xz;
+          petalP.x *= 1.5;
+          float petal = sdTorus(petalP + vec3(0.0, 0.15, 0.0), vec2(0.3, 0.12));
+          bud = min(bud, petal);
         }
+        float center = sdSphere(localP, 0.25);
+        bud = min(bud, center);
+        
+        if (bud < d) { d = bud; materialId = 31; } // Золотая роза
       }
     }
   }
@@ -552,61 +679,84 @@ float map(vec3 p) {
     }
   }
   
-  // === ЦЕНТРАЛЬНЫЙ ФОНТАН (ДЕТАЛИЗИРОВАННЫЙ) ===
-  // Основание - широкий восьмиугольный постамент
-  vec3 fp = p;
-  float baseAngle = atan(fp.z, fp.x);
-  float baseDist = length(fp.xz) * (1.0 + 0.08 * cos(baseAngle * 8.0)); // Восьмиугольник
-  float base1 = max(baseDist - 2.8, abs(fp.y - 0.15) - 0.15);
-  if (base1 < d) { d = base1; materialId = 50; } // Тёмный камень
+  // === ЦЕНТРАЛЬНЫЙ ФОНТАН СО СТАТУЕЙ АНГЕЛА ===
+  // Анимация трансформации: статуя уезжает вниз, появляется портал
+  float portalProgress = clamp(u_voidPortalActive, 0.0, 1.0);
+  float angelOffset = portalProgress * 5.0; // Статуя уезжает вниз на 5 единиц
   
-  // Ступень 1
-  float step1Dist = length(fp.xz) * (1.0 + 0.06 * cos(baseAngle * 8.0));
-  float step1 = max(step1Dist - 2.3, abs(fp.y - 0.4) - 0.1);
-  if (step1 < d) { d = step1; materialId = 50; }
-  
-  // Ступень 2
-  float step2Dist = length(fp.xz) * (1.0 + 0.04 * cos(baseAngle * 8.0));
-  float step2 = max(step2Dist - 1.8, abs(fp.y - 0.6) - 0.1);
-  if (step2 < d) { d = step2; materialId = 50; }
-  
-  // Центральная колонна с каннелюрами
-  vec3 colP = p - vec3(0.0, 1.8, 0.0);
-  float colAngle = atan(colP.z, colP.x);
-  float colRadius = 0.8 + 0.05 * cos(colAngle * 12.0); // 12 каннелюр
-  float centerCol = max(length(colP.xz) - colRadius, abs(colP.y) - 1.2);
-  if (centerCol < d) { d = centerCol; materialId = 51; } // Мрамор
-  
-  // Капитель (верхняя часть колонны)
-  float capitel = sdCylinder(p - vec3(0.0, 3.1, 0.0), 1.0, 0.15);
-  if (capitel < d) { d = capitel; materialId = 51; }
-  
-  // Декоративный тор на капители
-  float capRing = sdTorus(p - vec3(0.0, 3.0, 0.0), vec2(0.9, 0.08));
-  if (capRing < d) { d = capRing; materialId = 52; } // Бронза
-  
-  // Чаша фонтана (большая)
-  float bowl1 = sdTorus(p - vec3(0.0, 0.75, 0.0), vec2(2.0, 0.2));
-  if (bowl1 < d) { d = bowl1; materialId = 51; }
-  
-  // Внутренняя чаша (меньше)
-  float bowl2 = sdTorus(p - vec3(0.0, 0.85, 0.0), vec2(1.5, 0.12));
-  if (bowl2 < d) { d = bowl2; materialId = 52; }
+  if (distFromCenter < 6.0) {
+    // Основание фонтана (всегда видно)
+    float fountBase = sdCylinder(p - vec3(0.0, 0.15, 0.0), 3.0, 0.15);
+    if (fountBase < d) { d = fountBase; materialId = 75; }
+    
+    // Нижняя чаша
+    float bowl1 = sdTorus(p - vec3(0.0, 0.6, 0.0), vec2(2.0, 0.25));
+    if (bowl1 < d) { d = bowl1; materialId = 51; }
+    
+    // === СТАТУЯ (классическая колонна с чашей - уезжает вниз при активации портала) ===
+    if (portalProgress < 0.95) {
+      vec3 statuePos = vec3(0.0, 0.7 - angelOffset, 0.0);
+      
+      // Центральная колонна
+      float pillar = sdCylinder(p - statuePos, 0.35, 1.8);
+      if (pillar < d) { d = pillar; materialId = 51; }
+      
+      // База колонны (расширение внизу)
+      float pillarBase = sdCylinder(p - statuePos + vec3(0.0, 1.6, 0.0), 0.5, 0.25);
+      if (pillarBase < d) { d = pillarBase; materialId = 51; }
+      
+      // Верхняя чаша
+      float topBowl = sdTorus(p - statuePos - vec3(0.0, 1.8, 0.0), vec2(0.6, 0.15));
+      if (topBowl < d) { d = topBowl; materialId = 51; }
+      
+      // Декоративные кольца на колонне
+      float ring1 = sdTorus(p - statuePos - vec3(0.0, 0.6, 0.0), vec2(0.38, 0.04));
+      float ring2 = sdTorus(p - statuePos - vec3(0.0, 1.2, 0.0), vec2(0.38, 0.04));
+      if (ring1 < d) { d = ring1; materialId = 52; } // Бронза
+      if (ring2 < d) { d = ring2; materialId = 52; }
+      
+      // Сфера на вершине (оранжевая как луна)
+      float topOrb = sdSphere(p - statuePos - vec3(0.0, 2.2, 0.0), 0.3);
+      if (topOrb < d) { d = topOrb; materialId = 78; } // Оранжевый шар
+    }
+    
+    // === ПОРТАЛ (появляется при активации) ===
+    if (portalProgress > 0.05) {
+      vec3 portalPos = vec3(0.0, 2.7, 0.0);
+      
+      // Каменная рамка - тор
+      float portalRing = sdTorus(p - portalPos, vec2(1.0, 0.15));
+      if (portalRing < d) { d = portalRing; materialId = 68; }
+      
+      // Бронзовый внутренний обод
+      float innerRing = sdTorus(p - portalPos, vec2(0.8, 0.06));
+      if (innerRing < d) { d = innerRing; materialId = 52; }
+      
+      // Огненная сфера внутри портала (как у боковых)
+      float energyCore = sdSphere(p - portalPos, 0.7 * portalProgress);
+      if (energyCore < d) { d = energyCore; materialId = 38; }
+    }
+  }
   
   // === ЦЕНТРАЛЬНЫЙ БАССЕЙН ===
   float poolDist = distFromCenter;
-  if (poolDist < POOL_RADIUS + 1.0 && poolDist > 2.5 && p.y < 0.5) {
-    // Дно бассейна
+  
+  // Бортик бассейна (детализированный)
+  if (poolDist < POOL_RADIUS + 0.5 && poolDist > POOL_RADIUS - 0.8) {
+    // Внешний край бортика
+    float rimOuter = sdTorus(p - vec3(0.0, 0.2, 0.0), vec2(POOL_RADIUS + 0.1, 0.25));
+    if (rimOuter < d) { d = rimOuter; materialId = 75; }
+    
+    // Верхняя плоскость бортика
+    float rimTop = sdCylinder(p - vec3(0.0, 0.35, 0.0), POOL_RADIUS + 0.3, 0.1);
+    rimTop = max(rimTop, -(length(p.xz) - POOL_RADIUS + 0.5));
+    if (rimTop < d) { d = rimTop; materialId = 75; }
+  }
+  
+  // Дно бассейна
+  if (poolDist < POOL_RADIUS - 0.3 && p.y < 0.3 && p.y > -POOL_DEPTH - 0.1) {
     float poolBottom = p.y + POOL_DEPTH;
-    
-    // Бортик бассейна
-    float rim = sdTorus(p - vec3(0.0, 0.15, 0.0), vec2(POOL_RADIUS, 0.3));
-    d = min(d, rim);
-    
-    // Не пробиваем дно если внутри бассейна
-    if (poolDist < POOL_RADIUS - 0.3) {
-      d = min(d, poolBottom);
-    }
+    if (poolBottom < d) { d = poolBottom; materialId = 77; } // Дно бассейна (мозаика)
   }
   
   // === МОСТЫ ЧЕРЕЗ БАССЕЙН ===
@@ -630,120 +780,106 @@ float map(vec3 p) {
   float rampR = sdBox(p - vec3(19.0, 0.15, 0.0), vec3(3.5, 0.15, 2.5));
   d = min(d, rampR);
   
-  // === ПОРТАЛЫ ===
-  // Левый портал
-  {
-    vec3 pp = p - vec3(-22.0, 2.0, 0.0);
+  // === ПОРТАЛЫ (ТОРИИ-СТИЛЬ) - ОПТИМИЗИРОВАНО ===
+  // Левый портал (только если близко)
+  float leftPortalDist = abs(p.x + 22.0);
+  if (leftPortalDist < 8.0) {
+    vec3 pp = p - vec3(-22.0, 0.0, 0.0);
     
-    // Постамент
-    float base = sdBox(pp - vec3(0.0, -2.0, 0.0), vec3(2.0, 0.2, 2.5));
-    if (base < d) { d = base; materialId = 50; }
+    // Платформа (одна объединённая)
+    float platform = sdBox(pp - vec3(0.0, 0.25, 0.0), vec3(3.5, 0.25, 3.5));
+    if (platform < d) { d = platform; materialId = 68; }
     
-    // Две колонны
-    float colL = sdCylinder(pp - vec3(0.0, 0.0, -1.6), 0.3, 2.5);
-    float colR = sdCylinder(pp - vec3(0.0, 0.0, 1.6), 0.3, 2.5);
+    // Колонны (упрощённые - без сужения)
+    float colL = sdBox(pp - vec3(0.0, 2.5, -2.0), vec3(0.4, 2.0, 0.4));
+    float colR = sdBox(pp - vec3(0.0, 2.5, 2.0), vec3(0.4, 2.0, 0.4));
     if (colL < d) { d = colL; materialId = 23; }
     if (colR < d) { d = colR; materialId = 23; }
     
-    // Верхняя балка
-    float beam = sdBox(pp - vec3(0.0, 2.7, 0.0), vec3(0.35, 0.25, 2.0));
-    if (beam < d) { d = beam; materialId = 23; }
+    // Верхняя перекладина
+    float kasagi = sdBox(pp - vec3(0.0, 5.0, 0.0), vec3(0.4, 0.2, 2.8));
+    if (kasagi < d) { d = kasagi; materialId = 23; }
     
-    // Энергия внутри - простая СФЕРА
-    float energy = sdSphere(pp, 1.2);
-    if (energy < d) { d = energy; materialId = 24; }
+    // Нижняя перекладина
+    float nuki = sdBox(pp - vec3(0.0, 3.8, 0.0), vec3(0.25, 0.12, 2.3));
+    if (nuki < d) { d = nuki; materialId = 23; }
+    
+    // Энергия портала
+    vec3 portalCenter = pp - vec3(0.0, 2.8, 0.0);
+    float portalDist = length(portalCenter.yz);
+    float energyCore = portalDist - 1.3;
+    energyCore = max(energyCore, abs(portalCenter.x) - 0.3);
+    if (energyCore < d) { d = energyCore; materialId = 24; }
   }
   
-  // Правый портал  
-  {
-    vec3 pp = p - vec3(22.0, 2.0, 0.0);
+  // Правый портал (только если близко)
+  float rightPortalDist = abs(p.x - 22.0);
+  if (rightPortalDist < 8.0) {
+    vec3 pp = p - vec3(22.0, 0.0, 0.0);
     
-    // Постамент
-    float base = sdBox(pp - vec3(0.0, -2.0, 0.0), vec3(2.0, 0.2, 2.5));
-    if (base < d) { d = base; materialId = 50; }
+    float platform = sdBox(pp - vec3(0.0, 0.25, 0.0), vec3(3.5, 0.25, 3.5));
+    if (platform < d) { d = platform; materialId = 68; }
     
-    // Две колонны
-    float colL = sdCylinder(pp - vec3(0.0, 0.0, -1.6), 0.3, 2.5);
-    float colR = sdCylinder(pp - vec3(0.0, 0.0, 1.6), 0.3, 2.5);
+    float colL = sdBox(pp - vec3(0.0, 2.5, -2.0), vec3(0.4, 2.0, 0.4));
+    float colR = sdBox(pp - vec3(0.0, 2.5, 2.0), vec3(0.4, 2.0, 0.4));
     if (colL < d) { d = colL; materialId = 23; }
     if (colR < d) { d = colR; materialId = 23; }
     
-    // Верхняя балка
-    float beam = sdBox(pp - vec3(0.0, 2.7, 0.0), vec3(0.35, 0.25, 2.0));
-    if (beam < d) { d = beam; materialId = 23; }
+    float kasagi = sdBox(pp - vec3(0.0, 5.0, 0.0), vec3(0.4, 0.2, 2.8));
+    if (kasagi < d) { d = kasagi; materialId = 23; }
     
-    // Энергия внутри - простая СФЕРА
-    float energy = sdSphere(pp, 1.2);
-    if (energy < d) { d = energy; materialId = 24; }
+    float nuki = sdBox(pp - vec3(0.0, 3.8, 0.0), vec3(0.25, 0.12, 2.3));
+    if (nuki < d) { d = nuki; materialId = 23; }
+    
+    vec3 portalCenter = pp - vec3(0.0, 2.8, 0.0);
+    float portalDist = length(portalCenter.yz);
+    float energyCore = portalDist - 1.3;
+    energyCore = max(energyCore, abs(portalCenter.x) - 0.3);
+    if (energyCore < d) { d = energyCore; materialId = 24; }
   }
   
-  // === КРУГЛЫЕ ПЛОЩАДКИ ЗА ПОРТАЛАМИ ===
-  // Левая площадка (за левым порталом)
-  {
-    vec3 platPos = vec3(-BACK_PLATFORM_X, 0.0, 0.0);
-    vec3 lp = p - platPos;
+  // === КРУГЛЫЕ ПЛОЩАДКИ ЗА ПОРТАЛАМИ (ОПТИМИЗИРОВАНО) ===
+  // Левая площадка (только если близко)
+  float leftPlatDist = length(p.xz - vec2(-BACK_PLATFORM_X, 0.0));
+  if (leftPlatDist < BACK_PLATFORM_RADIUS + 2.0) {
+    vec3 lp = p - vec3(-BACK_PLATFORM_X, 0.0, 0.0);
+    float lpDist = length(lp.xz);
     
-    // Круглая платформа
-    float platform = sdCylinder(lp - vec3(0.0, 0.15, 0.0), BACK_PLATFORM_RADIUS, 0.3);
-    if (platform < d) {
-      d = platform;
-      materialId = 0; // Пол
-    }
+    // Одна платформа вместо трёх ступеней
+    float platform = sdCylinder(lp - vec3(0.0, 0.2, 0.0), BACK_PLATFORM_RADIUS, 0.2);
+    if (platform < d) { d = platform; materialId = 71; }
     
-    // Декоративный бортик
-    float rimOuter = length(lp.xz) - BACK_PLATFORM_RADIUS;
-    float rimInner = length(lp.xz) - (BACK_PLATFORM_RADIUS - 0.5);
-    float rim = max(rimOuter, -rimInner);
-    rim = max(rim, lp.y - 0.6);
-    rim = max(rim, -lp.y);
-    if (rim < d) {
-      d = rim;
-      materialId = 3; // Металл
-    }
+    // Бортик (упрощённый)
+    float rim = sdTorus(lp - vec3(0.0, 0.35, 0.0), vec2(BACK_PLATFORM_RADIUS, 0.15));
+    if (rim < d) { d = rim; materialId = 72; }
     
-    // Светящиеся руны на полу
-    float runeDist = length(lp.xz);
-    if (runeDist < BACK_PLATFORM_RADIUS - 1.0 && abs(lp.y - 0.32) < 0.05) {
-      float runeAngle = atan(lp.z, lp.x);
-      float runePattern = sin(runeAngle * 6.0 + u_time * 0.5) * sin(runeDist * 2.0);
-      if (runePattern > 0.7) {
-        materialId = 17; // Свечение
-      }
-    }
+    // 4 столбика вместо 8 (только по осям)
+    float pillar1 = sdBox(lp - vec3(BACK_PLATFORM_RADIUS - 0.3, 0.6, 0.0), vec3(0.2, 0.5, 0.2));
+    float pillar2 = sdBox(lp - vec3(-(BACK_PLATFORM_RADIUS - 0.3), 0.6, 0.0), vec3(0.2, 0.5, 0.2));
+    float pillar3 = sdBox(lp - vec3(0.0, 0.6, BACK_PLATFORM_RADIUS - 0.3), vec3(0.2, 0.5, 0.2));
+    float pillar4 = sdBox(lp - vec3(0.0, 0.6, -(BACK_PLATFORM_RADIUS - 0.3)), vec3(0.2, 0.5, 0.2));
+    float pillars = min(min(pillar1, pillar2), min(pillar3, pillar4));
+    if (pillars < d) { d = pillars; materialId = 72; }
   }
   
-  // Правая площадка (за правым порталом)
-  {
-    vec3 platPos = vec3(BACK_PLATFORM_X, 0.0, 0.0);
-    vec3 lp = p - platPos;
+  // Правая площадка (только если близко)
+  float rightPlatDist = length(p.xz - vec2(BACK_PLATFORM_X, 0.0));
+  if (rightPlatDist < BACK_PLATFORM_RADIUS + 2.0) {
+    vec3 lp = p - vec3(BACK_PLATFORM_X, 0.0, 0.0);
+    float lpDist = length(lp.xz);
     
-    // Круглая платформа
-    float platform = sdCylinder(lp - vec3(0.0, 0.15, 0.0), BACK_PLATFORM_RADIUS, 0.3);
-    if (platform < d) {
-      d = platform;
-      materialId = 0;
-    }
+    float platform = sdCylinder(lp - vec3(0.0, 0.2, 0.0), BACK_PLATFORM_RADIUS, 0.2);
+    if (platform < d) { d = platform; materialId = 71; }
     
-    // Декоративный бортик
-    float rimOuter = length(lp.xz) - BACK_PLATFORM_RADIUS;
-    float rimInner = length(lp.xz) - (BACK_PLATFORM_RADIUS - 0.5);
-    float rim = max(rimOuter, -rimInner);
-    rim = max(rim, lp.y - 0.6);
-    rim = max(rim, -lp.y);
-    if (rim < d) {
-      d = rim;
-      materialId = 3;
-    }
+    float rim = sdTorus(lp - vec3(0.0, 0.35, 0.0), vec2(BACK_PLATFORM_RADIUS, 0.15));
+    if (rim < d) { d = rim; materialId = 72; }
     
-    // Светящиеся руны
-    float runeDist = length(lp.xz);
-    if (runeDist < BACK_PLATFORM_RADIUS - 1.0 && abs(lp.y - 0.32) < 0.05) {
-      float runeAngle = atan(lp.z, lp.x);
-      float runePattern = sin(runeAngle * 6.0 - u_time * 0.5) * sin(runeDist * 2.0);
-      if (runePattern > 0.7) {
-        materialId = 17;
-      }
-    }
+    float pillar1 = sdBox(lp - vec3(BACK_PLATFORM_RADIUS - 0.3, 0.6, 0.0), vec3(0.2, 0.5, 0.2));
+    float pillar2 = sdBox(lp - vec3(-(BACK_PLATFORM_RADIUS - 0.3), 0.6, 0.0), vec3(0.2, 0.5, 0.2));
+    float pillar3 = sdBox(lp - vec3(0.0, 0.6, BACK_PLATFORM_RADIUS - 0.3), vec3(0.2, 0.5, 0.2));
+    float pillar4 = sdBox(lp - vec3(0.0, 0.6, -(BACK_PLATFORM_RADIUS - 0.3)), vec3(0.2, 0.5, 0.2));
+    float pillars = min(min(pillar1, pillar2), min(pillar3, pillar4));
+    if (pillars < d) { d = pillars; materialId = 72; }
   }
   
   // === МОСТЫ К ПЛОЩАДКАМ ЗА ПОРТАЛАМИ ===
@@ -761,60 +897,74 @@ float map(vec3 p) {
     materialId = 0;
   }
   
-  // === ОРБИТАЛЬНЫЕ ОГНИ (светящиеся сферы) ===
-  for (int i = 0; i < 4; i++) {
-    float orbitAngle = u_time * 0.5 + float(i) * 1.57;
-    float orbitRadius = 12.0 + sin(u_time * 0.3 + float(i)) * 2.0;
-    float orbitHeight = 4.0 + sin(u_time * 0.7 + float(i) * 0.5) * 1.5;
-    
-    vec3 orbPos = vec3(
-      cos(orbitAngle) * orbitRadius,
-      orbitHeight,
-      sin(orbitAngle) * orbitRadius
-    );
-    
-    float orbSphere = sdSphere(p - orbPos, 0.25);
-    if (orbSphere < d) {
-      d = orbSphere;
-      materialId = 56 + i; // 56, 57, 58, 59 - разные цвета огней
-    }
-  }
   
-  // === КРУГЛЫЕ ПЛАТФОРМЫ ДЛЯ ПАРКУРА (спираль по кругу) ===
-  // 6 платформ по кругу с радиусом 10м, парящие вверх-вниз
-  float bob1 = sin(u_time * 1.5 + 0.0) * 0.3;
+  // === ЛЕТАЮЩИЕ ПЛАТФОРМЫ (каменные с бронзовым ободком) ===
+  float bob1 = sin(u_time * 1.5) * 0.3;
   float bob2 = sin(u_time * 1.5 + 0.8) * 0.3;
   float bob3 = sin(u_time * 1.5 + 1.6) * 0.3;
   float bob4 = sin(u_time * 1.5 + 2.4) * 0.3;
   float bob5 = sin(u_time * 1.5 + 3.2) * 0.3;
   float bob6 = sin(u_time * 1.5 + 4.0) * 0.3;
   
-  float jp1 = sdCylinder(p - vec3(10.0, 1.8 + bob1, 0.0), 1.5, 0.25);
-  float jp2 = sdCylinder(p - vec3(5.0, 3.0 + bob2, 8.66), 1.4, 0.25);
-  float jp3 = sdCylinder(p - vec3(-5.0, 4.2 + bob3, 8.66), 1.4, 0.25);
-  float jp4 = sdCylinder(p - vec3(-10.0, 5.4 + bob4, 0.0), 1.3, 0.25);
-  float jp5 = sdCylinder(p - vec3(-5.0, 6.6 + bob5, -8.66), 1.3, 0.25);
-  float jp6 = sdCylinder(p - vec3(5.0, 7.8 + bob6, -8.66), 1.2, 0.25);
+  // Позиции платформ
+  vec3 plat1Pos = vec3(10.0, 1.8 + bob1, 0.0);
+  vec3 plat2Pos = vec3(5.0, 3.0 + bob2, 8.66);
+  vec3 plat3Pos = vec3(-5.0, 4.2 + bob3, 8.66);
+  vec3 plat4Pos = vec3(-10.0, 5.4 + bob4, 0.0);
+  vec3 plat5Pos = vec3(-5.0, 6.6 + bob5, -8.66);
+  vec3 plat6Pos = vec3(5.0, 7.8 + bob6, -8.66);
+  
+  // Каменные основания платформ
+  float jp1 = sdCylinder(p - plat1Pos, 1.5, 0.2);
+  float jp2 = sdCylinder(p - plat2Pos, 1.4, 0.2);
+  float jp3 = sdCylinder(p - plat3Pos, 1.4, 0.2);
+  float jp4 = sdCylinder(p - plat4Pos, 1.3, 0.2);
+  float jp5 = sdCylinder(p - plat5Pos, 1.3, 0.2);
+  float jp6 = sdCylinder(p - plat6Pos, 1.2, 0.2);
   
   float jumpPlats = min(jp1, min(jp2, min(jp3, min(jp4, min(jp5, jp6)))));
   if (jumpPlats < d) {
     d = jumpPlats;
-    materialId = 16;
+    materialId = 71; // Каменная платформа (как площадки порталов)
   }
   
-  // Верхняя платформа с бафом (в центре над фонтаном), парит медленнее
+  // Бронзовые ободки платформ
+  float rim1 = sdTorus(p - plat1Pos + vec3(0.0, 0.15, 0.0), vec2(1.5, 0.08));
+  float rim2 = sdTorus(p - plat2Pos + vec3(0.0, 0.15, 0.0), vec2(1.4, 0.08));
+  float rim3 = sdTorus(p - plat3Pos + vec3(0.0, 0.15, 0.0), vec2(1.4, 0.08));
+  float rim4 = sdTorus(p - plat4Pos + vec3(0.0, 0.15, 0.0), vec2(1.3, 0.08));
+  float rim5 = sdTorus(p - plat5Pos + vec3(0.0, 0.15, 0.0), vec2(1.3, 0.08));
+  float rim6 = sdTorus(p - plat6Pos + vec3(0.0, 0.15, 0.0), vec2(1.2, 0.08));
+  
+  float rims = min(rim1, min(rim2, min(rim3, min(rim4, min(rim5, rim6)))));
+  if (rims < d) {
+    d = rims;
+    materialId = 72; // Бронзовый ободок
+  }
+  
+  // === ВЕРХНЯЯ ПЛАТФОРМА (главная, над фонтаном) ===
   float topBob = sin(u_time * 1.0) * 0.2;
-  float topPlat = sdCylinder(p - vec3(0.0, 9.5 + topBob, 0.0), 2.5, 0.35);
+  vec3 topPos = vec3(0.0, 9.5 + topBob, 0.0);
+  
+  // Каменное основание
+  float topPlat = sdCylinder(p - topPos, 2.5, 0.3);
   if (topPlat < d) {
     d = topPlat;
-    materialId = 16;
+    materialId = 71;
   }
   
-  // Свечение под верхней платформой
-  float glowRing = sdTorus(p - vec3(0.0, 9.0, 0.0), vec2(2.0, 0.12));
-  if (glowRing < d) {
-    d = glowRing;
-    materialId = 17;
+  // Бронзовый ободок по краю (снизу)
+  float topRim = sdTorus(p - topPos - vec3(0.0, 0.2, 0.0), vec2(2.5, 0.08));
+  if (topRim < d) {
+    d = topRim;
+    materialId = 72;
+  }
+  
+  // Декоративный бронзовый обод снизу платформы
+  float bottomRim = sdTorus(p - topPos + vec3(0.0, 0.25, 0.0), vec2(2.3, 0.08));
+  if (bottomRim < d) {
+    d = bottomRim;
+    materialId = 52; // Бронза
   }
 
   // === КРИСТАЛЛЫ СИЛЫ (только на волне 10) ===
@@ -848,59 +998,7 @@ float map(vec3 p) {
     }
   }
   
-  // === ПОРТАЛ В ВОЙД (центр арены) ===
-  if (u_voidPortalActive > 0.0) {
-    // Луч уходящий в небо
-    float beamDist = length(p.xz); // Расстояние до центра по XZ
-    float beamRadius = 1.5 + sin(u_time * 3.0) * 0.3; // Пульсирующий радиус
-    
-    if (beamDist < beamRadius && p.y > 0.0 && p.y < 30.0) {
-      // Внутри луча
-      float beamD = beamDist - beamRadius * 0.3; // Ядро
-      
-      if (beamD < d) {
-        d = max(beamD, 0.01);
-        materialId = 38; // Ядро портала
-      }
-    }
-    
-    // Внешнее свечение луча
-    float glowRadius = beamRadius + 1.0;
-    if (beamDist < glowRadius && beamDist > beamRadius * 0.3 && p.y > 0.0 && p.y < 25.0) {
-      float glowD = abs(beamDist - beamRadius * 0.7) - 0.3;
-      if (glowD < d) {
-        d = max(glowD, 0.01);
-        materialId = 39; // Свечение портала
-      }
-    }
-    
-    // Кольца энергии вокруг основания
-    for (int ring = 0; ring < 3; ring++) {
-      float ringY = float(ring) * 0.8 + mod(u_time * 5.0, 3.0);
-      if (ringY < 10.0) {
-        float ringDist = abs(length(p.xz) - beamRadius * 1.2) - 0.1;
-        float ringHeight = abs(p.y - ringY) - 0.15;
-        float ringD = max(ringDist, ringHeight);
-        if (ringD < d) {
-          d = ringD;
-          materialId = 40; // Энергетическое кольцо
-        }
-      }
-    }
-    
-    // Частицы вокруг портала
-    for (int i = 0; i < 8; i++) {
-      float angle = float(i) * 0.785 + u_time * 2.0;
-      float radius = beamRadius * 1.5 + sin(u_time * 3.0 + float(i)) * 0.5;
-      float height = mod(u_time * 4.0 + float(i) * 1.5, 15.0);
-      vec3 particlePos = vec3(cos(angle) * radius, height, sin(angle) * radius);
-      float particleD = length(p - particlePos) - 0.15;
-      if (particleD < d) {
-        d = particleD;
-        materialId = 40;
-      }
-    }
-  }
+  // Портал в войд теперь отрисовывается в фонтане (статуя ангела уезжает)
   
   // === АЛТАРИ НА КРАЯХ КАРТЫ ===
   for (int i = 0; i < 2; i++) {
@@ -994,12 +1092,34 @@ float map(vec3 p) {
   // === ВРАГИ ===
   // w: 0=неактивен, 1-2=бейнлинг, 3-4=фантом, 5-6=runner, 7-8=hopper, 9-10=spiker
   // 11-12=boss_green, 13-14=boss_black, 15-16=boss_blue
+  // w >= 100 = умирает (тип = w - 100)
   for (int i = 0; i < u_targetCount; i++) {
     if (i >= 16) break;
     vec4 target = u_targets[i];
     if (target.w > 0.5) {
+      // Проверка на умирающего врага
+      bool isDying = target.w >= 100.0;
+      float baseW = isDying ? target.w - 100.0 : target.w;
+      int enemyType = int(baseW / 2.0); // 0=baneling, 1=phantom, 2=runner, 3=hopper, 4=spiker, 5=boss_green, 6=boss_black, 7=boss_blue
+      
       vec3 tp = p - target.xyz;
-      int enemyType = int(target.w / 2.0); // 0=baneling, 1=phantom, 2=runner, 3=hopper, 4=spiker, 5=boss_green, 6=boss_black, 7=boss_blue
+      
+      // Для умирающих врагов - сплющивание + растекание
+      float deathScale = 1.0;
+      if (isDying) {
+        // Прогресс смерти закодирован в дробной части (0-0.99)
+        float deathProgress = fract(baseW) * 2.0; // 0-1.98
+        deathProgress = clamp(deathProgress, 0.0, 1.0);
+        
+        // Сплющивание по Y (падение и растекание)
+        float yScale = mix(1.0, 0.15, deathProgress);
+        float xzScale = mix(1.0, 1.8, deathProgress);
+        
+        tp.y /= yScale;
+        tp.x /= xzScale;
+        tp.z /= xzScale;
+        deathScale = yScale; // Для корректировки расстояния
+      }
       
       float targetD;
       int matId;
@@ -1179,53 +1299,207 @@ float map(vec3 p) {
     }
   }
   
+  // === ФРАГМЕНТЫ ВРАГОВ (КАПЛИ ЖИЖИ) ===
+  for (int i = 0; i < u_fragmentCount; i++) {
+    if (i >= 32) break;
+    vec4 frag = u_fragments[i];
+    if (frag.w > 0.0) {
+      vec3 fp = p - frag.xyz;
+      
+      // Размер капли
+      float dropSize = frag.w * 0.35;
+      
+      // Сфера (основа капли)
+      float fragD = length(fp) - dropSize;
+      
+      // Деформация - вытянутая капля (больше вниз когда падает)
+      float stretch = 1.0 + abs(fp.y) * 0.3; // Вытягивание
+      vec3 stretched = vec3(fp.x, fp.y * 0.7, fp.z);
+      fragD = length(stretched) - dropSize;
+      
+      // Волнистость поверхности (жижа колышется)
+      float wobble = sin(fp.x * 15.0 + u_time * 8.0) * 
+                     sin(fp.y * 12.0 + u_time * 6.0) * 
+                     sin(fp.z * 15.0 + u_time * 7.0) * 0.02;
+      fragD += wobble;
+      
+      if (fragD < d) {
+        d = fragD;
+        materialId = 200 + i; // Материал фрагмента
+      }
+    }
+  }
+  
+  // === 4 КАМЕННЫХ ФОНАРЯ (ОПТИМИЗИРОВАНО) ===
+  float lanternRadius = 28.0;
+  
+  // Проверяем близость к любому из 4 фонарей
+  vec2 lp1 = p.xz - vec2(0.0, lanternRadius);
+  vec2 lp2 = p.xz - vec2(0.0, -lanternRadius);
+  vec2 lp3 = p.xz - vec2(lanternRadius, 0.0);
+  vec2 lp4 = p.xz - vec2(-lanternRadius, 0.0);
+  
+  float dl1 = length(lp1);
+  float dl2 = length(lp2);
+  float dl3 = length(lp3);
+  float dl4 = length(lp4);
+  
+  // Находим ближайший фонарь
+  float minLDist = min(min(dl1, dl2), min(dl3, dl4));
+  
+  if (minLDist < 4.0) {
+    // Определяем позицию ближайшего фонаря
+    vec3 lPos = vec3(0.0, 0.0, lanternRadius);
+    if (dl2 < dl1 && dl2 <= dl3 && dl2 <= dl4) lPos = vec3(0.0, 0.0, -lanternRadius);
+    else if (dl3 <= dl1 && dl3 <= dl2 && dl3 <= dl4) lPos = vec3(lanternRadius, 0.0, 0.0);
+    else if (dl4 <= dl1 && dl4 <= dl2 && dl4 <= dl3) lPos = vec3(-lanternRadius, 0.0, 0.0);
+    
+    vec3 lp = p - lPos;
+    
+    // Платформа (одна)
+    float platform = sdBox(lp - vec3(0.0, 0.2, 0.0), vec3(1.0, 0.2, 1.0));
+    if (platform < d) { d = platform; materialId = 64; }
+    
+    // Столб
+    float pillar = sdBox(lp - vec3(0.0, 1.7, 0.0), vec3(0.25, 1.3, 0.25));
+    if (pillar < d) { d = pillar; materialId = 60; }
+    
+    // Камера для огня (упрощённая)
+    float chamber = sdBox(lp - vec3(0.0, 3.15, 0.0), vec3(0.4, 0.35, 0.4));
+    if (chamber < d) { d = chamber; materialId = 60; }
+    
+    // Огонь (простой сферический)
+    float flame = sdSphere(lp - vec3(0.0, 3.15, 0.0), 0.2);
+    if (flame < d) { d = flame; materialId = 66; }
+    
+    // Крыша (упрощённая)
+    float roof = sdBox(lp - vec3(0.0, 3.75, 0.0), vec3(0.6, 0.1, 0.6));
+    if (roof < d) { d = roof; materialId = 60; }
+  }
+  
   return d;
 }
 
-// === RAY MARCHING ===
+// === RAY MARCHING (ТУРБО) ===
 float rayMarch(vec3 ro, vec3 rd) {
   float d = 0.0;
+  
+  // Аналитическое пересечение с полом (y=0) - ГАРАНТИРОВАННО попадает
+  float floorDist = MAX_DIST;
+  if (rd.y < -0.001) {
+    floorDist = -ro.y / rd.y;
+    if (floorDist < 0.0) floorDist = MAX_DIST;
+  }
+  
   for (int i = 0; i < MAX_STEPS; i++) {
     vec3 p = ro + rd * d;
     float dist = map(p);
-    // Точный marching без overrelaxation для качества
-    d += dist;
-    if (dist < SURF_DIST || d > MAX_DIST) break;
+    
+    d += dist * 0.9;
+    
+    if (dist < SURF_DIST) return d;
+    if (d > MAX_DIST) break;
+    
+    // Если достигли пола раньше - выходим
+    if (d > floorDist) {
+      return floorDist;
+    }
   }
-  return d;
+  
+  // Если raymarching не попал ни во что, но пол есть - возвращаем пол
+  if (floorDist < MAX_DIST) {
+    return floorDist;
+  }
+  
+  return MAX_DIST;
 }
 
 vec3 getNormal(vec3 p) {
-  vec2 e = vec2(0.002, 0.0);
-  return normalize(vec3(
-    map(p + e.xyy) - map(p - e.xyy),
-    map(p + e.yxy) - map(p - e.yxy),
-    map(p + e.yyx) - map(p - e.yyx)
-  ));
+  // Тетраэдрный метод - 4 вызова вместо 6!
+  vec2 e = vec2(0.003, -0.003);
+  return normalize(
+    e.xyy * map(p + e.xyy) +
+    e.yyx * map(p + e.yyx) +
+    e.yxy * map(p + e.yxy) +
+    e.xxx * map(p + e.xxx)
+  );
 }
 
-// === БЫСТРЫЕ МЯГКИЕ ТЕНИ ===
+// === ДИНАМИЧЕСКИЕ ТЕНИ ОТ ВРАГОВ ===
+float enemyShadow(vec3 p, vec4 targets[16], int targetCount) {
+  float shadow = 1.0;
+  
+  // Только на полу (y < 0.5)
+  if (p.y > 0.5) return 1.0;
+  
+  for (int i = 0; i < 16; i++) {
+    if (i >= targetCount) break;
+    
+    vec4 enemy = targets[i];
+    if (enemy.w < 0.5) continue; // Неактивный
+    
+    // Blob shadow под врагом
+    vec2 toEnemy = p.xz - enemy.xz;
+    float dist = length(toEnemy);
+    float enemyHeight = enemy.y;
+    
+    // Размер тени зависит от высоты врага
+    float shadowRadius = 0.8 + enemyHeight * 0.3;
+    float shadowStrength = smoothstep(shadowRadius, 0.0, dist);
+    shadowStrength *= smoothstep(5.0, 0.0, enemyHeight); // Выше = слабее тень
+    
+    shadow = min(shadow, 1.0 - shadowStrength * 0.6);
+  }
+  
+  return shadow;
+}
+
+// === БЫСТРЫЕ ТЕНИ (6 шагов) ===
 float softShadow(vec3 ro, vec3 rd, float mint, float maxt, float k) {
   float res = 1.0;
   float t = mint;
-  for (int i = 0; i < 12; i++) { // 12 шагов вместо 24
-    if (t > maxt) break;
+  
+  for (int i = 0; i < 6; i++) {
     float h = map(ro + rd * t);
-    if (h < 0.002) return 0.0;
     res = min(res, k * h / t);
-    t += max(h, 0.2); // Большие шаги
+    t += clamp(h, 0.2, 1.0);
+    if (res < 0.01 || t > maxt) break;
   }
-  return clamp(res, 0.0, 1.0);
+  return clamp(res, 0.2, 1.0);
 }
 
-// === БЫСТРЫЙ AO ===
+// === КОНТАКТНЫЕ ТЕНИ (динамические) ===
+float contactShadowRay(vec3 p, vec3 rd, float maxDist) {
+  float t = 0.05;
+  for (int i = 0; i < 4; i++) {
+    float h = map(p + rd * t);
+    if (h < 0.01) return 0.3;
+    t += max(h, 0.1);
+    if (t > maxDist) break;
+  }
+  return 1.0;
+}
+
+// === FAKE ТЕНИ (дополнение) ===
+float fakeShadow(vec3 p, float lightY) {
+  float heightFade = smoothstep(0.0, 3.0, p.y);
+  float distFromCenter = length(p.xz);
+  float centerDark = smoothstep(10.0, 0.0, distFromCenter) * 0.2;
+  return mix(0.5, 1.0, heightFade) - centerDark;
+}
+
+// === УЛУЧШЕННЫЙ AO (оптимизировано) ===
 float calcAO(vec3 pos, vec3 nor) {
-  float occ = 0.0;
-  float h1 = 0.05;
-  float h2 = 0.15;
-  occ += (h1 - map(pos + h1 * nor)) * 0.7;
-  occ += (h2 - map(pos + h2 * nor)) * 0.3;
-  return clamp(1.0 - 2.5 * occ, 0.0, 1.0);
+  // 2 сэмпла
+  float d1 = map(pos + nor * 0.1);
+  float d2 = map(pos + nor * 0.3);
+  float occ = (0.1 - d1) + (0.3 - d2) * 0.5;
+  return clamp(1.0 - occ * 2.0, 0.4, 1.0);
+}
+
+// === КОНТАКТНЫЕ ТЕНИ ===
+float contactShadow(vec3 p) {
+  return smoothstep(-1.0, 2.0, p.y) * 0.5 + 0.5;
 }
 
 // === КРАСИВАЯ ПЛЁНОЧНАЯ ЗЕРНИСТОСТЬ ===
@@ -1245,56 +1519,522 @@ float filmGrain(vec2 uv, float time) {
   return grain;
 }
 
-// === КАУСТИКИ ===
+// === КАУСТИКИ (упрощённые) ===
 float caustics(vec2 p, float t) {
-  float c = 0.0;
-  for (float i = 1.0; i <= 3.0; i++) {
-    vec2 uv = p * (1.0 + i * 0.3);
-    uv += vec2(sin(t * 0.3 + i), cos(t * 0.4 + i * 1.1)) * 0.5;
-    c += pow(0.5 + 0.5 * sin(noise(uv) * 6.0), 4.0);
-  }
-  return c / 3.0;
+  vec2 uv = p * 1.5 + vec2(sin(t * 0.3), cos(t * 0.4)) * 0.5;
+  return pow(0.5 + 0.5 * sin(uv.x * 3.0 + uv.y * 2.0 + t), 3.0);
 }
 
-// === ЗВЁЗДНОЕ НЕБО (через купол) ===
-vec3 renderSky(vec3 rd) {
-  vec3 color = vec3(0.02, 0.03, 0.08);
+// === КАТАНА 3D (viewmodel) - КЛАССИЧЕСКАЯ ДЕТАЛИЗИРОВАННАЯ ===
+
+// SDF капсулы
+float sdCapsule(vec3 p, vec3 a, vec3 b, float r) {
+  vec3 pa = p - a, ba = b - a;
+  float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+  return length(pa - ba * h) - r;
+}
+
+// SDF лезвия катаны - классическое с изгибом (сори)
+float sdKatanaBlade(vec3 p) {
+  // Масштаб катаны (меньше для viewmodel)
+  float scale = 0.15;
+  vec3 sp = p / scale;
   
-  // ФАЗА 2 ЗЕЛЁНОГО БОССА - ТОКСИЧНОЕ ЗЕЛЁНОЕ НЕБО!
+  // Длина лезвия
+  float bladeLen = 2.2;
+  
+  // Лёгкий изгиб (сори) - характерная черта катаны
+  float curve = sp.y * sp.y * 0.02;
+  sp.z -= curve;
+  
+  // Сечение лезвия - треугольное (синоги-дзукури)
+  // Сужение к острию
+  float taper = 1.0 - smoothstep(0.0, bladeLen, sp.y) * 0.6;
+  float width = 0.12 * taper;
+  float thick = 0.025 * taper;
+  
+  // Треугольное сечение
+  float d2d = max(abs(sp.x) - width, abs(sp.z) - thick + abs(sp.x) * 0.15);
+  float d = max(d2d, sp.y - bladeLen);
+  d = max(d, -sp.y - 0.05); // Начало лезвия
+  
+  // Острие (киссаки) - скошенное
+  vec3 tipP = sp - vec3(0.0, bladeLen - 0.15, 0.0);
+  float tipAngle = atan(tipP.z, tipP.y - 0.15);
+  float tip = length(tipP) - 0.08;
+  tip = max(tip, sp.y - bladeLen);
+  d = min(d, tip);
+  
+  return d * scale;
+}
+
+// SDF рукояти (цука)
+float sdKatanaHandle(vec3 p) {
+  float scale = 0.15;
+  vec3 sp = p / scale;
+  
+  // Овальное сечение рукояти
+  float handleLen = 0.8;
+  vec3 hp = sp - vec3(0.0, -handleLen * 0.5, 0.0);
+  
+  // Овал
+  vec2 sz = vec2(0.055, 0.04);
+  float d = length(hp.xz / sz) - 1.0;
+  d = max(d * min(sz.x, sz.y), abs(hp.y) - handleLen * 0.5);
+  
+  // Касира (навершие) - торцевая крышка
+  vec3 kashiraP = sp - vec3(0.0, -handleLen - 0.02, 0.0);
+  float kashira = length(kashiraP / vec3(0.06, 0.03, 0.045)) - 1.0;
+  kashira *= 0.03;
+  d = min(d * scale, kashira * scale);
+  
+  return d;
+}
+
+// SDF цуба (гарда)
+float sdKatanaGuard(vec3 p) {
+  float scale = 0.15;
+  vec3 sp = p / scale;
+  
+  // Круглая цуба с орнаментом
+  float radius = 0.18;
+  float thick = 0.015;
+  
+  // Основной диск
+  float d = length(sp.xz) - radius;
+  d = max(d, abs(sp.y) - thick);
+  
+  // Отверстие для лезвия
+  float hole = length(sp.xz / vec2(0.13, 0.03)) - 1.0;
+  d = max(d, -hole * 0.02);
+  
+  // Декоративные вырезы (сукаши)
+  float angle = atan(sp.z, sp.x);
+  float r = length(sp.xz);
+  float pattern = sin(angle * 4.0) * 0.02;
+  if (r > 0.12 && r < 0.16) {
+    d = max(d, -abs(sp.y) + thick * 0.3 + pattern);
+  }
+  
+  return d * scale;
+}
+
+// SDF хабаки (муфта между лезвием и гардой)
+float sdKatanaHabaki(vec3 p) {
+  float scale = 0.15;
+  vec3 sp = p / scale;
+  
+  vec3 hp = sp - vec3(0.0, -0.02, 0.0);
+  float d = length(hp.xz / vec2(0.08, 0.035)) - 1.0;
+  d = max(d * 0.03, abs(hp.y) - 0.05);
+  
+  return d * scale;
+}
+
+// SDF сэппа (шайбы у гарды)
+float sdKatanaSeppa(vec3 p, float yOffset) {
+  float scale = 0.15;
+  vec3 sp = p / scale;
+  
+  vec3 seppaP = sp - vec3(0.0, yOffset, 0.0);
+  float d = length(seppaP.xz) - 0.1;
+  d = max(d, abs(seppaP.y) - 0.008);
+  
+  return d * scale;
+}
+
+// Полная катана SDF
+float sdKatana(vec3 p) {
+  float blade = sdKatanaBlade(p);
+  float handle = sdKatanaHandle(p);
+  float guard = sdKatanaGuard(p);
+  float habaki = sdKatanaHabaki(p);
+  float seppa1 = sdKatanaSeppa(p, 0.015);
+  float seppa2 = sdKatanaSeppa(p, -0.015);
+  
+  float d = min(blade, handle);
+  d = min(d, guard);
+  d = min(d, habaki);
+  d = min(d, seppa1);
+  d = min(d, seppa2);
+  
+  return d;
+}
+
+// Материал катаны (0=лезвие, 1=рукоять, 2=гарда, 3=металл.детали)
+int getKatanaMaterial(vec3 p) {
+  float blade = sdKatanaBlade(p);
+  float handle = sdKatanaHandle(p);
+  float guard = sdKatanaGuard(p);
+  float habaki = sdKatanaHabaki(p);
+  float seppa = min(sdKatanaSeppa(p, 0.015), sdKatanaSeppa(p, -0.015));
+  
+  float minD = blade;
+  int mat = 0;
+  
+  if (handle < minD) { minD = handle; mat = 1; }
+  if (guard < minD) { minD = guard; mat = 2; }
+  if (habaki < minD || seppa < minD) { mat = 3; }
+  
+  return mat;
+}
+
+// Raymarching катаны (viewmodel - в экранном пространстве)
+vec4 renderKatana(vec3 ro, vec3 rd, float attack, float bob, int charges, vec3 ambient, vec3 accentColor) {
+  // Матрица камеры (из yaw и pitch) - такая же как в основном рендере
+  float cy = cos(u_cameraYaw), sy = sin(u_cameraYaw);
+  float cp = cos(u_cameraPitch), sp = sin(u_cameraPitch);
+  
+  // Базисные векторы камеры (совпадают с main)
+  vec3 camForward = vec3(sy * cp, sp, -cy * cp);
+  vec3 camRight = vec3(cy, 0.0, sy);
+  vec3 camUp = cross(camRight, camForward);
+  
+  // Позиция катаны относительно камеры (ближе к центру)
+  vec3 localOffset = vec3(0.06, -0.1, 0.32); // Почти по центру, чуть ниже
+  
+  // Покачивание при ходьбе
+  localOffset.x += sin(bob) * 0.003;
+  localOffset.y += abs(sin(bob * 2.0)) * 0.002;
+  
+  // Базовые углы катаны - ОСТРИЕ ВПЕРЁД
+  float rotX = -1.5;  // Лезвие горизонтально, острие вперёд
+  float rotZ = 0.08;  // Минимальный наклон
+  float rotY = 0.05;  // Режущая кромка чуть вниз
+  
+  // === УПРЕЖДАЮЩИЙ ЗАМАХ - катана заносится ПРОТИВОПОЛОЖНО врагу! ===
+  if (u_katanaTargetAngle > -0.5 && attack < 0.1) {
+    // Враг в зоне (до 6м) - готовимся к удару
+    float targetInfluence = smoothstep(6.0, 3.0, u_katanaTargetDist);
+    
+    // Угол к врагу определяет сторону замаха
+    float angleOffset = u_katanaTargetAngle;
+    angleOffset = clamp(angleOffset, -0.8, 0.8);
+    
+    // Чем ближе враг - тем сильнее замах (до 3м - почти полный замах)
+    float windUpAmount = smoothstep(5.0, 3.0, u_katanaTargetDist);
+    
+    if (angleOffset < 0.0) {
+      // ВРАГ СЛЕВА → заносим ВПРАВО (удар пойдёт справа налево)
+      rotX += windUpAmount * 0.7;     // Острие вверх
+      rotZ += windUpAmount * 0.6;     // Вправо!
+      rotY += windUpAmount * 0.5;     // Ладонь наружу
+      
+      localOffset.y += windUpAmount * 0.12;  // Рука вверх
+      localOffset.x += windUpAmount * 0.08;  // Вправо!
+    } else {
+      // ВРАГ СПРАВА → заносим ВЛЕВО (удар пойдёт слева направо)
+      rotX += windUpAmount * 0.8;     // Острие вверх
+      rotZ -= windUpAmount * 0.7;     // Влево!
+      rotY -= windUpAmount * 0.5;     // Ладонь внутрь
+      
+      localOffset.y += windUpAmount * 0.14;  // Рука вверх
+      localOffset.x -= windUpAmount * 0.1;   // Влево!
+    }
+    
+    // Лёгкое напряжение - дрожание готовности
+    float tension = sin(u_time * 12.0) * 0.01 * targetInfluence;
+    rotZ += tension;
+    rotX += tension * 0.5;
+  }
+  
+  // РЕАЛИСТИЧНАЯ АНИМАЦИЯ АТАКИ - КАК РУКОЙ
+  if (attack > 0.0) {
+    float t = attack;
+    
+    // Фазы: замах (0-0.12), удар (0.12-0.4), возврат (0.4-1.0)
+    float windUp = smoothstep(0.0, 0.12, t);      // Замах
+    float strike = smoothstep(0.12, 0.38, t);     // Удар
+    float recover = smoothstep(0.42, 1.0, t);     // Возврат
+    
+    // Агрессивный easing для удара
+    float strikeEase = 1.0 - pow(1.0 - strike, 5.0);
+    float swingPower = strikeEase * (1.0 - recover);
+    float windUpPower = windUp * (1.0 - strike);
+    
+    if (u_katanaAttackType == 0) {
+      // === ТИП 0: УДАР СПРАВА СВЕРХУ (кэса-гири) ===
+      // Рука поднимается вверх, ладонь разворачивается наружу
+      
+      // ЗАМАХ: рука идёт вверх-вправо, ладонь разворачивается
+      rotX += windUpPower * 1.1;    // Острие вверх (рука поднимается)
+      rotZ += windUpPower * 0.6;    // Вправо (плечо отводится)
+      rotY += windUpPower * 0.7;    // Ладонь разворачивается наружу!
+      
+      // Позиция руки при замахе
+      localOffset.y += windUpPower * 0.18;  // Рука вверх
+      localOffset.x += windUpPower * 0.1;   // Плечо вправо
+      localOffset.z -= windUpPower * 0.05;  // Отводим назад
+      
+      // УДАР: мощный рубящий сверху вниз по диагонали
+      rotX -= swingPower * 2.0;     // Острие вниз (рука опускается)
+      rotZ -= swingPower * 1.4;     // Влево (плечо вперёд)
+      rotY -= swingPower * 0.3;     // Ладонь возвращается
+      
+      // Выпад руки вперёд
+      localOffset.y -= swingPower * 0.14;
+      localOffset.x -= swingPower * 0.12;
+      localOffset.z += swingPower * 0.12;
+      
+    } else if (u_katanaAttackType == 1) {
+      // === ТИП 1: УДАР СЛЕВА (гяку-кэса) ===
+      // Рука заносится высоко влево, локоть ведёт
+      
+      // ЗАМАХ: рука высоко влево над плечом!
+      rotX += windUpPower * 1.2;    // Острие высоко вверх
+      rotZ -= windUpPower * 1.1;    // СИЛЬНО влево!
+      rotY -= windUpPower * 0.8;    // Ладонь внутрь
+      
+      // Позиция руки при замахе - высоко и влево
+      localOffset.y += windUpPower * 0.2;   // Рука ВЫСОКО вверх
+      localOffset.x -= windUpPower * 0.15;  // Сильно влево
+      localOffset.z -= windUpPower * 0.06;  // Отводим назад
+      
+      // УДАР: мощный диагональный взмах вправо-вниз
+      rotX -= swingPower * 2.0;     // Острие резко вниз
+      rotZ += swingPower * 2.0;     // Сильно вправо
+      rotY += swingPower * 0.6;     // Ладонь разворачивается
+      
+      // Выпад вперёд и вправо
+      localOffset.y -= swingPower * 0.14;
+      localOffset.x += swingPower * 0.16;
+      localOffset.z += swingPower * 0.1;
+      
+    } else {
+      // === ТИП 2: СПЛЕШ (ёко-гири - горизонтальный) ===
+      // Широкий горизонтальный взмах обеими руками
+      
+      // ЗАМАХ: рука отводится вправо, ладонь разворачивается
+      rotZ += windUpPower * 0.7;
+      rotY += windUpPower * 0.4;    // Ладонь наружу
+      localOffset.x += windUpPower * 0.08;
+      localOffset.z -= windUpPower * 0.03;
+      
+      // УДАР: мощный горизонтальный рубящий
+      rotZ -= swingPower * 2.6;
+      rotX -= swingPower * 0.25;
+      rotY -= swingPower * 0.3;     // Ладонь возвращается
+      
+      localOffset.x -= swingPower * 0.2;
+      localOffset.z += swingPower * 0.1;
+    }
+    
+    // Встряска при ударе (импакт)
+    if (t > 0.28 && t < 0.48) {
+      float shake = sin(t * 180.0) * 0.005 * (1.0 - smoothstep(0.28, 0.48, t));
+      localOffset.x += shake;
+      localOffset.y += shake * 0.5;
+    }
+  }
+  
+  // Позиция катаны в мировых координатах (относительно камеры)
+  vec3 katanaWorldPos = ro + camRight * localOffset.x + camUp * localOffset.y + camForward * localOffset.z;
+  
+  // Матрица локального поворота катаны (XYZ euler)
+  float cx = cos(rotX), sx = sin(rotX);
+  float cy2 = cos(rotY), sy2 = sin(rotY);
+  float cz = cos(rotZ), sz = sin(rotZ);
+  
+  // Комбинированная матрица поворота ZYX
+  mat3 localRot = mat3(
+    cz * cy2, -sz * cx + cz * sy2 * sx, sz * sx + cz * sy2 * cx,
+    sz * cy2, cz * cx + sz * sy2 * sx, -cz * sx + sz * sy2 * cx,
+    -sy2, cy2 * sx, cy2 * cx
+  );
+  
+  // Комбинированная матрица: локальный поворот + ориентация камеры
+  mat3 camMat = mat3(camRight, camUp, camForward);
+  mat3 rotMat = camMat * localRot;
+  
+  float t = 0.0;
+  float maxDist = 1.0;
+  
+  for (int i = 0; i < 64; i++) {
+    vec3 p = ro + rd * t;
+    
+    // Трансформация в локальное пространство катаны
+    vec3 localP = transpose(rotMat) * (p - katanaWorldPos);
+    
+    float d = sdKatana(localP);
+    
+    if (d < 0.0005) {
+      vec3 hitP = localP;
+      int mat = getKatanaMaterial(hitP);
+      
+      // Нормаль
+      vec2 e = vec2(0.0005, 0.0);
+      vec3 n = normalize(vec3(
+        sdKatana(hitP + e.xyy) - sdKatana(hitP - e.xyy),
+        sdKatana(hitP + e.yxy) - sdKatana(hitP - e.yxy),
+        sdKatana(hitP + e.yyx) - sdKatana(hitP - e.yyx)
+      ));
+      // Трансформация нормали в мировое пространство
+      n = rotMat * n;
+      
+      // Освещение от камеры + сверху
+      vec3 lightDir = normalize(vec3(0.2, 0.8, -0.5));
+      vec3 viewLight = normalize(vec3(0.0, 0.0, -1.0)); // От камеры
+      float diff = max(dot(n, lightDir), 0.0) * 0.5 + 0.3;
+      diff += max(dot(n, viewLight), 0.0) * 0.3;
+      float spec = pow(max(dot(reflect(rd, n), lightDir), 0.0), 64.0);
+      float viewSpec = pow(max(dot(reflect(rd, n), viewLight), 0.0), 32.0);
+      
+      vec3 color;
+      
+      if (mat == 0) {
+        // ЛЕЗВИЕ - полированная сталь с хамоном
+        vec3 steelColor = vec3(0.85, 0.88, 0.92);
+        
+        // Хамон (волнистая линия закалки)
+        float hamonY = hitP.y * 0.15; // Масштаб
+        float hamonLine = sin(hamonY * 80.0 + sin(hamonY * 30.0) * 2.0) * 0.003;
+        float hamon = smoothstep(0.002, -0.002, hitP.z - hamonLine - 0.002);
+        
+        // Дзи (основа) темнее, якиба (закалённая часть) светлее
+        vec3 ji = vec3(0.6, 0.62, 0.65);
+        vec3 yakiba = vec3(0.95, 0.97, 1.0);
+        steelColor = mix(ji, yakiba, hamon);
+        
+        color = steelColor * diff * ambient * 4.0;
+        color += vec3(1.0) * (spec + viewSpec) * 0.9;
+        
+        // Режущая кромка - яркая линия
+        float edge = smoothstep(0.002, 0.0, abs(hitP.z) - 0.001);
+        color += vec3(1.0, 0.98, 0.95) * edge * 0.4;
+        
+        // Неоновый акцент на кромке
+        color += accentColor * edge * 0.2;
+        
+        // Заряды - свечение
+        if (charges > 0) {
+          float scale = 0.15;
+          for (int j = 0; j < 3; j++) {
+            if (j < charges) {
+              float cy = (0.3 + float(j) * 0.25) * scale;
+              float dist = abs(hitP.y - cy);
+              float glow = smoothstep(0.03, 0.0, dist);
+              color += accentColor * glow * 0.6;
+            }
+          }
+        }
+        
+      } else if (mat == 1) {
+        // РУКОЯТЬ - чёрная с ито (обмоткой)
+        vec3 handleBase = vec3(0.02, 0.02, 0.02); // Самэ (кожа ската) под обмоткой
+        vec3 itoColor = vec3(0.08, 0.05, 0.12); // Шёлковая обмотка
+        
+        // Ромбовидный узор обмотки
+        float scale = 0.15;
+        float wrapY = hitP.y / scale;
+        float wrapAngle = atan(hitP.z, hitP.x);
+        float wrap = step(0.5, fract(wrapY * 12.0 + wrapAngle * 0.5));
+        
+        vec3 handleColor = mix(handleBase, itoColor, wrap);
+        color = handleColor * diff * ambient * 3.0;
+        
+        // Неоновые линии между обмоткой
+        float wrapGlow = smoothstep(0.52, 0.48, fract(wrapY * 12.0));
+        color += accentColor * wrapGlow * 0.1 * (0.6 + 0.4 * sin(u_time * 2.0));
+        
+      } else if (mat == 2) {
+        // ЦУБА (гарда) - тёмный металл с узором
+        vec3 tsubaColor = vec3(0.12, 0.1, 0.08);
+        
+        // Патина
+        float patina = hash(hitP.xz * 100.0) * 0.1;
+        tsubaColor += vec3(0.0, patina * 0.5, patina);
+        
+        color = tsubaColor * diff * ambient * 3.5;
+        color += vec3(0.3, 0.25, 0.2) * spec * 0.2;
+        
+        // Неоновый край
+        float edgeDist = length(hitP.xz) - 0.025;
+        float tsubaEdge = smoothstep(0.003, 0.0, abs(edgeDist));
+        color += accentColor * tsubaEdge * 0.3;
+        
+      } else {
+        // МЕТАЛЛИЧЕСКИЕ ДЕТАЛИ (хабаки, сэппа)
+        vec3 brassColor = vec3(0.7, 0.55, 0.3); // Латунь
+        color = brassColor * diff * ambient * 4.0;
+        color += vec3(1.0, 0.9, 0.6) * spec * 0.5;
+      }
+      
+      // Вспышка атаки
+      if (attack > 0.3 && attack < 0.8) {
+        float flash = sin((attack - 0.3) / 0.5 * 3.14159);
+        color += accentColor * flash * 0.5;
+      }
+      
+      return vec4(color, t);
+    }
+    
+    t += d;
+    if (t > maxDist) break;
+  }
+  
+  // Не попали - прозрачно
+  return vec4(0.0, 0.0, 0.0, -1.0);
+}
+
+// === НЕБО И ГОРИЗОНТ ===
+vec3 renderSky(vec3 rd) {
+  // Базовый цвет неба
+  vec3 color = vec3(0.04, 0.05, 0.1);
+  
+  // Плавный градиент от зенита к горизонту
+  float horizonFade = 1.0 - abs(rd.y);
+  float horizonPow = horizonFade * horizonFade * horizonFade;
+  
+  // Горизонт - светлее и с дымкой
+  vec3 horizonColor = vec3(0.08, 0.07, 0.12);  // Фиолетово-серая дымка
+  vec3 horizonGlow = vec3(0.04, 0.08, 0.1);    // Циановый отсвет
+  
+  color = mix(color, horizonColor, horizonPow);
+  color += horizonGlow * horizonFade * 0.5;
+  
+  // ФАЗА 2 ЗЕЛЁНОГО БОССА - ТОКСИЧНОЕ НЕБО
   if (u_greenBossPhase2 == 1) {
-    // Ядовито-зелёный градиент
     float heightFade = smoothstep(-0.2, 0.8, rd.y);
-    vec3 toxicGreen = mix(vec3(0.05, 0.15, 0.02), vec3(0.1, 0.4, 0.05), heightFade);
+    vec3 toxicGreen = mix(vec3(0.04, 0.12, 0.02), vec3(0.08, 0.3, 0.04), heightFade);
     color = toxicGreen;
-    
-    // Токсичные облака
     float clouds = sin(rd.x * 3.0 + u_time * 0.5) * sin(rd.z * 2.0 + u_time * 0.3) * 0.5 + 0.5;
-    color += vec3(0.0, 0.2, 0.0) * clouds * 0.3;
-    
-    // Пульсирующее свечение
-    float pulse = sin(u_time * 2.0) * 0.2 + 0.8;
-    color *= pulse;
-    
+    color += vec3(0.0, 0.15, 0.0) * clouds * 0.2;
+    color *= (sin(u_time * 2.0) * 0.15 + 0.85);
     return color;
   }
   
-  // Звёзды
-  vec2 skyUV = rd.xz / (rd.y + 0.5);
-  for (float i = 0.0; i < 50.0; i++) {
-    vec2 starPos = vec2(hash(vec2(i, 0.0)), hash(vec2(i, 1.0))) * 4.0 - 2.0;
-    float star = 0.002 / (length(skyUV - starPos) + 0.002);
-    star *= step(0.7, hash(vec2(i, 2.0)));
-    color += vec3(1.0, 0.95, 0.9) * star * 0.3;
+  // Звёзды (только вверху)
+  if (rd.y > 0.1) {
+    vec2 skyUV = rd.xz / (rd.y + 0.3);
+    float stars = hash(floor(skyUV * 100.0));
+    if (stars > 0.975) {
+      float starBright = (stars - 0.975) * 20.0 * rd.y;
+      color += vec3(0.8, 0.85, 1.0) * starBright;
+    }
   }
   
-  // Луна
-  vec3 moonDir = normalize(vec3(0.5, 0.8, -0.3));
-  float moon = smoothstep(0.98, 0.99, dot(rd, moonDir));
-  color += vec3(1.0, 0.98, 0.95) * moon * 2.0;
+  // Луна - большая оранжевая
+  vec3 moonDir = normalize(vec3(0.4, 0.5, -0.4));
+  float moonDot = dot(rd, moonDir);
+  
+  // Основной диск луны (больше и объёмнее)
+  float moon = smoothstep(0.96, 0.97, moonDot);
+  
+  // Объёмное затемнение к краям (как у настоящей луны)
+  float moonEdge = smoothstep(0.97, 0.99, moonDot);
+  vec3 moonCore = vec3(1.0, 0.7, 0.3); // Яркий оранжевый центр
+  vec3 moonRim = vec3(0.9, 0.4, 0.1);  // Тёмный оранжевый край
+  vec3 moonColor = mix(moonRim, moonCore, moonEdge);
+  
+  // Текстура кратеров (шум)
+  float moonNoise = noise(rd.xy * 30.0) * 0.15;
+  moonColor *= (0.9 + moonNoise);
+  
+  color += moonColor * moon * 1.5;
   
   // Свечение вокруг луны
-  float moonGlow = pow(max(0.0, dot(rd, moonDir)), 32.0);
-  color += vec3(0.3, 0.35, 0.5) * moonGlow * 0.5;
+  float moonGlow = pow(max(0.0, moonDot), 8.0);
+  color += vec3(0.4, 0.2, 0.05) * moonGlow * 0.6;
   
   return color;
 }
@@ -1875,8 +2615,9 @@ void main() {
   
   float d = rayMarch(ro, rd);
   
-  // Фоновый цвет (небо через купол)
-  vec3 color = renderSky(rd) * 0.3;
+  // Небо как фон (полная яркость)
+  vec3 skyColor = renderSky(rd);
+  vec3 color = skyColor;
   
   if (d < MAX_DIST) {
     vec3 p = ro + rd * d;
@@ -1892,163 +2633,192 @@ void main() {
     vec3 fogColor;
     
     if (u_era == 1) {
-      // ЭПОХА 1: Кислотная - НУАР
-      ambient = vec3(0.008, 0.015, 0.008);
-      mainLight = vec3(0.08, 0.2, 0.08);
-      accentColor = vec3(0.4, 1.0, 0.2);
-      fogColor = vec3(0.005, 0.015, 0.005);
+      // ЭПОХА 1: Кислотный киберпанк
+      ambient = vec3(0.08, 0.12, 0.08);
+      mainLight = vec3(0.4, 0.6, 0.4);
+      accentColor = vec3(0.3, 1.0, 0.4);
+      fogColor = vec3(0.03, 0.05, 0.03);
     } else if (u_era == 2) {
-      // ЭПОХА 2: Чёрная дыра - ГЛУБОКИЙ НУАР
-      ambient = vec3(0.008, 0.005, 0.015);
-      mainLight = vec3(0.1, 0.06, 0.18);
-      accentColor = vec3(0.7, 0.15, 1.0);
-      fogColor = vec3(0.005, 0.002, 0.01);
+      // ЭПОХА 2: Фиолетовый киберпанк
+      ambient = vec3(0.08, 0.06, 0.12);
+      mainLight = vec3(0.4, 0.3, 0.55);
+      accentColor = vec3(0.8, 0.2, 1.0);
+      fogColor = vec3(0.04, 0.03, 0.06);
     } else {
-      // ЭПОХА 3: Космическая - ХОЛОДНЫЙ НУАР
-      ambient = vec3(0.01, 0.015, 0.025);
-      mainLight = vec3(0.08, 0.15, 0.25);
-      accentColor = vec3(0.15, 0.7, 1.0);
-      fogColor = vec3(0.003, 0.006, 0.015);
+      // ЭПОХА 3: Бирюзовый киберпанк
+      ambient = vec3(0.06, 0.1, 0.12);
+      mainLight = vec3(0.35, 0.5, 0.55);
+      accentColor = vec3(0.0, 0.9, 1.0);
+      fogColor = vec3(0.03, 0.05, 0.07);
     }
     
-    // === НУАРНОЕ ОСВЕЩЕНИЕ С ТЕНЯМИ ===
+    // === ЕДИНАЯ СИСТЕМА ОСВЕЩЕНИЯ ===
     
-    // Ambient Occlusion
+    // Цветовая палитра
+    vec3 cyan = vec3(0.2, 0.9, 1.0);
+    vec3 magenta = vec3(1.0, 0.2, 0.6);
+    vec3 warmLight = vec3(1.0, 0.85, 0.7);
+    
+    // AO
     float ao = calcAO(p, n);
     
-    // Основной свет (прожектор сверху, вращается)
-    float sunAngle = u_time * 0.15;
-    vec3 sunDir = normalize(vec3(sin(sunAngle) * 0.4, 0.8, cos(sunAngle) * 0.3));
-    float mainDot = max(dot(n, sunDir), 0.0);
+    // --- KEY LIGHT (луна - тёплый оранжевый) ---
+    vec3 keyDir = normalize(vec3(0.4, 0.5, -0.4)); // Совпадает с moonDir
+    float keyDiff = max(dot(n, keyDir), 0.0);
+    float keyWrap = max(dot(n, keyDir) * 0.5 + 0.5, 0.0); // Wrap lighting для мягкости
+    float keyShadow = softShadow(p + n * 0.02, keyDir, 0.1, 30.0, 8.0);
+    vec3 keyColor = vec3(1.0, 0.6, 0.25); // Тёплый оранжевый от луны
+    vec3 keyLight = keyColor * mix(keyDiff, keyWrap, 0.3) * keyShadow * 0.9;
     
-    // ТЕНЬ от основного света
-    float mainShadow = softShadow(p + n * 0.02, sunDir, 0.1, 20.0, 8.0);
-    mainDot *= mainShadow;
+    // --- FILL LIGHT (тёплый снизу, сильнее) ---
+    vec3 fillDir = normalize(vec3(-0.2, -0.6, 0.3));
+    float fillDiff = max(dot(n, -fillDir), 0.0) * 0.4 + 0.15;
+    vec3 fillColor = vec3(1.0, 0.7, 0.4); // Тёплый оранжевый
+    vec3 fillLight = fillColor * fillDiff * 0.2;
     
-    // Мерцание факела
-    float flicker1 = sin(u_time * 15.0) * 0.2;
-    float flicker2 = sin(u_time * 23.0 + 1.0) * 0.15;
-    float flicker3 = sin(u_time * 31.0 + 2.0) * 0.1;
-    float torchFlicker = 1.0 + flicker1 + flicker2 + flicker3;
+    // --- RIM LIGHT (контурный свет сзади) ---
+    vec3 rimDir = normalize(vec3(-0.5, 0.3, 0.8));
+    float rimDot = 1.0 - max(dot(n, -rd), 0.0);
+    float rimLight = pow(rimDot, 3.0) * max(dot(n, rimDir), 0.0);
+    vec3 rimColor = mix(cyan, accentColor, 0.5) * rimLight * 0.4;
     
-    // Центральный факел
-    vec3 torchPos = vec3(0.0, 6.0, 0.0);
-    vec3 toTorch = torchPos - p;
-    float torchDist = length(toTorch);
-    vec3 torchDir = normalize(toTorch);
-    float atten = 40.0 / (1.0 + torchDist * 0.05 + torchDist * torchDist * 0.008);
-    vec3 torchColor = mix(accentColor, vec3(1.0, 0.5, 0.1), 0.4);
+    // --- НЕОНОВЫЕ ИСТОЧНИКИ (4 столба) ---
+    vec3 neonLight = vec3(0.0);
+    float nR = 25.0, nH = 4.0;
     
-    // ТЕНЬ от факела
-    float torchShadow = softShadow(p + n * 0.02, torchDir, 0.1, torchDist, 6.0);
-    vec3 torchLight = torchColor * max(dot(n, torchDir), 0.0) * atten * torchFlicker * torchShadow;
+    // Север - циан
+    vec3 toN1 = vec3(0.0, nH, nR) - p;
+    neonLight += cyan * max(dot(n, normalize(toN1)), 0.0) * 20.0 / (1.0 + length(toN1) * 0.1);
     
-    // Орбитальные огни (без теней - оптимизация)
-    vec3 orbitalLight = vec3(0.0);
-    for (int i = 0; i < 4; i++) {
-      float orbitAngle = u_time * 0.4 + float(i) * 1.57;
-      float orbitRadius = 14.0 + sin(u_time * 0.3 + float(i)) * 3.0;
-      float orbitHeight = 5.0 + sin(u_time * 0.5 + float(i) * 0.5) * 2.0;
-      
-      vec3 orbPos = vec3(cos(orbitAngle) * orbitRadius, orbitHeight, sin(orbitAngle) * orbitRadius);
-      vec3 toOrb = orbPos - p;
-      float orbDist = length(toOrb);
-      vec3 orbDir = normalize(toOrb);
-      float orbAtten = 30.0 / (1.0 + orbDist * 0.06 + orbDist * orbDist * 0.01);
-      
-      vec3 orbColor = accentColor;
-      if (i == 1) orbColor = vec3(1.0, 0.4, 0.0);
-      if (i == 2) orbColor = vec3(0.0, 0.8, 0.6);
-      if (i == 3) orbColor = vec3(1.0, 0.1, 0.4);
-      
-      float orbFlicker = 0.7 + 0.3 * sin(u_time * 18.0 + float(i) * 4.0);
-      
-      // Без теней для производительности
-      orbitalLight += orbColor * max(dot(n, orbDir), 0.0) * orbAtten * orbFlicker;
-    }
+    // Юг - маджента
+    vec3 toN2 = vec3(0.0, nH, -nR) - p;
+    neonLight += magenta * max(dot(n, normalize(toN2)), 0.0) * 20.0 / (1.0 + length(toN2) * 0.1);
     
-    // Подсветка бассейна (слабее, нуарнее)
+    // Восток/Запад - акцент
+    vec3 toN3 = vec3(nR, nH, 0.0) - p;
+    vec3 toN4 = vec3(-nR, nH, 0.0) - p;
+    neonLight += accentColor * max(dot(n, normalize(toN3)), 0.0) * 18.0 / (1.0 + length(toN3) * 0.1);
+    neonLight += accentColor * max(dot(n, normalize(toN4)), 0.0) * 18.0 / (1.0 + length(toN4) * 0.1);
+    
+    // --- ЦЕНТРАЛЬНЫЙ ИСТОЧНИК ---
+    vec3 toCenter = vec3(0.0, 2.0, 0.0) - p;
+    float centerPulse = 0.8 + 0.2 * sin(u_time * 2.5);
+    vec3 centerLight = accentColor * max(dot(n, normalize(toCenter)), 0.0) * 15.0 / (1.0 + length(toCenter) * 0.08) * centerPulse;
+    
+    // --- SPECULAR ---
+    vec3 halfVec = normalize(keyDir - rd);
+    float spec = pow(max(dot(n, halfVec), 0.0), 48.0);
+    vec3 specColor = vec3(1.0, 0.95, 0.9) * spec * keyShadow * 0.5;
+    // Дополнительный блик от неона
+    float neonSpec = pow(max(dot(n, normalize(vec3(0.0, 1.0, 0.0) - rd)), 0.0), 32.0);
+    specColor += mix(cyan, magenta, 0.5) * neonSpec * 0.4;
+    // Блик от rim
+    specColor += accentColor * pow(rimDot, 5.0) * 0.25;
+    // Блик от rimlight
+    specColor += accentColor * pow(rimDot, 5.0) * 0.3;
+    
+    // --- СОБИРАЕМ ---
+    ambient = vec3(0.04, 0.045, 0.06) * (0.4 + ao * 0.6);
+    vec3 torchLight = keyLight + fillLight + rimColor + neonLight * 0.15 + centerLight * 0.25;
+    torchLight *= ao;
+    
+    // mainDot для материалов
+    float mainDot = keyDiff * keyShadow * 0.6 + 0.2;
+    
+    // Подсветка пола
     float distFromCenter = length(p.xz);
-    float poolPulse = 0.5 + 0.5 * sin(u_time * 1.5 - distFromCenter * 0.3);
-    float poolInfluence = 1.0 - smoothstep(0.0, 10.0, distFromCenter);
-    vec3 poolLight = accentColor * poolInfluence * 2.0 * poolPulse;
-    
-    // Применяем AO
-    ambient *= ao;
-    torchLight *= (0.5 + 0.5 * ao);
-    
-    // Добавляем орбитальный свет
-    torchLight += orbitalLight * 0.6;
+    vec3 poolLight = accentColor * smoothstep(20.0, 0.0, distFromCenter) * 0.3;
     
     // === МАТЕРИАЛЫ (упрощённые) ===
     if (mat == 1) {
-      // === ВОДА (простая) ===
-      vec3 waterColor = vec3(0.2, 0.55, 0.7);
-      waterColor += poolLight;
-      float fresnel = pow(1.0 - max(0.0, dot(-rd, n)), 2.0);
-      color = mix(waterColor, vec3(0.5, 0.8, 0.9), fresnel * 0.3);
+      // === ВОДА (стилизованная) ===
+      vec3 waterDeep = vec3(0.02, 0.08, 0.12);
+      vec3 waterMid = vec3(0.05, 0.15, 0.2);
+      vec3 waterSurface = vec3(0.1, 0.25, 0.3);
       
-    } else if (mat == 4) {
-      // === БЕЙНЛИНГИ (зелёная кислотная жижа) ===
-      vec3 acidGreen = vec3(0.2, 0.9, 0.1);
-      vec3 darkGreen = vec3(0.0, 0.4, 0.0);
+      // Глубина воды
+      float depth = smoothstep(0.0, 2.0, -p.y + 1.0);
+      vec3 waterColor = mix(waterDeep, waterMid, depth);
       
-      float pulse = 0.7 + 0.3 * sin(u_time * 4.0 + p.x * 2.0);
-      float pulse2 = 0.8 + 0.2 * sin(u_time * 6.0 + p.z * 3.0);
-      float glow = 0.5 + 0.5 * sin(u_time * 3.0);
+      // Волны на поверхности
+      float wave = sin(p.x * 3.0 + u_time * 1.5) * sin(p.z * 2.5 + u_time * 1.2) * 0.5 + 0.5;
+      waterColor = mix(waterColor, waterSurface, wave * 0.3);
       
-      color = mix(darkGreen, acidGreen, pulse * pulse2);
-      color += vec3(0.3, 1.0, 0.2) * glow * 0.5;
-      color *= 1.5;
+      // Неоновые отражения
+      waterColor += accentColor * 0.1 * smoothstep(5.0, 0.0, length(p.xz));
       
+      // Fresnel
       float fresnel = pow(1.0 - max(0.0, dot(-rd, n)), 3.0);
-      color = mix(color, vec3(0.5, 1.0, 0.3), fresnel * 0.4);
+      color = waterColor;
+      color += vec3(0.2, 0.3, 0.35) * fresnel * 0.4;
       
-    } else if (mat == 5) {
-      // === ФАНТОМ (чёрный шар с тёмной энергией) ===
-      vec3 voidBlack = vec3(0.02, 0.02, 0.05);
-      vec3 darkPurple = vec3(0.1, 0.0, 0.15);
+    } else if (mat >= 4 && mat <= 12) {
+      // === ВРАГИ (стилизованные) ===
       
-      float flicker = 0.6 + 0.4 * sin(u_time * 12.0 + p.x * 5.0);
-      float flicker2 = 0.7 + 0.3 * sin(u_time * 15.0 + p.z * 4.0);
+      vec3 enemyBase = vec3(0.15);
+      vec3 enemyGlow = vec3(0.5);
+      float glowStrength = 0.3;
       
-      color = mix(voidBlack, darkPurple, flicker * flicker2 * 0.3);
-      
-      float fresnel = pow(1.0 - max(0.0, dot(-rd, n)), 2.0);
-      vec3 edgeGlow = vec3(0.3, 0.0, 0.5) * fresnel * 0.8;
-      color += edgeGlow;
-      
-      float spark = sin(u_time * 20.0 + p.y * 10.0) * sin(u_time * 18.0 + p.x * 8.0);
-      if (spark > 0.9) {
-        color += vec3(0.5, 0.2, 0.8) * 0.5;
-      }
-      color *= 0.6;
+      if (mat == 4) {
+        // БЕЙНЛИНГ - токсичный зелёный
+        float pulse = 0.8 + 0.2 * sin(u_time * 3.0 + p.x * 2.0);
+        enemyBase = vec3(0.05, 0.2, 0.05) * pulse;
+        enemyGlow = vec3(0.3, 0.8, 0.2);
+        glowStrength = 0.4;
+        
+      } else if (mat == 5) {
+        // ФАНТОМ - тёмный фиолетовый
+        float flicker = 0.7 + 0.3 * sin(u_time * 8.0 + p.x * 4.0);
+        enemyBase = vec3(0.04, 0.02, 0.08) * flicker;
+        enemyGlow = vec3(0.4, 0.15, 0.6);
+        glowStrength = 0.5;
       
     } else if (mat == 6) {
-      // === RUNNER (оранжевый, огненный) ===
-      vec3 orange = vec3(1.0, 0.5, 0.0);
-      vec3 yellow = vec3(1.0, 0.9, 0.2);
-      vec3 red = vec3(1.0, 0.2, 0.0);
+        // RUNNER - тёплый оранжевый
+        float flame = 0.7 + 0.3 * sin(u_time * 12.0 + p.x * 6.0);
+        enemyBase = vec3(0.4, 0.12, 0.02) * flame;
+        enemyGlow = vec3(0.9, 0.5, 0.1);
+        glowStrength = 0.35;
+        
+      } else if (mat == 7) {
+        // HOPPER - холодный синий
+        float spark = sin(u_time * 20.0 + p.y * 10.0) * 0.5 + 0.5;
+        enemyBase = vec3(0.05, 0.15, 0.35) * (0.8 + spark * 0.2);
+        enemyGlow = vec3(0.3, 0.6, 1.0);
+        glowStrength = 0.4;
+        
+      } else if (mat == 8) {
+        // SPIKER - пурпурный
+        float pulse = 0.8 + 0.2 * sin(u_time * 6.0);
+        enemyBase = vec3(0.15, 0.03, 0.2) * pulse;
+        enemyGlow = vec3(0.6, 0.2, 0.8);
+        glowStrength = 0.35;
+        
+      } else {
+        // БОССЫ
+        float pulse = 0.85 + 0.15 * sin(u_time * 2.0);
+        if (mat == 10) {
+          enemyBase = vec3(0.08, 0.35, 0.06) * pulse;
+          enemyGlow = vec3(0.3, 0.9, 0.2);
+        } else if (mat == 11) {
+          enemyBase = vec3(0.03, 0.01, 0.06) * pulse;
+          enemyGlow = vec3(0.4, 0.1, 0.7);
+        } else {
+          enemyBase = vec3(0.06, 0.12, 0.4) * pulse;
+          enemyGlow = vec3(0.2, 0.5, 0.9);
+        }
+        glowStrength = 0.5;
+      }
       
-      // Быстрое мерцание как пламя
-      float flame = 0.5 + 0.5 * sin(u_time * 20.0 + p.x * 8.0);
-      float flame2 = 0.6 + 0.4 * sin(u_time * 25.0 + p.z * 10.0);
+      // Матовая поверхность + мягкое свечение по краям
+      float fresnel = pow(1.0 - max(0.0, dot(-rd, n)), 2.5);
+      color = enemyBase + enemyGlow * fresnel * glowStrength;
       
-      color = mix(red, orange, flame);
-      color = mix(color, yellow, flame2 * 0.4);
-      color *= 1.8; // Яркий!
-      
-      // Свечение по краям
-      float fresnel = pow(1.0 - max(0.0, dot(-rd, n)), 2.0);
-      color += vec3(1.0, 0.8, 0.3) * fresnel * 0.6;
-      
-    } else if (mat == 7) {
-      // === HOPPER (синий, электрический) ===
+    } else if (mat == 100) {
+      // Placeholder для старого кода (не используется)
+      vec3 blue = vec3(0.2, 0.4, 1.0);
+      vec3 white = vec3(1.0);
       vec3 cyan = vec3(0.0, 0.8, 1.0);
-      vec3 blue = vec3(0.1, 0.3, 1.0);
-      vec3 white = vec3(0.9, 0.95, 1.0);
-      
-      // Электрические разряды
       float spark1 = sin(u_time * 30.0 + p.y * 15.0);
       float spark2 = sin(u_time * 35.0 + p.x * 12.0);
       float electric = spark1 * spark2;
@@ -2064,6 +2834,49 @@ void main() {
       // Свечение
       float fresnel = pow(1.0 - max(0.0, dot(-rd, n)), 2.5);
       color += vec3(0.3, 0.6, 1.0) * fresnel * 0.8;
+      
+    } else if (mat >= 200 && mat < 232) {
+      // === КАПЛИ ЖИЖИ (слизь разлетается!) ===
+      int fragIndex = mat - 200;
+      
+      // Цвет слизи в зависимости от эпохи
+      vec3 slimeColor;
+      vec3 coreGlow; // Внутреннее свечение
+      if (u_era == 1) {
+        // Токсичная зелёная слизь
+        slimeColor = vec3(0.2, 0.85, 0.3);
+        coreGlow = vec3(0.4, 1.0, 0.2);
+      } else if (u_era == 2) {
+        // Тёмная фиолетовая слизь
+        slimeColor = vec3(0.5, 0.1, 0.7);
+        coreGlow = vec3(0.8, 0.2, 1.0);
+      } else {
+        // Огненная оранжевая слизь
+        slimeColor = vec3(0.9, 0.4, 0.05);
+        coreGlow = vec3(1.0, 0.6, 0.1);
+      }
+      
+      // Полупрозрачность и внутреннее свечение (как желе)
+      float fresnel = pow(1.0 - max(0.0, dot(-rd, n)), 2.5);
+      
+      // Подповерхностное рассеивание
+      float sss = pow(max(0.0, dot(n, vec3(0.0, -1.0, 0.0))), 1.5) * 0.4;
+      
+      // Базовый цвет с внутренним свечением
+      color = slimeColor * 0.6;
+      color += coreGlow * (0.3 + sss);
+      
+      // Яркий блик (мокрая поверхность)
+      vec3 lightDir = normalize(vec3(0.3, 1.0, -0.2));
+      float spec = pow(max(0.0, dot(reflect(rd, n), lightDir)), 32.0);
+      color += vec3(1.0) * spec * 0.8;
+      
+      // Френель (края ярче - полупрозрачность)
+      color += coreGlow * fresnel * 0.6;
+      
+      // Пульсация (живая слизь)
+      float pulse = 0.9 + 0.1 * sin(u_time * 15.0 + float(fragIndex) * 2.5);
+      color *= pulse;
       
     } else if (mat == 10) {
       // === ЗЕЛЁНЫЙ БОСС (огромная токсичная жижа) ===
@@ -2156,17 +2969,26 @@ void main() {
       color *= 2.0;
       
     } else if (mat == 14) {
-      // === АПТЕЧКА ===
-      // Красный крест с белым свечением
-      vec3 healthRed = vec3(1.0, 0.2, 0.2);
-      vec3 healthWhite = vec3(1.0, 0.9, 0.9);
+      // === ЛЕПЕСТКИ РОЗЫ (красные, бархатные) ===
+      vec3 roseRed = vec3(0.8, 0.1, 0.15);
+      vec3 roseDark = vec3(0.5, 0.05, 0.1);
+      vec3 rosePink = vec3(1.0, 0.3, 0.4);
       
-      // Пульсация
-      float pulse = 0.7 + 0.3 * sin(u_time * 5.0);
-      color = mix(healthRed, healthWhite, pulse * 0.3);
+      // Градиент от центра к краям
+      float fresnel = pow(1.0 - max(0.0, dot(-rd, n)), 1.5);
+      color = mix(roseDark, roseRed, 0.5);
+      color = mix(color, rosePink, fresnel * 0.3);
       
-      // Яркое свечение
-      color *= 2.5;
+      // Бархатистая текстура
+      float velvet = pow(max(0.0, dot(-rd, n)), 0.5);
+      color *= (0.7 + velvet * 0.5);
+      
+      // Мягкая пульсация
+      float pulse = 0.9 + 0.1 * sin(u_time * 2.0);
+      color *= pulse;
+      
+      // Свечение
+      color *= 1.8;
       
     } else if (mat == 15) {
       // === СТИМПАК ===
@@ -2626,51 +3448,40 @@ void main() {
       }
       
     } else if (mat == 38) {
-      // === ПОРТАЛ В ВОЙД - ЭНЕРГЕТИЧЕСКИЙ ЛУЧ ИЗ ЧАСТИЦ ===
+      // === ЦЕНТРАЛЬНЫЙ ПОРТАЛ (огненный вихрь как боковые) ===
       
-      // Расстояние от центральной оси луча
-      float distFromAxis = length(p.xz);
-      float normalizedDist = distFromAxis / 1.5;
+      // Расстояние от центра
+      float distFromCenter = length(p.xz);
+      float normalizedDist = distFromCenter / 0.9;
       
-      // Частицы поднимающиеся вверх
-      float particleY = fract(p.y * 0.5 - u_time * 2.0);
-      float particlePhase = fract(sin(floor(p.y * 0.5 - u_time * 2.0) * 127.1) * 43758.5);
+      // Базовые цвета огня
+      vec3 fireCore = vec3(1.0, 1.0, 0.8);    // Белое ядро
+      vec3 fireYellow = vec3(1.0, 0.9, 0.3);  // Жёлтый
+      vec3 fireOrange = vec3(1.0, 0.5, 0.1);  // Оранжевый
+      vec3 fireRed = vec3(1.0, 0.2, 0.05);    // Красный
       
-      // Спиральные частицы
+      // Анимированные волны огня
       float angle = atan(p.z, p.x);
-      float spiralParticle = sin(angle * 8.0 + p.y * 2.0 - u_time * 5.0);
-      spiralParticle = smoothstep(0.7, 1.0, spiralParticle);
+      float flame1 = sin(angle * 6.0 + p.y * 5.0 - u_time * 8.0) * 0.5 + 0.5;
+      float flame2 = sin(angle * 8.0 - p.y * 3.0 + u_time * 6.0) * 0.5 + 0.5;
+      float flame3 = cos(angle * 4.0 + p.y * 6.0 - u_time * 10.0) * 0.5 + 0.5;
+      float flames = (flame1 + flame2 + flame3) / 3.0;
       
-      // Вертикальные лучи света
-      float rays = sin(angle * 12.0) * 0.5 + 0.5;
-      rays = pow(rays, 3.0);
+      // Градиент от центра к краям
+      color = mix(fireCore, fireYellow, normalizedDist * 0.4);
+      color = mix(color, fireOrange, normalizedDist * 0.6 + flames * 0.3);
+      color = mix(color, fireRed, normalizedDist * 0.8);
       
-      // Базовый цвет - полупрозрачный фиолетовый
-      vec3 voidCore = vec3(0.6, 0.3, 1.0);
-      vec3 voidEdge = vec3(0.2, 0.0, 0.4);
-      vec3 particleColor = vec3(1.0, 0.8, 1.0);
-      
-      // Прозрачность увеличивается к краям
-      float alpha = 1.0 - normalizedDist;
-      alpha = pow(alpha, 0.5);
-      
-      color = mix(voidEdge, voidCore, alpha);
-      
-      // Добавляем частицы
-      color += particleColor * spiralParticle * 0.8;
-      color += particleColor * rays * 0.3 * alpha;
-      
-      // Вертикальные струи энергии
-      float stream = sin(p.y * 8.0 - u_time * 10.0) * 0.5 + 0.5;
-      stream *= sin(angle * 6.0 + u_time * 3.0) * 0.5 + 0.5;
-      color += vec3(0.8, 0.5, 1.0) * stream * 0.4;
+      // Вихревой эффект
+      float swirl = sin(angle * 12.0 - u_time * 5.0) * 0.5 + 0.5;
+      color += vec3(1.0, 0.6, 0.2) * swirl * (1.0 - normalizedDist) * 0.5;
       
       // Пульсация
-      float pulse = 0.7 + 0.3 * sin(u_time * 4.0);
+      float pulse = 0.8 + 0.2 * sin(u_time * 5.0);
       color *= pulse;
       
-      // Яркость (умеренная)
-      color *= 2.0 * alpha;
+      // Яркость
+      color *= 3.0 * (1.0 - normalizedDist * 0.5);
       
     } else if (mat == 39) {
       // === СВЕЧЕНИЕ ПОРТАЛА (фиолетовое) ===
@@ -2918,222 +3729,673 @@ void main() {
       }
       
     } else if (mat == 30) {
-      // === ВОДА В БАССЕЙНЕ ===
-      vec3 waterDeep = vec3(0.0, 0.2, 0.4);    // Тёмно-синяя глубина
-      vec3 waterMid = vec3(0.1, 0.4, 0.6);     // Средний тон
-      vec3 waterShallow = vec3(0.2, 0.6, 0.8); // Светлый на мелководье
-      vec3 waterFoam = vec3(0.8, 0.9, 1.0);    // Пена
+      // === ВОДА В БАССЕЙНЕ (тёмная, атмосферная) ===
+      vec3 waterDeep = vec3(0.01, 0.04, 0.06);
+      vec3 waterMid = vec3(0.03, 0.08, 0.12);
+      vec3 waterGlow = vec3(0.1, 0.25, 0.35);
       
-      // Волны на поверхности
-      float wave1 = sin(p.x * 3.0 + u_time * 2.0) * sin(p.z * 2.5 + u_time * 1.5);
-      float wave2 = sin(p.x * 5.0 - u_time * 3.0) * sin(p.z * 4.0 + u_time * 2.0);
-      float waves = (wave1 + wave2) * 0.5;
+      // Волны (медленные, плавные)
+      float wave = sin(p.x * 2.0 + u_time * 0.8) * sin(p.z * 1.8 + u_time * 0.6);
+      float ripple = sin(length(p.xz) * 4.0 - u_time * 1.5) * 0.5 + 0.5;
       
-      // Глубина - темнее к центру
-      float depth = smoothstep(2.5, 6.0, length(p.xz));
+      // Глубина
+      float depth = smoothstep(2.0, 8.0, length(p.xz));
+      vec3 waterColor = mix(waterDeep, waterMid, depth);
+      waterColor += waterGlow * wave * 0.15;
       
-      // Базовый цвет
-      color = mix(waterDeep, waterShallow, depth);
-      color = mix(color, waterMid, waves * 0.3 + 0.5);
+      // Неоновые отблески
+      waterColor += accentColor * 0.08 * smoothstep(8.0, 2.0, length(p.xz));
       
-      // Блики на волнах
-      float specular = pow(max(0.0, dot(reflect(rd, n), normalize(vec3(1.0, 1.0, 0.5)))), 30.0);
-      color += waterFoam * specular * 0.5;
-      
-      // Рябь
-      float ripple = sin(length(p.xz) * 8.0 - u_time * 4.0) * 0.5 + 0.5;
-      color += waterFoam * ripple * 0.1;
-      
-      // Прозрачность/свечение
+      // Мягкие блики
       float fresnel = pow(1.0 - max(0.0, dot(-rd, n)), 3.0);
-      color += vec3(0.3, 0.5, 0.7) * fresnel * 0.4;
+      float spec = pow(max(0.0, dot(reflect(rd, n), vec3(0.0, 1.0, 0.0))), 16.0);
       
-      // Общая яркость
-      color *= 1.3;
+      color = waterColor;
+      color += waterGlow * fresnel * 0.25;
+      color += vec3(0.15, 0.2, 0.25) * spec * 0.3;
+      color += waterGlow * ripple * 0.05;
       
     } else if (mat == 50) {
-      // === ТЁМНЫЙ КАМЕНЬ (основание фонтана) - ДЕТАЛИЗИРОВАННЫЙ ===
-      vec3 stoneBase = vec3(0.1, 0.09, 0.08);
-      vec3 stoneDark = vec3(0.04, 0.035, 0.03);
-      vec3 stoneHighlight = vec3(0.15, 0.13, 0.11);
+      // === ТЁМНЫЙ КАМЕНЬ (основание) ===
+      vec3 stoneBase = vec3(0.06, 0.055, 0.05);
+      vec3 stoneDark = vec3(0.025, 0.022, 0.02);
+      vec3 stoneLight = vec3(0.09, 0.08, 0.07);
       
-      // Многослойная текстура камня
-      float baseNoise = fbm(p.xz * 4.0);
-      float detailNoise = noise(p.xz * 15.0) * 0.3;
-      float microNoise = noise(p.xz * 40.0) * 0.1;
+      // Текстура камня
+      float stoneNoise = noise(p.xz * 6.0);
+      float detailNoise = noise(p.xz * 20.0) * 0.3;
       
-      vec3 stone = mix(stoneDark, stoneBase, baseNoise);
-      stone += detailNoise * 0.05;
-      stone += microNoise * 0.02;
+      vec3 stone = mix(stoneDark, stoneBase, stoneNoise * 0.6);
+      stone = mix(stone, stoneLight, detailNoise);
       
-      // Грани восьмиугольника с бликами
+      // Трещины
+      float crack = sharpNoise(p.xz * 15.0);
+      if (crack > 0.88) stone *= 0.6;
+      
+      // Грани
       float angle = atan(p.z, p.x);
-      float edgeFactor = abs(cos(angle * 8.0));
-      float edgeHighlight = smoothstep(0.85, 1.0, edgeFactor) * 0.15;
-      stone = mix(stone, stoneHighlight, edgeHighlight);
+      float edge = smoothstep(0.9, 1.0, abs(cos(angle * 8.0)));
+      stone = mix(stone, stoneLight, edge * 0.2);
       
-      // Трещины в камне
-      float crack = sharpNoise(p.xz * 20.0);
-      if (crack > 0.9) {
-        stone *= 0.6;
-      }
-      
-      color = stone * ambient * 1.5;
-      color += stone * mainLight * mainDot * 0.4;
-      color += stone * torchLight * 0.8;
+      color = stone * ambient * 1.3;
+      color += stone * torchLight * 0.5;
       
     } else if (mat == 51) {
-      // === МРАМОР (колонна фонтана) - ДЕТАЛИЗИРОВАННЫЙ ===
-      vec3 marbleWhite = vec3(0.88, 0.85, 0.82);
-      vec3 marbleGray = vec3(0.65, 0.62, 0.58);
-      vec3 marbleVein = vec3(0.25, 0.22, 0.2);
-      vec3 marbleDeep = vec3(0.15, 0.12, 0.1);
+      // === МРАМОР (колонна) ===
+      vec3 marbleBase = vec3(0.15, 0.14, 0.13);
+      vec3 marbleLight = vec3(0.22, 0.2, 0.18);
+      vec3 marbleVein = vec3(0.06, 0.055, 0.05);
       
-      // Основные прожилки (крупные)
-      float vein1 = sin(p.x * 12.0 + p.y * 4.0 + fbm(p.xz * 3.0) * 6.0);
-      float vein2 = sin(p.z * 10.0 - p.y * 5.0 + fbm(p.xy * 2.5) * 5.0);
-      float veins = smoothstep(0.75, 0.95, abs(vein1)) + smoothstep(0.8, 0.98, abs(vein2)) * 0.6;
+      // Прожилки
+      float vein1 = sin(p.x * 8.0 + p.y * 3.0 + noise(p.xz * 2.0) * 4.0);
+      float vein2 = sin(p.z * 6.0 - p.y * 4.0 + noise(p.xy * 2.0) * 3.0);
+      float veins = smoothstep(0.8, 0.95, abs(vein1)) + smoothstep(0.85, 0.98, abs(vein2)) * 0.5;
       
-      // Мелкие прожилки (детализация)
-      float microVein1 = sin(p.x * 30.0 + p.y * 15.0 + noise(p.xz * 8.0) * 3.0);
-      float microVein2 = sin(p.z * 25.0 - p.y * 20.0 + noise(p.xy * 7.0) * 2.5);
-      float microVeins = smoothstep(0.85, 0.98, abs(microVein1)) * 0.3;
-      microVeins += smoothstep(0.88, 0.99, abs(microVein2)) * 0.2;
+      // Базовый цвет
+      vec3 marble = mix(marbleBase, marbleLight, noise(p.xz * 1.5) * 0.3);
+      marble = mix(marble, marbleVein, veins * 0.6);
       
-      // Базовый цвет с вариациями
-      vec3 marble = mix(marbleWhite, marbleGray, fbm(p.xz * 1.5) * 0.4);
+      // Мягкий блик
+      float fresnel = pow(1.0 - max(0.0, dot(-rd, n)), 3.0);
+      float spec = pow(max(0.0, dot(reflect(rd, n), vec3(0.0, 1.0, 0.0))), 32.0);
       
-      // Применяем прожилки
-      marble = mix(marble, marbleVein, veins * 0.5);
-      marble = mix(marble, marbleDeep, microVeins);
-      
-      // Микро-текстура поверхности
-      float surface = fbm(p.xz * 20.0) * 0.03;
-      marble += surface;
-      
-      // Блеск мрамора (полированный)
-      float specular = pow(max(0.0, dot(reflect(rd, n), normalize(vec3(1.0, 1.0, 0.5)))), 40.0);
-      
-      color = marble * ambient * 2.0;
-      color += marble * mainLight * mainDot * 0.6;
-      color += vec3(1.0, 0.98, 0.95) * specular * 0.5;
-      color += marble * torchLight * 0.5;
+      color = marble * ambient * 1.4;
+      color += marble * torchLight * 0.4;
+      color += vec3(0.15, 0.13, 0.12) * spec * 0.2;
+      color += marbleLight * fresnel * 0.1;
       
     } else if (mat == 52) {
       // === БРОНЗА (декор) ===
-      vec3 bronzeBase = vec3(0.55, 0.35, 0.15);
-      vec3 bronzeHighlight = vec3(0.8, 0.6, 0.3);
-      vec3 bronzePatina = vec3(0.2, 0.4, 0.35);
+      vec3 bronzeBase = vec3(0.12, 0.08, 0.04);
+      vec3 bronzeHighlight = vec3(0.2, 0.14, 0.06);
+      vec3 bronzePatina = vec3(0.05, 0.1, 0.08);
       
-      // Патина в углублениях
-      float patina = smoothstep(0.3, 0.7, noise(p.xz * 8.0));
-      vec3 bronze = mix(bronzeBase, bronzePatina, patina * 0.3);
+      // Патина
+      float patina = noise(p.xz * 6.0);
+      vec3 bronze = mix(bronzeBase, bronzePatina, patina * 0.4);
       
       // Металлический блеск
-      float specular = pow(max(0.0, dot(reflect(rd, n), normalize(vec3(1.0, 1.0, 0.5)))), 40.0);
+      float fresnel = pow(1.0 - max(0.0, dot(-rd, n)), 3.0);
+      float spec = pow(max(0.0, dot(reflect(rd, n), vec3(0.0, 1.0, 0.0))), 24.0);
       
-      color = bronze * ambient * 1.5;
-      color += bronze * mainLight * mainDot * 0.5;
-      color += bronzeHighlight * specular * 0.6;
-      color += bronze * torchLight * 0.8;
+      color = bronze * ambient * 1.3;
+      color += bronze * torchLight * 0.5;
+      color += bronzeHighlight * spec * 0.25;
+      color += bronzeHighlight * fresnel * 0.15;
       
     } else if (mat == 53) {
       // === МОЗАИКА (центр арены) ===
-      vec3 mosaicDark = vec3(0.1, 0.08, 0.12);
-      vec3 mosaicLight = vec3(0.25, 0.22, 0.28);
-      vec3 mosaicGold = vec3(0.6, 0.45, 0.1);
-      vec3 mosaicCyan = vec3(0.1, 0.4, 0.5);
+      vec3 mosaicDark = vec3(0.04, 0.035, 0.05);
+      vec3 mosaicMid = vec3(0.08, 0.07, 0.09);
+      vec3 mosaicAccent = accentColor * 0.3;
       
       // Геометрический паттерн
       float angle = atan(p.z, p.x);
       float dist = length(p.xz);
       
-      // Лучи из центра
+      // Лучи + круги
       float rays = sin(angle * 8.0) * 0.5 + 0.5;
-      // Концентрические круги
-      float rings = sin(dist * 4.0) * 0.5 + 0.5;
-      
-      // Смешиваем паттерны
+      float rings = sin(dist * 3.0) * 0.5 + 0.5;
       float pattern = rays * rings;
-      vec3 mosaic = mix(mosaicDark, mosaicLight, pattern);
       
-      // Золотые акценты на пересечениях
-      if (pattern > 0.7 && pattern < 0.8) {
-        mosaic = mosaicGold;
-      }
-      // Циановые линии
-      if (abs(sin(angle * 16.0)) > 0.95 || abs(sin(dist * 8.0)) > 0.95) {
-        mosaic = mix(mosaic, mosaicCyan, 0.5);
-      }
+      vec3 mosaic = mix(mosaicDark, mosaicMid, pattern * 0.6);
       
-      color = mosaic * ambient * 2.5;
-      color += mosaic * mainLight * mainDot * 0.4;
-      color += mosaic * torchLight * 1.0;
+      // Неоновые линии (редкие)
+      float neonLine = smoothstep(0.94, 0.96, abs(sin(angle * 12.0)));
+      neonLine += smoothstep(0.94, 0.96, abs(sin(dist * 5.0)));
+      mosaic += mosaicAccent * neonLine * 0.5;
+      
+      color = mosaic * ambient * 1.4;
+      color += mosaic * torchLight * 0.5;
       
     } else if (mat == 54) {
       // === ДЕКОРАТИВНОЕ КОЛЬЦО ===
-      vec3 ringBase = vec3(0.15, 0.12, 0.1);
-      vec3 ringLight = vec3(0.25, 0.2, 0.18);
-      vec3 ringGlow = vec3(0.3, 0.15, 0.5);
+      vec3 ringBase = vec3(0.05, 0.045, 0.04);
+      vec3 ringLight = vec3(0.08, 0.07, 0.06);
+      vec3 ringGlow = accentColor * 0.4;
       
-      // Руны по кольцу
+      // Руны
       float angle = atan(p.z, p.x);
-      float runePattern = sin(angle * 12.0) * sin(length(p.xz) * 3.0);
+      float rune = sin(angle * 12.0) * sin(length(p.xz) * 3.0);
       
-      vec3 ring = mix(ringBase, ringLight, noise(p.xz * 4.0));
+      vec3 ring = mix(ringBase, ringLight, noise(p.xz * 4.0) * 0.4);
       
-      // Светящиеся руны
-      if (abs(runePattern) > 0.7) {
-        ring += ringGlow * (0.5 + 0.5 * sin(u_time * 2.0));
-      }
+      // Мягкое свечение рун
+      float runeGlow = smoothstep(0.6, 0.8, abs(rune)) * (0.6 + 0.4 * sin(u_time * 1.5));
+      ring += ringGlow * runeGlow * 0.3;
       
-      color = ring * ambient * 2.0;
-      color += ring * mainLight * mainDot * 0.5;
-      color += ring * torchLight * 1.0;
+      color = ring * ambient * 1.3;
+      color += ring * torchLight * 0.5;
       
     } else if (mat == 55) {
-      // === КАМЕННАЯ ПЛИТКА (основной пол) - ДЕТАЛИЗИРОВАННАЯ ===
-      vec3 tileBase = vec3(0.22, 0.2, 0.18);
-      vec3 tileDark = vec3(0.12, 0.1, 0.09);
-      vec3 tileLight = vec3(0.32, 0.28, 0.24);
+      // === ПОЛ (тёмный бетон с неоновыми акцентами) ===
       
-      // Крупная плитка 2x2
+      // Базовые цвета - тёмно-серый бетон
+      vec3 concreteBase = vec3(0.08, 0.075, 0.07);
+      vec3 concreteDark = vec3(0.04, 0.038, 0.035);
+      vec3 concreteLight = vec3(0.12, 0.11, 0.1);
+      
+      // Большие плиты (2x2 метра)
       vec2 tileCoord = floor(p.xz * 0.5);
       vec2 tileFract = fract(p.xz * 0.5);
+      float tileId = hash(tileCoord);
       
-      // Случайный оттенок для каждой плитки
-      float tileVar = hash(tileCoord);
-      vec3 tileColor = mix(tileDark, tileLight, tileVar);
+      // Вариация цвета плиты
+      vec3 tileColor = mix(concreteDark, concreteBase, tileId * 0.5);
       
-      // Чёткие швы между плитками
-      float seamWidth = 0.015;
-      float seam = step(seamWidth, tileFract.x) * step(seamWidth, tileFract.y);
-      seam *= step(seamWidth, 1.0 - tileFract.x) * step(seamWidth, 1.0 - tileFract.y);
-      vec3 seamColor = vec3(0.05, 0.04, 0.03);
-      tileColor = mix(seamColor, tileColor, seam);
+      // Текстура бетона (шум)
+      float concreteNoise = noise(p.xz * 8.0) * 0.3;
+      tileColor = mix(tileColor, concreteLight, concreteNoise);
       
-      // Микро-текстура камня (высокая частота)
-      float microDetail = fbm(p.xz * 25.0) * 0.08;
-      tileColor += microDetail;
-      
-      // Средняя текстура (зернистость)
-      float grainDetail = noise(p.xz * 12.0) * 0.05;
-      tileColor += grainDetail - 0.025;
-      
-      // Крупные пятна/потёртости
-      float wear = fbm(p.xz * 2.0 + 50.0);
-      tileColor = mix(tileColor, tileColor * 0.75, smoothstep(0.55, 0.7, wear));
-      
-      // Светлые царапины
-      float scratch = sharpNoise(p.xz * 40.0);
-      if (scratch > 0.92) {
-        tileColor += 0.1;
+      // Мелкие трещины
+      float cracks = sharpNoise(p.xz * 25.0);
+      if (cracks > 0.85) {
+        tileColor *= 0.7;
       }
       
-      color = tileColor * ambient * 2.0;
-      color += tileColor * mainLight * mainDot * 0.5;
-      color += tileColor * torchLight * 1.2;
-      color += tileColor * poolLight * 0.8;
+      // Швы между плитами
+      float seamX = smoothstep(0.02, 0.04, tileFract.x) * smoothstep(0.02, 0.04, 1.0 - tileFract.x);
+      float seamY = smoothstep(0.02, 0.04, tileFract.y) * smoothstep(0.02, 0.04, 1.0 - tileFract.y);
+      float seam = seamX * seamY;
+      tileColor = mix(vec3(0.02), tileColor, seam);
+      
+      // Неоновые полосы на полу (редкие)
+      float stripeX = smoothstep(0.48, 0.5, tileFract.x) * smoothstep(0.52, 0.5, tileFract.x);
+      float stripeY = smoothstep(0.48, 0.5, tileFract.y) * smoothstep(0.52, 0.5, tileFract.y);
+      float stripe = max(stripeX, stripeY) * step(0.8, tileId);
+      
+      // Мокрые отражения (приглушённые)
+      vec3 reflDir = reflect(rd, n);
+      float fresnel = pow(1.0 - max(dot(-rd, n), 0.0), 2.5);
+      
+      vec3 wetReflect = vec3(0.0);
+      float ref1 = pow(max(dot(reflDir, vec3(0.0, 1.0, 0.0)), 0.0), 8.0);
+      wetReflect += accentColor * ref1 * 0.15;
+      
+      // Собираем цвет
+      color = tileColor * ambient * 1.2;
+      color += tileColor * torchLight * 0.4;
+      color += wetReflect * fresnel * 0.5;
+      
+      // Неоновые полосы
+      color += accentColor * stripe * 0.3 * (0.7 + 0.3 * sin(u_time * 2.0));
+      
+    } else if (mat == 60) {
+      // === КАМЕНЬ СТОЛБА ===
+      vec3 stoneBase = vec3(0.07, 0.065, 0.06);
+      vec3 stoneDark = vec3(0.035, 0.03, 0.028);
+      vec3 stoneLight = vec3(0.1, 0.09, 0.08);
+      
+      // Текстура
+      float stoneNoise = noise(p.xz * 3.0);
+      vec3 stoneColor = mix(stoneDark, stoneBase, stoneNoise * 0.5);
+      
+      // Детали
+      float detail = noise(p.xz * 10.0) * 0.3;
+      stoneColor = mix(stoneColor, stoneLight, detail);
+      
+      // Мох (редкий)
+      float moss = smoothstep(0.3, 1.0, p.y) * noise(p.xz * 2.0);
+      stoneColor = mix(stoneColor, vec3(0.03, 0.06, 0.02), moss * 0.2);
+      
+      color = stoneColor * ambient * 1.3;
+      color += stoneColor * torchLight * 0.5;
+      
+    } else if (mat == 61) {
+      // === МЕТАЛЛ ЧАШИ (тёмная бронза) ===
+      vec3 metalBase = vec3(0.08, 0.055, 0.03);
+      vec3 metalHighlight = vec3(0.15, 0.1, 0.05);
+      vec3 metalPatina = vec3(0.04, 0.07, 0.06);
+      
+      // Патина
+      float patina = noise(p.xz * 5.0);
+      vec3 metal = mix(metalBase, metalPatina, patina * 0.35);
+      
+      // Блик
+      float fresnel = pow(1.0 - max(0.0, dot(-rd, n)), 3.0);
+      float spec = pow(max(0.0, dot(reflect(rd, n), vec3(0.0, 1.0, 0.0))), 20.0);
+      
+      color = metal * ambient * 1.3;
+      color += metal * torchLight * 0.5;
+      color += metalHighlight * spec * 0.2;
+      color += metalHighlight * fresnel * 0.1;
+      
+      // Отсвет от огня (мягкий)
+      color += accentColor * 0.05;
+      
+    } else if (mat == 62) {
+      // === НЕОНОВЫЙ ИСТОЧНИК СВЕТА ===
+      // Определяем цвет по позиции (север/юг/восток/запад)
+      vec3 neonCol;
+      float angle = atan(p.z, p.x);
+      
+      if (abs(p.z) > abs(p.x)) {
+        // Север или юг
+        neonCol = p.z > 0.0 ? vec3(0.0, 1.0, 0.9) : vec3(1.0, 0.1, 0.6);
+      } else {
+        // Восток или запад
+        neonCol = p.x > 0.0 ? accentColor : vec3(1.0, 0.9, 0.2);
+      }
+      
+      // Пульсация
+      float pulse = 0.85 + 0.15 * sin(u_time * 4.0 + angle * 2.0);
+      
+      // Яркий неон (но не слишком)
+      color = neonCol * 3.0 * pulse;
+      
+    } else if (mat == 63) {
+      // === ДЕРЕВО (тёмное, состаренное) ===
+      vec3 woodBase = vec3(0.08, 0.05, 0.03);
+      vec3 woodDark = vec3(0.035, 0.02, 0.01);
+      vec3 woodLight = vec3(0.12, 0.07, 0.04);
+      
+      // Текстура волокон
+      float grain = sin(p.y * 15.0 + sin(p.x * 3.0) * 1.5) * 0.5 + 0.5;
+      vec3 woodColor = mix(woodDark, woodBase, grain * 0.6);
+      
+      // Детали
+      float detail = noise(p.xz * 8.0);
+      woodColor = mix(woodColor, woodLight, detail * 0.2);
+      
+      // Старение
+      float age = noise(p.xz * 3.0) * 0.15;
+      woodColor *= 1.0 - age;
+      
+      color = woodColor * ambient * 1.3;
+      color += woodColor * torchLight * 0.4;
+      color += woodColor * torchLight * 1.2;
+      color += rimColor * 0.2;
+      
+    } else if (mat == 64) {
+      // === ТЁМНЫЙ КАМЕНЬ ПЛАТФОРМЫ ФОНАРЯ ===
+      vec3 baseColor = vec3(0.04, 0.035, 0.03);
+      vec3 darkColor = vec3(0.02, 0.018, 0.015);
+      vec3 lightColor = vec3(0.08, 0.07, 0.06);
+      
+      // Плиты с швами
+      vec2 tileCoord = floor(p.xz * 2.0);
+      vec2 tileFract = fract(p.xz * 2.0);
+      float tileId = hash(tileCoord);
+      
+      // Вариация цвета плиты
+      vec3 tileColor = mix(darkColor, baseColor, tileId * 0.4);
+      
+      // Текстура камня
+      float stoneNoise = noise(p.xz * 8.0) * 0.2;
+      tileColor = mix(tileColor, lightColor, stoneNoise);
+      
+      // Швы между плитами
+      float seamX = smoothstep(0.03, 0.06, tileFract.x) * smoothstep(0.03, 0.06, 1.0 - tileFract.x);
+      float seamY = smoothstep(0.03, 0.06, tileFract.y) * smoothstep(0.03, 0.06, 1.0 - tileFract.y);
+      float seam = seamX * seamY;
+      tileColor = mix(vec3(0.01), tileColor, seam);
+      
+      // Трещины
+      float crack = sharpNoise(p.xz * 20.0);
+      if (crack > 0.88) {
+        tileColor *= 0.6;
+      }
+      
+      // Неоновое свечение в швах (редкое)
+      float glowSeam = (1.0 - seam) * step(0.7, tileId);
+      
+      color = tileColor * ambient * 1.5;
+      color += tileColor * torchLight * 0.8;
+      color += accentColor * glowSeam * 0.15 * (0.7 + 0.3 * sin(u_time * 2.0));
+      
+    } else if (mat == 65) {
+      // === БРОНЗА РЕШЁТОК ФОНАРЯ ===
+      vec3 bronzeBase = vec3(0.45, 0.28, 0.12);
+      vec3 bronzeHighlight = vec3(0.75, 0.55, 0.25);
+      vec3 bronzePatina = vec3(0.15, 0.3, 0.25);
+      
+      // Кованая текстура
+      float forged = sin(p.y * 30.0) * sin(p.x * 25.0 + p.z * 25.0) * 0.02;
+      
+      // Патина в углублениях
+      float patinaMask = smoothstep(0.3, 0.6, noise(p.xz * 12.0));
+      vec3 bronze = mix(bronzeBase, bronzePatina, patinaMask * 0.25);
+      
+      // Царапины
+      float scratch = sharpNoise(p.xz * 40.0);
+      if (scratch > 0.92) {
+        bronze = mix(bronze, bronzeHighlight, 0.3);
+      }
+      
+      // Металлический блеск
+      float spec = pow(max(0.0, dot(reflect(rd, n), normalize(vec3(1.0, 1.0, 0.5)))), 50.0);
+      float fresnel = pow(1.0 - max(0.0, dot(-rd, n)), 3.0);
+      
+      color = bronze * ambient * 2.0;
+      color += bronze * torchLight * 1.5;
+      color += bronzeHighlight * spec * 0.5;
+      color += bronzeHighlight * fresnel * 0.2;
+      
+      // Отражение огня
+      color += vec3(1.0, 0.5, 0.15) * 0.15;
+      
+    } else if (mat == 66) {
+      // === ОГОНЬ ВНУТРИ ФОНАРЯ ===
+      vec3 fireCore = vec3(1.0, 0.95, 0.7);
+      vec3 fireYellow = vec3(1.0, 0.7, 0.2);
+      vec3 fireOrange = vec3(1.0, 0.4, 0.08);
+      vec3 fireRed = vec3(0.9, 0.15, 0.02);
+      
+      // Анимация пламени
+      float flame1 = sin(p.y * 8.0 - u_time * 12.0 + p.x * 3.0) * 0.5 + 0.5;
+      float flame2 = sin(p.y * 12.0 - u_time * 15.0 + p.z * 4.0) * 0.5 + 0.5;
+      float flame3 = cos(p.y * 6.0 - u_time * 10.0) * 0.5 + 0.5;
+      float flames = (flame1 + flame2 + flame3) / 3.0;
+      
+      // Расстояние от центра (для градиента)
+      float dist = length(p.xz);
+      float heightFade = smoothstep(0.0, 0.4, -p.y + 3.3);
+      
+      // Цвет от центра к краям
+      color = mix(fireCore, fireYellow, dist * 2.0);
+      color = mix(color, fireOrange, dist * 3.0);
+      color = mix(color, fireRed, dist * 4.0);
+      
+      // Мерцание
+      float flicker = 0.85 + 0.15 * sin(u_time * 25.0 + p.x * 10.0);
+      color *= flicker;
+      
+      // Яркость
+      color *= 4.0;
+      
+      // Языки пламени (яркие вспышки)
+      if (flames > 0.7) {
+        color = mix(color, fireCore * 5.0, (flames - 0.7) * 2.0);
+      }
+      
+    } else if (mat == 68) {
+      // === КАМЕНЬ ПЛАТФОРМЫ ПОРТАЛА ===
+      vec3 stoneBase = vec3(0.06, 0.055, 0.05);
+      vec3 stoneDark = vec3(0.03, 0.028, 0.025);
+      vec3 stoneLight = vec3(0.1, 0.09, 0.08);
+      
+      // Плиты с швами
+      vec2 tileCoord = floor(p.xz * 1.5);
+      vec2 tileFract = fract(p.xz * 1.5);
+      float tileId = hash(tileCoord);
+      
+      // Вариация цвета плиты
+      vec3 tileColor = mix(stoneDark, stoneBase, tileId * 0.5);
+      
+      // Текстура камня (многослойная)
+      float stoneNoise = noise(p.xz * 6.0) * 0.3;
+      float detailNoise = noise(p.xz * 15.0) * 0.15;
+      tileColor = mix(tileColor, stoneLight, stoneNoise + detailNoise);
+      
+      // Швы между плитами
+      float seamX = smoothstep(0.02, 0.05, tileFract.x) * smoothstep(0.02, 0.05, 1.0 - tileFract.x);
+      float seamY = smoothstep(0.02, 0.05, tileFract.y) * smoothstep(0.02, 0.05, 1.0 - tileFract.y);
+      float seam = seamX * seamY;
+      tileColor = mix(vec3(0.015), tileColor, seam);
+      
+      // Трещины
+      float crack = sharpNoise(p.xz * 25.0);
+      if (crack > 0.9) {
+        tileColor *= 0.5;
+      }
+      
+      // Руны в швах (свечение)
+      float runeGlow = (1.0 - seam) * step(0.75, tileId);
+      float runePulse = 0.6 + 0.4 * sin(u_time * 2.0 + tileId * 6.28);
+      
+      color = tileColor * ambient * 1.8;
+      color += tileColor * torchLight * 1.0;
+      color += accentColor * runeGlow * 0.25 * runePulse;
+      
+      // Отблеск от портала
+      float portalGlow = smoothstep(3.0, 0.0, length(p.xz - vec2(sign(p.x) * 22.0, 0.0)));
+      color += vec3(1.0, 0.5, 0.2) * portalGlow * 0.15;
+      
+    } else if (mat == 69) {
+      // === БРОНЗА ДЕКОРА ПОРТАЛА ===
+      vec3 bronzeBase = vec3(0.5, 0.32, 0.15);
+      vec3 bronzeHighlight = vec3(0.8, 0.6, 0.3);
+      vec3 bronzePatina = vec3(0.18, 0.35, 0.28);
+      
+      // Кованая текстура
+      float forged = sin(p.y * 25.0) * sin(p.x * 20.0 + p.z * 20.0) * 0.015;
+      
+      // Патина в углублениях
+      float patinaMask = smoothstep(0.35, 0.65, noise(p.xz * 10.0));
+      vec3 bronze = mix(bronzeBase, bronzePatina, patinaMask * 0.3);
+      
+      // Износ на углах
+      float edgeWear = pow(1.0 - max(0.0, dot(-rd, n)), 2.0);
+      bronze = mix(bronze, bronzeHighlight, edgeWear * 0.2);
+      
+      // Металлический блеск
+      float spec = pow(max(0.0, dot(reflect(rd, n), normalize(vec3(1.0, 1.0, 0.5)))), 60.0);
+      float fresnel = pow(1.0 - max(0.0, dot(-rd, n)), 3.0);
+      
+      color = bronze * ambient * 2.2;
+      color += bronze * torchLight * 1.5;
+      color += bronzeHighlight * spec * 0.6;
+      color += bronzeHighlight * fresnel * 0.25;
+      
+      // Отражение огня портала
+      color += vec3(1.0, 0.5, 0.15) * 0.2;
+      
+    } else if (mat == 70) {
+      // === СВЕЧЕНИЕ ПОРТАЛА (внешнее) ===
+      vec3 glowCore = vec3(1.0, 0.6, 0.2);
+      vec3 glowEdge = vec3(1.0, 0.3, 0.05);
+      
+      // Расстояние от центра портала
+      float portalX = sign(p.x) * 22.0;
+      vec3 toPortal = p - vec3(portalX, 2.8, 0.0);
+      float dist = length(toPortal.yz);
+      float normalizedDist = dist / 1.6;
+      
+      // Градиент от центра
+      color = mix(glowCore, glowEdge, normalizedDist);
+      
+      // Вихревой эффект
+      float swirl = sin(atan(toPortal.y, toPortal.z) * 6.0 - u_time * 4.0) * 0.5 + 0.5;
+      color = mix(color, glowCore * 1.5, swirl * 0.3);
+      
+      // Пульсация
+      float pulse = 0.8 + 0.2 * sin(u_time * 3.0);
+      color *= pulse * 2.5;
+      
+      // Искры
+      float spark = sin(u_time * 20.0 + p.y * 15.0 + p.z * 12.0);
+      if (spark > 0.9) {
+        color += vec3(1.0, 0.9, 0.7) * 2.0;
+      }
+      
+    } else if (mat == 71) {
+      // === КАМЕНЬ ПЛАТФОРМЫ ЗА ПОРТАЛОМ ===
+      vec3 stoneBase = vec3(0.07, 0.065, 0.06);
+      vec3 stoneDark = vec3(0.035, 0.032, 0.03);
+      vec3 stoneLight = vec3(0.11, 0.1, 0.09);
+      
+      // Радиальные плиты
+      float angle = atan(p.z, p.x);
+      float dist = length(p.xz - vec2(sign(p.x) * BACK_PLATFORM_X, 0.0));
+      
+      // Концентрические кольца плит
+      float ringId = floor(dist * 1.5);
+      float ringFract = fract(dist * 1.5);
+      
+      // Секторы
+      float sectorId = floor(angle * 4.0 / 3.14159);
+      float sectorFract = fract(angle * 4.0 / 3.14159);
+      
+      float tileId = hash(vec2(ringId, sectorId));
+      vec3 tileColor = mix(stoneDark, stoneBase, tileId * 0.5);
+      
+      // Текстура
+      float stoneNoise = noise(p.xz * 5.0) * 0.25;
+      tileColor = mix(tileColor, stoneLight, stoneNoise);
+      
+      // Швы (радиальные и концентрические)
+      float seamRing = smoothstep(0.03, 0.08, ringFract) * smoothstep(0.03, 0.08, 1.0 - ringFract);
+      float seamSector = smoothstep(0.02, 0.06, sectorFract) * smoothstep(0.02, 0.06, 1.0 - sectorFract);
+      float seam = seamRing * seamSector;
+      tileColor = mix(vec3(0.015), tileColor, seam);
+      
+      color = tileColor * ambient * 1.6;
+      color += tileColor * torchLight * 0.9;
+      
+      // Свечение от портала
+      float portalGlow = smoothstep(15.0, 5.0, dist);
+      color += accentColor * portalGlow * 0.1;
+      
+    } else if (mat == 72) {
+      // === БОРТИК/СТОЛБИКИ ПЛАТФОРМЫ ===
+      vec3 stoneBase = vec3(0.09, 0.08, 0.07);
+      vec3 stoneDark = vec3(0.04, 0.035, 0.03);
+      vec3 stoneAccent = vec3(0.12, 0.1, 0.08);
+      
+      // Текстура камня
+      float stoneNoise = noise(p.xz * 6.0) * 0.3 + noise(p.xz * 15.0) * 0.15;
+      vec3 stoneColor = mix(stoneDark, stoneBase, stoneNoise);
+      
+      // Резной узор (вертикальные линии)
+      float carving = sin(p.y * 20.0) * sin(atan(p.z, p.x) * 8.0);
+      if (abs(carving) > 0.8) {
+        stoneColor = mix(stoneColor, stoneAccent, 0.3);
+      }
+      
+      color = stoneColor * ambient * 1.8;
+      color += stoneColor * torchLight * 1.0;
+      
+      // Подсветка сверху
+      color += accentColor * smoothstep(0.5, 0.7, p.y) * 0.08;
+      
+    } else if (mat == 73) {
+      // === МАЛЕНЬКИЙ ОГОНЬ НА СТОЛБИКЕ ===
+      vec3 fireCore = vec3(1.0, 0.9, 0.6);
+      vec3 fireOuter = vec3(1.0, 0.4, 0.1);
+      
+      float flicker = 0.8 + 0.2 * sin(u_time * 15.0 + p.x * 8.0 + p.z * 8.0);
+      
+      color = mix(fireCore, fireOuter, 0.4);
+      color *= flicker * 3.5;
+      
+    } else if (mat == 74) {
+      // === СВЕТЯЩИЙСЯ СИМВОЛ НА ПЛАТФОРМЕ ===
+      // Пульсирующее свечение в цвете эпохи
+      float pulse = 0.6 + 0.4 * sin(u_time * 2.0);
+      color = accentColor * pulse * 2.5;
+      
+      // Добавляем белый центр
+      color += vec3(0.3, 0.3, 0.3) * pulse;
+      
+    } else if (mat == 75) {
+      // === ГРАНИТ ОСНОВАНИЯ ФОНТАНА ===
+      vec3 graniteBase = vec3(0.08, 0.075, 0.07);
+      vec3 graniteDark = vec3(0.04, 0.038, 0.035);
+      vec3 graniteLight = vec3(0.12, 0.11, 0.1);
+      vec3 graniteSpeckle = vec3(0.15, 0.14, 0.13);
+      
+      // Многослойная текстура гранита
+      float baseNoise = noise(p.xz * 4.0) * 0.4;
+      float detailNoise = noise(p.xz * 12.0) * 0.2;
+      float microNoise = noise(p.xz * 30.0) * 0.1;
+      
+      vec3 granite = mix(graniteDark, graniteBase, baseNoise);
+      granite = mix(granite, graniteLight, detailNoise);
+      
+      // Крапинки (характерно для гранита)
+      float speckle = sharpNoise(p.xz * 50.0);
+      if (speckle > 0.85) {
+        granite = mix(granite, graniteSpeckle, 0.4);
+      }
+      
+      // Восьмиугольные грани (блики на рёбрах)
+      float angle = atan(p.z, p.x);
+      float edgeFactor = abs(cos(angle * 8.0));
+      float edgeHighlight = smoothstep(0.9, 1.0, edgeFactor) * 0.1;
+      granite += edgeHighlight;
+      
+      // Мокрые участки (около воды)
+      float wetness = smoothstep(2.5, 1.5, length(p.xz)) * 0.15;
+      granite *= 1.0 - wetness * 0.3;
+      
+      color = granite * ambient * 1.8;
+      color += granite * torchLight * 0.9;
+      
+      // Отражение воды
+      color += vec3(0.05, 0.08, 0.1) * wetness;
+      
+    } else if (mat == 76) {
+      // === ВОДА СТРУИ ФОНТАНА ===
+      vec3 waterCore = vec3(0.7, 0.85, 0.95);
+      vec3 waterEdge = vec3(0.4, 0.6, 0.75);
+      vec3 waterSparkle = vec3(1.0, 1.0, 1.0);
+      
+      // Прозрачная вода с бликами
+      float fresnel = pow(1.0 - max(0.0, dot(-rd, n)), 2.0);
+      
+      // Анимация потока
+      float flow = sin(p.y * 15.0 - u_time * 8.0) * 0.5 + 0.5;
+      
+      color = mix(waterCore, waterEdge, fresnel * 0.5);
+      
+      // Искрящиеся капли
+      float sparkle = sin(p.y * 30.0 - u_time * 15.0 + p.x * 20.0 + p.z * 20.0);
+      if (sparkle > 0.8) {
+        color = mix(color, waterSparkle, (sparkle - 0.8) * 3.0);
+      }
+      
+      // Яркость
+      color *= 2.0;
+      
+      // Свечение в цвете эпохи
+      color += accentColor * flow * 0.15;
+      
+    } else if (mat == 77) {
+      // === ДНО БАССЕЙНА (мозаика) ===
+      vec3 mosaicBlue = vec3(0.05, 0.15, 0.25);
+      vec3 mosaicTeal = vec3(0.08, 0.2, 0.22);
+      vec3 mosaicGold = vec3(0.4, 0.3, 0.1);
+      vec3 mosaicWhite = vec3(0.2, 0.22, 0.25);
+      
+      // Мелкие плитки мозаики
+      vec2 tileCoord = floor(p.xz * 4.0);
+      vec2 tileFract = fract(p.xz * 4.0);
+      float tileId = hash(tileCoord);
+      
+      // Выбор цвета плитки
+      vec3 tileColor;
+      if (tileId < 0.5) {
+        tileColor = mix(mosaicBlue, mosaicTeal, fract(tileId * 4.0));
+      } else if (tileId < 0.9) {
+        tileColor = mosaicWhite;
+      } else {
+        tileColor = mosaicGold; // Редкие золотые плитки
+      }
+      
+      // Швы между плитками
+      float seamX = smoothstep(0.02, 0.05, tileFract.x) * smoothstep(0.02, 0.05, 1.0 - tileFract.x);
+      float seamY = smoothstep(0.02, 0.05, tileFract.y) * smoothstep(0.02, 0.05, 1.0 - tileFract.y);
+      float seam = seamX * seamY;
+      tileColor = mix(vec3(0.02, 0.03, 0.04), tileColor, seam);
+      
+      // Узор в центре (круговой)
+      float centerDist = length(p.xz);
+      float centerPattern = sin(centerDist * 3.0) * sin(atan(p.z, p.x) * 8.0);
+      if (abs(centerPattern) > 0.8 && centerDist < 2.0) {
+        tileColor = mosaicGold;
+      }
+      
+      // Подводное освещение
+      color = tileColor * ambient * 1.2;
+      
+      // Каустики (световые узоры от воды)
+      float caustic1 = sin(p.x * 8.0 + u_time * 2.0) * sin(p.z * 7.0 + u_time * 1.5);
+      float caustic2 = sin(p.x * 6.0 - u_time * 1.8) * sin(p.z * 9.0 - u_time * 2.2);
+      float caustics = (caustic1 + caustic2) * 0.5 + 0.5;
+      color += vec3(0.1, 0.15, 0.2) * caustics * 0.3;
+      
+      // Свечение в цвете эпохи
+      color += accentColor * 0.05;
       
     } else if (mat == 56) {
       // === ОРБИТАЛЬНЫЙ ОГОНЬ 1 (основной цвет эпохи) ===
@@ -3163,12 +4425,85 @@ void main() {
       color = firePink * 5.0 * pulse;
       color += firePink * 2.0;
       
+    } else if (mat == 78) {
+      // === ОРАНЖЕВЫЙ ШАР (как луна) ===
+      float pulse = 0.85 + 0.15 * sin(u_time * 2.0);
+      
+      // Объёмное затемнение к краям (fresnel)
+      float fresnel = pow(1.0 - max(0.0, dot(-rd, n)), 2.5);
+      
+      // Цвета как у луны
+      vec3 orbCore = vec3(1.0, 0.7, 0.3) * 2.5;   // Яркий оранжевый центр
+      vec3 orbRim = vec3(0.9, 0.35, 0.05) * 1.5;  // Тёмно-оранжевый край
+      
+      color = mix(orbCore, orbRim, fresnel) * pulse;
+      
+      // Текстура поверхности (пятна)
+      float surfNoise = noise(p.xz * 8.0) * 0.2;
+      color *= (0.9 + surfNoise);
+      
+      // Яркое свечение
+      color += vec3(1.0, 0.5, 0.1) * 1.5;
+      
+    } else if (mat == 79) {
+      // === СТЕБЕЛЬ РОЗЫ (зелёный) ===
+      vec3 stemGreen = vec3(0.15, 0.4, 0.1);
+      vec3 stemDark = vec3(0.08, 0.25, 0.05);
+      
+      // Текстура
+      float stemNoise = noise(p.xy * 20.0) * 0.3;
+      color = mix(stemDark, stemGreen, 0.5 + stemNoise);
+      
+      // Освещение
+      color *= ambient * 1.5;
+      color += stemGreen * mainLight * mainDot * 0.4;
+      
+    } else if (mat == 80) {
+      // === ЯДРО ЭНЕРГЕТИЧЕСКОЙ СУЩНОСТИ ===
+      float pulse = 0.7 + 0.3 * sin(u_time * 10.0);
+      float pulse2 = 0.8 + 0.2 * sin(u_time * 15.0 + 1.5);
+      
+      // Градиент от белого ядра к золотому краю
+      float fresnel = pow(1.0 - max(0.0, dot(-rd, n)), 2.0);
+      vec3 coreWhite = vec3(1.0, 1.0, 0.95) * 4.0;
+      vec3 coreGold = vec3(1.0, 0.7, 0.2) * 3.0;
+      vec3 coreOrange = vec3(1.0, 0.4, 0.1) * 2.0;
+      
+      color = mix(coreWhite, coreGold, fresnel);
+      color = mix(color, coreOrange, fresnel * fresnel);
+      color *= pulse * pulse2;
+      
+      // Электрические разряды
+      float spark = fract(sin(dot(p.xy + u_time * 20.0, vec2(12.9898, 78.233))) * 43758.5453);
+      if (spark > 0.92) {
+        color += vec3(1.0, 1.0, 1.0) * 3.0;
+      }
+      
+    } else if (mat == 81) {
+      // === КОЛЬЦА ЭНЕРГИИ ===
+      float pulse = 0.6 + 0.4 * sin(u_time * 8.0 + p.y * 5.0);
+      
+      // Переливающийся цвет
+      float colorShift = sin(u_time * 3.0 + length(p) * 4.0) * 0.5 + 0.5;
+      vec3 ringCyan = vec3(0.2, 0.9, 1.0);
+      vec3 ringGold = vec3(1.0, 0.8, 0.3);
+      vec3 ringMagenta = vec3(1.0, 0.3, 0.8);
+      
+      vec3 ringColor = mix(ringCyan, ringGold, colorShift);
+      ringColor = mix(ringColor, ringMagenta, sin(u_time * 2.0) * 0.3 + 0.3);
+      
+      color = ringColor * pulse * 3.0;
+      
+      // Свечение
+      color += ringColor * 1.5;
+      
     } else {
       // === FALLBACK ===
       vec3 baseColor = vec3(0.2, 0.18, 0.15);
       color = baseColor * ambient * 2.0;
       color += baseColor * mainLight * mainDot * 0.5;
       color += baseColor * torchLight * 1.2;
+      color += rimColor + specColor;
     }
     
     // Вспышка от выстрела
@@ -3176,9 +4511,14 @@ void main() {
       color += vec3(1.0, 0.7, 0.4) * u_muzzleFlash * 0.4;
     }
     
-    // Туман по эпохе
-    float fog = 1.0 - exp(-d * 0.02);
-    color = mix(color, fogColor, fog * 0.5);
+    // Мягкая атмосферная дымка (не скрывает, только добавляет цвет)
+    float atmFade = smoothstep(70.0, MAX_DIST, d);
+    vec3 atmColor = mix(fogColor, skyColor, 0.5);
+    color = mix(color, atmColor, atmFade * 0.4);
+    
+    // Очень лёгкий туман
+    float fog = 1.0 - exp(-d * 0.004);
+    color = mix(color, fogColor * 1.2, fog * 0.1);
   }
   
   // Кислотный дождь от зелёного босса (всегда когда есть зоны)
@@ -3191,60 +4531,299 @@ void main() {
     color = renderRain(v_uv, color, u_time);
   }
   
-  // Атмосферный туман для глубины
+  // === АКЦЕНТНЫЕ ЦВЕТА ПО ЭПОХЕ ===
+  vec3 volAccent;
+  vec3 volSecondary;
+  if (u_era == 1) {
+    volAccent = vec3(0.3, 1.0, 0.4);
+    volSecondary = vec3(0.0, 0.8, 0.6);
+  } else if (u_era == 2) {
+    volAccent = vec3(0.8, 0.2, 1.0);
+    volSecondary = vec3(0.4, 0.0, 0.8);
+  } else {
+    volAccent = vec3(0.0, 0.9, 1.0);
+    volSecondary = vec3(0.0, 0.5, 0.8);
+  }
+  
+  vec2 screenPos = v_uv * 2.0 - 1.0;
+  vec2 screenUV = gl_FragCoord.xy / u_resolution;
+  
+  // === GOD RAYS (тёплые лучи от оранжевой луны) ===
+  vec2 moonScreenPos = vec2(0.35, 0.55); // Позиция луны на экране
+  vec2 rayDir = screenPos - moonScreenPos;
+  float rayDist = length(rayDir);
+  
+  float godRays = 0.0;
+  for (int i = 0; i < 6; i++) {
+    float t = float(i) / 6.0;
+    vec2 samplePos = screenPos - rayDir * t * 0.3;
+    float raySample = exp(-length(samplePos - moonScreenPos) * 3.0);
+    godRays += raySample * (1.0 - t);
+  }
+  godRays *= 0.06 * smoothstep(0.6, 0.0, rayDist);
+  color += vec3(0.8, 0.4, 0.1) * godRays; // Оранжевые лучи
+  
+  // === ПРИГЛУШЁННЫЙ VOLUMETRIC ===
+  vec3 volumetric = vec3(0.0);
+  float depthFactor = 1.0 - smoothstep(0.0, 100.0, d);
+  
+  // Мягкие лучи (уменьшенная интенсивность)
+  float beam1 = exp(-pow(length(screenPos - vec2(0.0, 0.4)), 2.0) * 5.0);
+  volumetric += vec3(0.0, 0.5, 0.55) * beam1 * 0.05;
+  
+  float beam2 = exp(-pow(length(screenPos - vec2(0.0, -0.4)), 2.0) * 5.0);
+  volumetric += vec3(0.55, 0.08, 0.4) * beam2 * 0.04;
+  
+  float beam3 = exp(-pow(length(screenPos - vec2(0.5, 0.0)), 2.0) * 4.0);
+  float beam4 = exp(-pow(length(screenPos - vec2(-0.5, 0.0)), 2.0) * 4.0);
+  volumetric += volAccent * (beam3 + beam4) * 0.03;
+  
+  color += volumetric * depthFactor * 0.6;
+  
+  // === МИНИМАЛИСТИЧНЫЕ ЧАСТИЦЫ ===
+  
+  // --- СВЕТЛЯЧКИ (немного, мягкие) ---
+  for (int i = 0; i < 5; i++) {
+    float seed = float(i) * 127.1;
+    vec2 fireflyPos = vec2(
+      sin(u_time * 0.2 + seed) * 0.5 + hash(vec2(seed, 0.0)) * 0.4,
+      cos(u_time * 0.15 + seed * 1.3) * 0.4 + hash(vec2(0.0, seed)) * 0.3
+    );
+    float dist = length(screenPos - fireflyPos);
+    float glow = exp(-dist * 12.0);
+    float flicker = 0.6 + 0.4 * sin(u_time * 3.0 + seed * 10.0);
+    color += volAccent * glow * flicker * 0.06;
+  }
+  
+  // --- ПЫЛИНКИ (редкие) ---
+  vec2 dustUV = screenUV * 40.0 + u_time * 0.01;
+  float dustId = hash(floor(dustUV));
+  if (dustId > 0.985) {
+    float dustBright = (dustId - 0.985) * 30.0;
+    color += vec3(0.7, 0.75, 0.8) * dustBright * 0.015;
+  }
+  
+  // Слой 5: Горизонтальные полосы света (сканлайны атмосферы)
+  float scanY = fract(screenUV.y * 200.0 + u_time * 0.5);
+  float scanLine = smoothstep(0.0, 0.02, scanY) * smoothstep(0.04, 0.02, scanY);
+  color += volSecondary * scanLine * 0.015 * depthFactor;
+  
+  // === АТМОСФЕРНАЯ ДЫМКА С ГРАДИЕНТОМ ===
   float fogDist = d / MAX_DIST;
-  vec3 fogColor = vec3(0.03, 0.05, 0.1);
-  color = mix(color, fogColor, fogDist * fogDist * 0.3);
   
-  // Мягкий bloom (слабый)
-  float brightness = max(max(color.r, color.g), color.b);
-  if (brightness > 1.5) {
-    vec3 bloomColor = color * (brightness - 1.5) * 0.1;
-    color += bloomColor;
+  // Верхняя дымка (небо просачивается)
+  float skyHaze = smoothstep(0.3, 0.8, screenUV.y) * 0.1;
+  color += vec3(0.05, 0.08, 0.15) * skyHaze;
+  
+  // Нижняя дымка (от пола)
+  float groundHaze = smoothstep(0.5, 0.2, screenUV.y) * 0.08;
+  color += volAccent * groundHaze * 0.3;
+  
+  // Дальняя дымка
+  float hazeFade = smoothstep(0.5, 1.0, fogDist);
+  vec3 hazeColor = mix(vec3(0.03, 0.04, 0.08), volSecondary * 0.2, 0.3);
+  color = mix(color, hazeColor, hazeFade * 0.3);
+  
+  // === BLOOM (мягкое свечение ярких областей) ===
+  float bloomLum = dot(color, vec3(0.299, 0.587, 0.114));
+  if (bloomLum > 0.8) {
+    float bloomAmt = (bloomLum - 0.8) * 0.4;
+    vec3 bloomCol = color * (1.0 + bloomAmt);
+    color = mix(color, bloomCol, 0.5);
   }
   
-  // Reinhard тонмаппинг (мягче чем ACES)
-  color = color / (color + vec3(1.0));
+  // === ХРОМАТИЧЕСКАЯ АБЕРРАЦИЯ (лёгкая) ===
+  float aberration = length(screenPos) * 0.003;
+  color.r += hash(screenUV + 0.1) * aberration * 0.5;
+  color.b -= hash(screenUV + 0.2) * aberration * 0.5;
   
-  // Гамма
-  color = pow(color, vec3(0.95));
+  // === КАТАНА 3D ===
+  // Определяем цвета освещения для катаны по эпохе
+  vec3 katanaAmbient;
+  vec3 katanaAccent;
+  if (u_era == 1) {
+    katanaAmbient = vec3(0.08, 0.12, 0.08);
+    katanaAccent = vec3(0.4, 1.0, 0.2);
+  } else if (u_era == 2) {
+    katanaAmbient = vec3(0.07, 0.05, 0.12);
+    katanaAccent = vec3(0.7, 0.15, 1.0);
+  } else {
+    katanaAmbient = vec3(0.08, 0.1, 0.14);
+    katanaAccent = vec3(0.15, 0.7, 1.0);
+  }
   
-  // Лёгкая цветокоррекция
-  color = mix(color, color * vec3(0.95, 0.97, 1.05), 0.15);
+  // Рендерим катану (ro = позиция камеры)
+  vec4 katanaResult = renderKatana(u_cameraPos, rd, u_katanaAttack, u_katanaBob, u_katanaCharges, katanaAmbient, katanaAccent);
+  if (katanaResult.w > 0.0) {
+    // Катана попала - накладываем поверх сцены
+    color = katanaResult.rgb;
+  }
   
-  // Мягкий контраст
-  color = (color - 0.5) * 1.05 + 0.5;
-  color = max(color, vec3(0.0));
+  // === ХОЛОДНЫЙ СЛЕД КАТАНЫ (серебристо-голубой) ===
+  if (u_katanaAttack > 0.08 && u_katanaAttack < 0.65) {
+    vec2 screenUV = gl_FragCoord.xy / u_resolution;
+    
+    // Прогресс взмаха (быстрее!)
+    float swingProgress = smoothstep(0.08, 0.4, u_katanaAttack);
+    float fadeOut = 1.0 - smoothstep(0.35, 0.65, u_katanaAttack);
+    
+    // Центр и углы дуги - КРУЧЕ!
+    vec2 arcCenter;
+    float arcStartAngle, arcEndAngle;
+    
+    if (u_katanaAttackType == 0) {
+      // Удар справа - крутая диагональ сверху-справа вниз-влево
+      arcCenter = vec2(0.75, 0.2);
+      arcStartAngle = -0.8;
+      arcEndAngle = 2.8;  // Больше угол!
+    } else if (u_katanaAttackType == 1) {
+      // Удар слева - крутая диагональ сверху-слева вниз-вправо
+      arcCenter = vec2(0.25, 0.2);
+      arcStartAngle = 0.4;
+      arcEndAngle = 4.0;  // Больше угол!
+    } else {
+      // Сплеш - широкая горизонтальная
+      arcCenter = vec2(0.5, 0.45);
+      arcStartAngle = -0.5;
+      arcEndAngle = 3.6;
+    }
+    
+    vec2 toPixel = screenUV - arcCenter;
+    float dist = length(toPixel);
+    float angle = atan(toPixel.y, toPixel.x);
+    
+    // Дуга движется
+    float currentAngle = mix(arcStartAngle, arcEndAngle, swingProgress);
+    float angleDiff = abs(angle - currentAngle);
+    if (angleDiff > 3.14159) angleDiff = 6.28318 - angleDiff;
+    
+    // След по дуге - тоньше и резче
+    float arcRadius = 0.4;
+    float radiusDiff = abs(dist - arcRadius);
+    float trail = smoothstep(0.35, 0.0, angleDiff) * smoothstep(0.06, 0.01, radiusDiff);
+    
+    // Острие - яркая точка
+    float tipGlow = smoothstep(0.15, 0.0, angleDiff) * smoothstep(0.04, 0.005, radiusDiff);
+    
+    // === ХОЛОДНЫЕ ЦВЕТА СТАЛИ ===
+    // Основа - серебристо-голубой
+    vec3 steelBlue = vec3(0.7, 0.85, 1.0);
+    // Яркий край - белый с голубым
+    vec3 sharpEdge = vec3(0.9, 0.95, 1.0);
+    // Внутреннее свечение - холодный синий
+    vec3 innerGlow = vec3(0.4, 0.6, 0.9);
+    
+    // Хвост следа с градиентом
+    float trailFade = smoothstep(0.0, 0.3, angleDiff);
+    vec3 trailColor = mix(sharpEdge, innerGlow, trailFade);
+    
+    // Применяем с мерцанием
+    float shimmer = 0.8 + 0.2 * sin(u_time * 30.0 + angle * 10.0);
+    float intensity = (trail * 0.5 + tipGlow * 1.2) * fadeOut * shimmer;
+    
+    // Аддитивное смешивание для яркости
+    color += trailColor * intensity * 0.8;
+    color = mix(color, sharpEdge, tipGlow * fadeOut * 0.6);
+  }
   
-  // Насыщение
-  float gray = dot(color, vec3(0.299, 0.587, 0.114));
-  color = mix(vec3(gray), color, 1.15);
+  // === СОВРЕМЕННЫЙ AAA ПОСТ-ПРОЦЕСС ===
   
-  // Виньетка
-  float vig = 1.0 - length(v_uv - 0.5) * 0.4;
-  color *= vig;
+  // 1. EXPOSURE (экспозиция)
+  color *= 1.3;
   
-  // === ПЛЁНОЧНАЯ ЗЕРНИСТОСТЬ ===
+  // 2. ACES FILMIC TONEMAPPING (киношный вид)
+  // Матрица преобразования в ACES
+  mat3 aces_input = mat3(
+    0.59719, 0.35458, 0.04823,
+    0.07600, 0.90834, 0.01566,
+    0.02840, 0.13383, 0.83777
+  );
+  mat3 aces_output = mat3(
+    1.60475, -0.53108, -0.07367,
+    -0.10208, 1.10813, -0.00605,
+    -0.00327, -0.07276, 1.07602
+  );
+  color = aces_input * color;
+  vec3 a = color * (color + 0.0245786) - 0.000090537;
+  vec3 b = color * (0.983729 * color + 0.4329510) + 0.238081;
+  color = a / b;
+  color = aces_output * color;
+  color = clamp(color, 0.0, 1.0);
+  
+  // 3. ГАММА КОРРЕКЦИЯ
+  color = pow(color, vec3(0.9));
+  
+  // 4. ГЛУБОКИЙ COLOR GRADING (teal & orange киношный стиль)
+  float lum = dot(color, vec3(0.299, 0.587, 0.114));
+  
+  // Тени → холодный циан/синий
+  vec3 shadowTint = vec3(0.0, 0.12, 0.18);
+  float shadowMask = 1.0 - smoothstep(0.0, 0.4, lum);
+  color += shadowTint * shadowMask * 0.2;
+  
+  // Средние тона → слегка зеленоватый
+  vec3 midTint = vec3(-0.02, 0.03, -0.02);
+  float midMask = smoothstep(0.2, 0.5, lum) * smoothstep(0.8, 0.5, lum);
+  color += midTint * midMask * 0.15;
+  
+  // Света → тёплый оранжевый
+  vec3 highlightTint = vec3(0.12, 0.06, 0.0);
+  float highlightMask = smoothstep(0.5, 1.0, lum);
+  color += highlightTint * highlightMask * 0.15;
+  
+  // 5. НАСЫЩЕННОСТЬ (vibrance - больше на ненасыщенные цвета)
+  float maxC = max(max(color.r, color.g), color.b);
+  float minC = min(min(color.r, color.g), color.b);
+  float saturation = (maxC - minC) / (maxC + 0.001);
+  float vibranceAmt = 1.0 + (1.0 - saturation) * 0.25;
+  vec3 grayCol = vec3(lum);
+  color = mix(grayCol, color, vibranceAmt);
+  
+  // 6. МЯГКИЙ КОНТРАСТ (Cyberpunk стиль - серые тени)
+  // Поднимаем чёрную точку - тени становятся серыми
+  color = color * 0.85 + 0.08; // Чёрный → тёмно-серый
+  // Лёгкий S-curve
+  color = mix(color, color * color * (3.0 - 2.0 * color), 0.1);
+  
+  // 7. BLOOM GLOW (мягкое свечение)
+  float bloomBright = max(max(color.r, color.g), color.b);
+  if (bloomBright > 0.7) {
+    float bloomStr = (bloomBright - 0.7) * 0.5;
+    vec3 bloomCol = color * (1.0 + bloomStr);
+    // Распространение по экрану
+    float bloomSpread = exp(-length(v_uv - 0.5) * 2.0);
+    color = mix(color, bloomCol, bloomStr * bloomSpread);
+  }
+  
+  // 8. АНАМОРФНЫЕ БЛИКИ (горизонтальные полосы от ярких точек)
+  if (bloomBright > 0.75) {
+    float streak = exp(-abs(v_uv.y - 0.5) * 6.0) * (bloomBright - 0.75) * 0.4;
+    color += vec3(0.5, 0.7, 1.0) * streak;
+  }
+  
+  // 9. ВИНЬЕТКА (кинематографичная глубина)
+  vec2 vigUV = v_uv - 0.5;
+  float vigDist = length(vigUV);
+  float vig = 1.0 - vigDist * vigDist * 1.2;
+  vig = smoothstep(0.0, 0.8, vig);
+  color *= mix(0.7, 1.0, vig);
+  
+  // 10. ХРОМАТИЧЕСКАЯ АБЕРРАЦИЯ (на краях)
+  float aberr = vigDist * vigDist * 0.015;
+  color.r += (hash(v_uv + 0.1) - 0.5) * aberr;
+  color.b -= (hash(v_uv + 0.2) - 0.5) * aberr;
+  
+  // 11. ПЛЁНОЧНАЯ ЗЕРНИСТОСТЬ
   float grain = filmGrain(v_uv * u_resolution, u_time * 60.0);
-  float luminance = dot(color, vec3(0.299, 0.587, 0.114));
-  float grainStrength = mix(0.05, 0.02, luminance);
-  color += grain * grainStrength;
+  float grainStr = mix(0.035, 0.01, lum); // Больше в тенях
+  color += (grain - 0.5) * grainStr;
   
-  // Лёгкое размытие на краях (имитация AA)
-  float edgeDist = max(abs(v_uv.x - 0.5), abs(v_uv.y - 0.5));
+  // 12. DITHERING (устранение color banding)
+  float dither = (fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5) / 128.0;
+  color += dither;
   
-  // Минимальные глитч-эффекты
-  float glitchLine = fract(sin(floor(v_uv.y * 800.0) + u_time * 2.0) * 43758.5);
-  if (glitchLine > 0.998) {
-    color.rgb = color.gbr;
-  }
-  
-  // Тонкая хроматическая аберрация по углам
-  if (edgeDist > 0.42) {
-    float aberration = (edgeDist - 0.42) * 0.002;
-    color.r *= 1.0 + aberration;
-    color.b *= 1.0 - aberration;
-  }
+  // Финальный clamp
+  color = clamp(color, 0.0, 1.0);
   
   fragColor = vec4(color, 1.0);
 }

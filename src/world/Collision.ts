@@ -84,23 +84,83 @@ export class CollisionSystem implements ICollisionSystem {
 
     // Центральная колонна (фонтан) - блокирует только внизу, не на верхней платформе
     // Фонтан высотой ~8м, верхняя платформа на 9.5м
-    if (distFromCenter < 2.0 + r && pos.y < 10.0) return true;
+    if (distFromCenter < 1.2 + r && pos.y < 10.0) return true;
 
-    // Колонны по периметру (4 основные)
-    const columnPositions = [
-      { x: 22, z: 0 },
-      { x: -22, z: 0 },
-      { x: 0, z: 22 },
-      { x: 0, z: -22 },
-    ];
-    
-    for (const col of columnPositions) {
-      const dx = pos.x - col.x;
-      const dz = pos.z - col.z;
-      if (Math.sqrt(dx * dx + dz * dz) < 0.7 + r) return true;
+    // === БОРТИК БАССЕЙНА ФОНТАНА ===
+    // Внутренний край бортика (нельзя войти в воду)
+    const poolRadius = 8.0;
+    if (distFromCenter > poolRadius - 0.5 && distFromCenter < poolRadius + 0.5) {
+      if (pos.y < 0.8) return true; // Бортик высотой ~0.5м
     }
 
-    // Бассейн теперь проходим - можно ходить по воде
+    // === КОЛОННЫ ПОРТАЛОВ (ТОРИИ) ===
+    // Левый портал - две колонны
+    const leftPortalX = -22.0;
+    const leftCol1 = { x: leftPortalX, z: -2.0 };
+    const leftCol2 = { x: leftPortalX, z: 2.0 };
+    
+    // Правый портал - две колонны
+    const rightPortalX = 22.0;
+    const rightCol1 = { x: rightPortalX, z: -2.0 };
+    const rightCol2 = { x: rightPortalX, z: 2.0 };
+    
+    const portalColumns = [leftCol1, leftCol2, rightCol1, rightCol2];
+    
+    for (const col of portalColumns) {
+      const dx = pos.x - col.x;
+      const dz = pos.z - col.z;
+      // Колонны квадратные ~0.5x0.5, высота до 5м
+      if (Math.abs(dx) < 0.6 + r && Math.abs(dz) < 0.6 + r && pos.y < 5.5) {
+        return true;
+      }
+    }
+
+    // === ПЛАТФОРМЫ ЗА ПОРТАЛАМИ ===
+    // Левая платформа за порталом
+    const leftPlatDist = Math.sqrt(
+      Math.pow(pos.x - (-this.backPlatformX), 2) + 
+      Math.pow(pos.z, 2)
+    );
+    // Бортик левой платформы
+    if (leftPlatDist > this.backPlatformRadius - 0.5 && 
+        leftPlatDist < this.backPlatformRadius + 0.5 &&
+        pos.y < 1.0) {
+      return true;
+    }
+    // Столбики на левой платформе (8 штук)
+    for (let i = 0; i < 8; i++) {
+      const angle = i * Math.PI / 4; // 45 градусов
+      const pillarX = -this.backPlatformX + Math.cos(angle) * (this.backPlatformRadius - 0.2);
+      const pillarZ = Math.sin(angle) * (this.backPlatformRadius - 0.2);
+      const dx = pos.x - pillarX;
+      const dz = pos.z - pillarZ;
+      if (Math.abs(dx) < 0.3 + r && Math.abs(dz) < 0.3 + r && pos.y < 1.5) {
+        return true;
+      }
+    }
+
+    // Правая платформа за порталом
+    const rightPlatDist = Math.sqrt(
+      Math.pow(pos.x - this.backPlatformX, 2) + 
+      Math.pow(pos.z, 2)
+    );
+    // Бортик правой платформы
+    if (rightPlatDist > this.backPlatformRadius - 0.5 && 
+        rightPlatDist < this.backPlatformRadius + 0.5 &&
+        pos.y < 1.0) {
+      return true;
+    }
+    // Столбики на правой платформе
+    for (let i = 0; i < 8; i++) {
+      const angle = i * Math.PI / 4;
+      const pillarX = this.backPlatformX + Math.cos(angle) * (this.backPlatformRadius - 0.2);
+      const pillarZ = Math.sin(angle) * (this.backPlatformRadius - 0.2);
+      const dx = pos.x - pillarX;
+      const dz = pos.z - pillarZ;
+      if (Math.abs(dx) < 0.3 + r && Math.abs(dz) < 0.3 + r && pos.y < 1.5) {
+        return true;
+      }
+    }
 
     // Коллизия с круглыми платформами (сбоку) - только на уровне платформы
     const allPlatforms = [...this.jumpPlatforms, this.topPlatform];
@@ -214,6 +274,45 @@ export class CollisionSystem implements ICollisionSystem {
       }
     }
 
+    // === СТУПЕНИ ПОРТАЛОВ ===
+    // Левый портал (x = -22)
+    if (pos.x < -18.5 && pos.x > -25.5 && Math.abs(pos.z) < 3.5) {
+      return 0.5; // Верхняя ступень портала
+    }
+    // Правый портал (x = 22)
+    if (pos.x > 18.5 && pos.x < 25.5 && Math.abs(pos.z) < 3.5) {
+      return 0.5;
+    }
+
+    // === ПЛАТФОРМЫ ЗА ПОРТАЛАМИ ===
+    // Левая платформа
+    const leftPlatDist = Math.sqrt(
+      Math.pow(pos.x - (-this.backPlatformX), 2) + 
+      Math.pow(pos.z, 2)
+    );
+    if (leftPlatDist < this.backPlatformRadius) {
+      return 0.5; // Высота платформы
+    }
+    
+    // Правая платформа
+    const rightPlatDist = Math.sqrt(
+      Math.pow(pos.x - this.backPlatformX, 2) + 
+      Math.pow(pos.z, 2)
+    );
+    if (rightPlatDist < this.backPlatformRadius) {
+      return 0.5;
+    }
+
+    // === МОСТЫ К ПЛАТФОРМАМ ЗА ПОРТАЛАМИ ===
+    // Левый мост
+    if (pos.x < -21.5 && pos.x > -this.backPlatformX + this.backPlatformRadius && Math.abs(pos.z) < 2.5) {
+      return 0.3;
+    }
+    // Правый мост
+    if (pos.x > 21.5 && pos.x < this.backPlatformX - this.backPlatformRadius && Math.abs(pos.z) < 2.5) {
+      return 0.3;
+    }
+
     // Основной пол
     return 0.0;
   }
@@ -245,14 +344,51 @@ export class CollisionSystem implements ICollisionSystem {
     if (distFromCenter > ARENA_EDGE - radius) return true;
 
     // Центральная колонна (фонтан)
-    if (distFromCenter < 2.0 + radius) return true;
+    if (distFromCenter < 1.2 + radius) return true;
 
-    // Колонны по периметру
+    // Бортик бассейна
+    const poolRadius = 8.0;
+    if (distFromCenter > poolRadius - 0.5 - radius && 
+        distFromCenter < poolRadius + 0.5 + radius &&
+        pos.y < 0.8) {
+      return true;
+    }
+
+    // Колонны порталов (тории)
+    const portalColumns = [
+      { x: -22.0, z: -2.0 }, { x: -22.0, z: 2.0 },
+      { x: 22.0, z: -2.0 }, { x: 22.0, z: 2.0 },
+    ];
+    
+    for (const col of portalColumns) {
+      const dx = pos.x - col.x;
+      const dz = pos.z - col.z;
+      if (Math.abs(dx) < 0.6 + radius && Math.abs(dz) < 0.6 + radius && pos.y < 5.5) {
+        return true;
+      }
+    }
+
+    // Столбики на платформах за порталами
+    for (let side = -1; side <= 1; side += 2) {
+      const platX = side * this.backPlatformX;
+      for (let i = 0; i < 8; i++) {
+        const angle = i * Math.PI / 4;
+        const pillarX = platX + Math.cos(angle) * (this.backPlatformRadius - 0.2);
+        const pillarZ = Math.sin(angle) * (this.backPlatformRadius - 0.2);
+        const dx = pos.x - pillarX;
+        const dz = pos.z - pillarZ;
+        if (Math.abs(dx) < 0.3 + radius && Math.abs(dz) < 0.3 + radius && pos.y < 1.5) {
+          return true;
+        }
+      }
+    }
+
+    // Колонны по периметру (фонари)
     const columnPositions = [
-      { x: 22, z: 0 },
-      { x: -22, z: 0 },
-      { x: 0, z: 22 },
-      { x: 0, z: -22 },
+      { x: 0, z: 28 },
+      { x: 0, z: -28 },
+      { x: 28, z: 0 },
+      { x: -28, z: 0 },
     ];
     
     for (const col of columnPositions) {

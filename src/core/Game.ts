@@ -154,6 +154,16 @@ export class Game {
     progress: number; // 0-1
     active: boolean;
   }> = [];
+  
+  // === ЭФФЕКТЫ СМЕРТИ ВРАГОВ ===
+  /** Активные эффекты смерти (до 8) */
+  private deathEffects: Array<{
+    position: Vec3;
+    progress: number; // 0-1, затем удаляется
+    active: boolean;
+  }> = [];
+  private readonly DEATH_EFFECT_DURATION = 0.5; // 0.5 сек
+  
   private readonly GRENADE_SPEED = 25;
   private readonly GRENADE_GRAVITY = 15;
   private readonly GRENADE_FUSE = 1.5; // 1.5 сек до взрыва
@@ -170,6 +180,10 @@ export class Game {
   private screenShake = 0;
   private lastSliceTime = 0;
   private wasJumpPressed = false;
+  
+  /** Флаг: уже проверили попадание в текущем взмахе? */
+  private attackHitChecked = false;
+  private splashHitChecked = false;
   
   /** Текущая эпоха (1-3) для атмосферы */
   private currentEra = 1;
@@ -250,6 +264,9 @@ export class Game {
       this.state.frags++;
       this.audio.playSFX('kill');
       this.hud.showHitmarker(true);
+      
+      // Создаём эффект смерти
+      this.spawnDeathEffect(target.position);
       
       // === НАЧИСЛЕНИЕ ОЧКОВ ===
       const scoreValue = this.SCORE_VALUES[target.enemyType] || 10;
@@ -559,8 +576,40 @@ export class Game {
     document.getElementById('btn-boss10')?.addEventListener('click', () => this.startFromWave(10));
     document.getElementById('btn-boss15')?.addEventListener('click', () => this.startFromWave(15));
 
-    // Клик по экрану тоже запускает
-    this.startScreen?.addEventListener('click', () => this.start());
+    // Кнопки модалок
+    document.getElementById('btn-settings')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      document.getElementById('modal-settings')?.classList.add('active');
+    });
+    document.getElementById('btn-help')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      document.getElementById('modal-help')?.classList.add('active');
+    });
+    
+    // Закрытие модалок
+    document.querySelectorAll('.modal-close').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const modalId = (btn as HTMLElement).dataset.modal;
+        if (modalId) {
+          document.getElementById(modalId)?.classList.remove('active');
+        }
+      });
+    });
+    
+    // Закрытие модалки при клике на фон
+    document.querySelectorAll('.modal').forEach(modal => {
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+          modal.classList.remove('active');
+        }
+      });
+    });
+    
+    // Предотвращаем закрытие при клике на контент модалки
+    document.querySelectorAll('.modal-content').forEach(content => {
+      content.addEventListener('click', (e) => e.stopPropagation());
+    });
 
     document.addEventListener('keydown', (e) => {
       if (e.code === 'KeyM') {
@@ -597,6 +646,9 @@ export class Game {
     if (this.startScreen) {
       this.startScreen.style.display = 'none';
     }
+
+    // Показываем HUD при старте игры
+    this.hud.showHUD();
 
     this.input.requestPointerLock();
     this.audio.start();
@@ -687,7 +739,21 @@ export class Game {
     if (this.input.state.fire) {
       if (this.weapon.tryAttack()) {
         this.audio.playSFX('katana_swing');
+        this.attackHitChecked = false; // Сбросить флаг попадания для нового взмаха
+        
+        // Сразу определяем тип удара по позиции врага
+        const [targetAngle, _] = this.getKatanaTargetData();
+        // Враг слева → бьём справа (тип 0), враг справа → бьём слева (тип 1)
+        this.weapon.attackType = targetAngle > 0 ? 1 : 0;
+      }
+    }
+    
+    // Проверка попадания ВО ВРЕМЯ взмаха (когда лезвие проходит через врага)
+    if (this.weapon.isAttacking && !this.weapon.isSplashAttack && !this.attackHitChecked) {
+      // Попадание в фазе удара (0.2 - 0.5)
+      if (this.weapon.attackProgress >= 0.2 && this.weapon.attackProgress <= 0.5) {
         this.checkNormalAttack();
+        this.attackHitChecked = true;
       }
     }
 
@@ -695,7 +761,15 @@ export class Game {
     if (this.input.state.altFire) {
       if (this.weapon.trySplashAttack()) {
         this.audio.playSFX('splash_wave');
+        this.splashHitChecked = false;
+      }
+    }
+    
+    // Проверка сплеш-попадания во время взмаха
+    if (this.weapon.isAttacking && this.weapon.isSplashAttack && !this.splashHitChecked) {
+      if (this.weapon.attackProgress >= 0.2 && this.weapon.attackProgress <= 0.5) {
         this.checkSplashAttack();
+        this.splashHitChecked = true;
       }
     }
     
@@ -720,6 +794,9 @@ export class Game {
     // Обновляем гранаты и взрывы
     this.updateGrenades(dt);
     this.updateExplosions(dt);
+    
+    // Обновляем эффекты смерти
+    this.updateDeathEffects(dt);
     
     // === ПОРТАЛ В ВОЙД ===
     this.updateVoidPortal(dt);
@@ -884,15 +961,47 @@ export class Game {
     }, 3000);
   }
 
-  /** Перезапуск */
+  /** Перезапуск - полный сброс игры */
   private restart(): void {
+    // Сброс игрока
     this.player.reset(vec3(0, 1.7, 12));
     this.player.state.health = 100;
+    this.player.state.maxHealth = 100;
+    
+    // Сброс состояния игры
     this.state.frags = 0;
     this.state.isPaused = false;
+    
+    // Сброс режимов
     this.isInVoid = false;
-    this.targetManager.startGame();
+    this.player.isInVoid = false;
+    
+    // Сброс очков
+    this.carryingScore = 0;
+    this.darts = 0;
+    
+    // Сброс алтарей
+    this.altars.forEach(altar => { altar.score = 0; });
+    
+    // Сброс оружия
+    this.weapon.splashCharges = 0;
+    this.weapon.isAttacking = false;
+    this.weapon.attackProgress = 0;
+    
+    // Сброс эффектов
+    this.screenShake = 0;
+    this.slowdownFactor = 1;
+    this.slowdownTimer = 0;
+    
+    // Сброс врагов и пикапов - начинаем с волны 1!
+    this.targetManager.startGame(1);
     this.pickupManager.pickups = [];
+    
+    // Обновить HUD
+    this.hud.updateCarryingScore(0);
+    this.hud.updateAltarScore(0);
+    this.hud.updateDarts(0);
+    this.hud.updateSplashCharges(0);
   }
 
   /** === VOID MODE === */
@@ -1291,18 +1400,29 @@ export class Game {
   /** Проверка обычной атаки */
   private checkNormalAttack(): void {
     const playerPos = this.player.getEyePosition();
+    
+    // Определяем тип удара по позиции ближайшего врага
+    const [targetAngle, _] = this.getKatanaTargetData();
+    // Если враг слева (угол < 0) → бьём справа (тип 0)
+    // Если враг справа (угол > 0) → бьём слева (тип 1)
+    const smartAttackType = targetAngle > 0 ? 1 : 0;
+    this.weapon.attackType = smartAttackType;
+    
     const hit = this.targetManager.trySlice(
       playerPos,
       this.player.state.yaw,
       this.weapon.attackRange,
       this.weapon.attackAngle,
-      this.player.state.grounded // Передаём состояние - на земле ли игрок
+      this.player.state.grounded, // Передаём состояние - на земле ли игрок
+      smartAttackType // Тип удара зависит от позиции врага
     );
     
     if (hit) {
       this.lastSliceTime = this.gameTime;
       this.weaponRenderer.showHitEffect();
       this.audio.playSFX('kill');
+      // СМАЧНЫЙ удар - тряска экрана!
+      this.screenShake = 0.4;
     }
 
     // Проверяем попадание по кристаллам (только на волне 10)
@@ -1816,6 +1936,99 @@ export class Game {
     this.hud.updateSplashCharges(this.weapon.splashCharges);
   }
 
+  /** Создать эффект смерти врага */
+  private spawnDeathEffect(position: Vec3): void {
+    // Ищем неактивный слот или создаём новый
+    let effect = this.deathEffects.find(e => !e.active);
+    if (!effect && this.deathEffects.length < 8) {
+      effect = { position: { x: 0, y: 0, z: 0 }, progress: 0, active: false };
+      this.deathEffects.push(effect);
+    }
+    
+    if (effect) {
+      effect.position = { ...position };
+      effect.progress = 0.01; // Начинаем с малого значения
+      effect.active = true;
+    }
+  }
+  
+  /** Обновить эффекты смерти */
+  private updateDeathEffects(dt: number): void {
+    for (const effect of this.deathEffects) {
+      if (effect.active) {
+        effect.progress += dt / this.DEATH_EFFECT_DURATION;
+        if (effect.progress >= 1.0) {
+          effect.active = false;
+        }
+      }
+    }
+  }
+  
+  /** Угол и расстояние до ближайшего врага для автонаведения катаны */
+  private getKatanaTargetData(): [number, number] {
+    const playerPos = this.player.getEyePosition();
+    const playerYaw = this.player.state.yaw;
+    
+    let nearestAngle = -1; // -1 = нет врага поблизости
+    let nearestDist = 100;
+    
+    const maxRange = 5.0; // Максимальная дистанция для автонаведения
+    const maxAngle = Math.PI / 2; // 90 градусов в каждую сторону
+    
+    for (const target of this.targetManager.targets) {
+      if (!target.active) continue;
+      
+      const dx = target.position.x - playerPos.x;
+      const dz = target.position.z - playerPos.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      
+      if (dist > maxRange) continue;
+      
+      // Угол к врагу относительно направления взгляда
+      const angleToTarget = Math.atan2(dx, -dz);
+      let angleDiff = angleToTarget - playerYaw;
+      
+      // Нормализуем угол
+      while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+      while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+      
+      // Враг в поле зрения?
+      if (Math.abs(angleDiff) > maxAngle) continue;
+      
+      // Ближе чем текущий?
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        nearestAngle = angleDiff;
+      }
+    }
+    
+    return [nearestAngle, nearestDist];
+  }
+  
+  /** Количество фрагментов для шейдера */
+  private getFragmentCount(): number {
+    let count = 0;
+    for (const target of this.targetManager.targets) {
+      count += target.fragments.length;
+    }
+    return count;
+  }
+  
+  /** Данные эффектов смерти для шейдера */
+  private getDeathEffectsData(): Float32Array {
+    const data = new Float32Array(32); // 8 эффектов * 4 компонента
+    for (let i = 0; i < Math.min(this.deathEffects.length, 8); i++) {
+      const effect = this.deathEffects[i];
+      if (effect.active) {
+        data[i * 4 + 0] = effect.position.x;
+        data[i * 4 + 1] = effect.position.y;
+        data[i * 4 + 2] = effect.position.z;
+        data[i * 4 + 3] = effect.progress;
+      }
+    }
+    return data;
+  }
+
   /** Активация адреналина за комбо-убийства */
   private activateComboAdrenaline(): void {
     // Сбрасываем счётчик комбо
@@ -1946,10 +2159,22 @@ export class Game {
       grenadeCount,
       explosionsData,
       explosionCount,
-      this.voidVariant
+      this.voidVariant,
+      // Катана 3D
+      this.weaponRenderer.attackProgress,
+      this.weapon.state.bobPhase,
+      this.weaponRenderer.splashCharges,
+      ...this.getKatanaTargetData(), // targetAngle, targetDist
+      this.weapon.attackType, // Тип удара (0=справа, 1=слева, 2=сплеш)
+      // Эффекты смерти врагов
+      this.getDeathEffectsData(),
+      // Фрагменты врагов (разрубленные куски)
+      this.targetManager.getAllFragmentsData(),
+      Math.min(this.getFragmentCount(), 32)
     );
 
-    // Рендерим оружие (катана)
+    // 2D эффекты оружия (частицы, вспышки) - катана теперь в 3D
+    this.weaponRenderer.setSceneLighting(this.currentEra);
     this.weaponRenderer.render(this.weapon.state, this.gameTime);
   }
   

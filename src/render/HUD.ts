@@ -38,9 +38,36 @@ export class HUD {
     this.scoreEl = this.createScoreElement();
     this.altarScoreEl = this.createAltarScoreElement();
     this.dartsEl = this.createDartsElement();
+    
+    // Скрываем все HUD элементы до старта игры
+    this.hideHUD();
   }
   
-  /** Создать элемент количества дротиков */
+  /** Скрыть HUD (в главном меню) */
+  public hideHUD(): void {
+    const hudEl = document.getElementById('hud');
+    if (hudEl) hudEl.style.opacity = '0';
+    if (this.weaponEl) this.weaponEl.style.display = 'none';
+    if (this.scoreEl) this.scoreEl.style.display = 'none';
+    if (this.altarScoreEl) this.altarScoreEl.style.display = 'none';
+    if (this.dartsEl) this.dartsEl.style.display = 'none';
+    if (this.doubleJumpEl) this.doubleJumpEl.style.display = 'none';
+    if (this.splashChargesEl) this.splashChargesEl.style.display = 'none';
+  }
+  
+  /** Показать HUD (при старте игры) */
+  public showHUD(): void {
+    const hudEl = document.getElementById('hud');
+    if (hudEl) hudEl.style.opacity = '1';
+    if (this.weaponEl) this.weaponEl.style.display = 'block';
+    if (this.scoreEl) this.scoreEl.style.display = 'block';
+    if (this.altarScoreEl) this.altarScoreEl.style.display = 'block';
+    if (this.dartsEl) this.dartsEl.style.display = 'block';
+    if (this.doubleJumpEl) this.doubleJumpEl.style.display = 'block';
+    // splashChargesEl показывается только когда есть заряды
+  }
+  
+  /** Создать элемент количества дротиков - CYBERPUNK */
   private createDartsElement(): HTMLElement {
     let el = document.getElementById('darts-count');
     if (!el) {
@@ -48,28 +75,28 @@ export class HUD {
       el.id = 'darts-count';
       el.style.cssText = `
         position: fixed;
-        bottom: 80px;
-        right: 20px;
-        font-family: 'Orbitron', sans-serif;
-        font-size: 16px;
-        color: #ff6600;
-        text-shadow: 
-          0 0 10px #ff6600,
-          0 0 20px rgba(255, 102, 0, 0.5);
+        bottom: 70px;
+        right: 15px;
+        font-family: 'Rajdhani', sans-serif;
+        font-size: 11px;
+        font-weight: 500;
+        color: rgba(255, 102, 0, 0.6);
         padding: 6px 12px;
-        border: 1px solid rgba(255, 102, 0, 0.5);
-        border-radius: 4px;
-        background: rgba(0, 0, 0, 0.6);
+        background: linear-gradient(180deg, rgba(255,102,0,0.08) 0%, transparent 100%);
+        border-top: 1px solid rgba(255, 102, 0, 0.4);
+        transform: skewX(-5deg);
         pointer-events: none;
         z-index: 1000;
+        letter-spacing: 2px;
+        text-transform: uppercase;
       `;
-      el.innerHTML = '🎯 ДРОТИКИ: <span id="darts-value">0</span>';
+      el.innerHTML = '◎ <span id="darts-value" style="font-family:Orbitron;font-size:16px;color:#ff6600;">0</span>';
       document.body.appendChild(el);
     }
     return el;
   }
   
-  /** Создать элемент текущих очков */
+  /** Создать элемент текущих очков - CYBERPUNK */
   private createScoreElement(): HTMLElement {
     let el = document.getElementById('score-carrying');
     if (!el) {
@@ -77,28 +104,28 @@ export class HUD {
       el.id = 'score-carrying';
       el.style.cssText = `
         position: fixed;
-        bottom: 120px;
-        right: 20px;
-        font-family: 'Orbitron', sans-serif;
-        font-size: 18px;
-        color: #ffcc00;
-        text-shadow: 
-          0 0 10px #ffcc00,
-          0 0 20px rgba(255, 204, 0, 0.5);
-        padding: 8px 15px;
-        border: 1px solid rgba(255, 204, 0, 0.5);
-        border-radius: 4px;
-        background: rgba(0, 0, 0, 0.6);
+        bottom: 105px;
+        right: 15px;
+        font-family: 'Rajdhani', sans-serif;
+        font-size: 11px;
+        font-weight: 500;
+        color: rgba(255, 204, 0, 0.6);
+        padding: 6px 12px;
+        background: linear-gradient(180deg, rgba(255,204,0,0.08) 0%, transparent 100%);
+        border-top: 1px solid rgba(255, 204, 0, 0.4);
+        transform: skewX(-5deg);
         pointer-events: none;
         z-index: 1000;
+        letter-spacing: 2px;
+        text-transform: uppercase;
       `;
-      el.innerHTML = '⚔ ОЧКИ: <span id="score-value">0</span>';
+      el.innerHTML = '✕ <span id="score-value" style="font-family:Orbitron;font-size:16px;color:#ffcc00;">0</span>';
       document.body.appendChild(el);
     }
     return el;
   }
   
-  /** Создать элемент общего счёта алтарей */
+  /** Создать элемент общего счёта алтарей - CYBERPUNK */
   private createAltarScoreElement(): HTMLElement {
     let el = document.getElementById('altar-score');
     if (!el) {
@@ -106,28 +133,28 @@ export class HUD {
       el.id = 'altar-score';
       el.style.cssText = `
         position: fixed;
-        bottom: 160px;
-        right: 20px;
-        font-family: 'Orbitron', sans-serif;
-        font-size: 22px;
-        color: #00ffaa;
-        text-shadow: 
-          0 0 10px #00ffaa,
-          0 0 20px rgba(0, 255, 170, 0.5);
-        padding: 10px 20px;
-        border: 2px solid rgba(0, 255, 170, 0.5);
-        border-radius: 4px;
-        background: rgba(0, 0, 0, 0.7);
+        bottom: 140px;
+        right: 15px;
+        font-family: 'Rajdhani', sans-serif;
+        font-size: 11px;
+        font-weight: 500;
+        color: rgba(0, 240, 255, 0.6);
+        padding: 8px 14px;
+        background: linear-gradient(180deg, rgba(0,240,255,0.1) 0%, transparent 100%);
+        border-top: 1px solid rgba(0, 240, 255, 0.5);
+        transform: skewX(-5deg);
         pointer-events: none;
         z-index: 1000;
+        letter-spacing: 2px;
+        text-transform: uppercase;
       `;
-      el.innerHTML = '⛩ АЛТАРЬ: <span id="altar-value">0</span>';
+      el.innerHTML = '⌂ <span id="altar-value" style="font-family:Orbitron;font-size:20px;color:#00f0ff;text-shadow:0 0 20px rgba(0,240,255,0.6);">0</span>';
       document.body.appendChild(el);
     }
     return el;
   }
 
-  /** Создать элемент волны */
+  /** Создать элемент волны - CYBERPUNK TOAST */
   private createWaveElement(): HTMLElement {
     let el = document.getElementById('wave-indicator');
     if (!el) {
@@ -135,57 +162,38 @@ export class HUD {
       el.id = 'wave-indicator';
       el.style.cssText = `
         position: fixed;
-        top: 15%;
+        top: 12%;
         left: 50%;
-        transform: translateX(-50%) scale(0.9);
+        transform: translateX(-50%) skewX(-3deg);
         font-family: 'Orbitron', sans-serif;
-        font-size: 28px;
-        font-weight: 700;
-        color: #00ffff;
-        text-shadow: 
-          0 0 10px #00ffff,
-          0 0 20px rgba(0, 255, 255, 0.5);
+        font-size: 20px;
+        font-weight: 600;
+        color: #00f0ff;
+        text-shadow: 0 0 30px rgba(0, 240, 255, 0.8);
         opacity: 0;
-        padding: 12px 30px;
-        border: 2px solid rgba(255, 0, 255, 0.6);
-        border-radius: 4px;
-        box-shadow: 
-          0 0 15px rgba(255, 0, 255, 0.3),
-          inset 0 0 20px rgba(0, 255, 255, 0.05);
-        background: linear-gradient(180deg, 
-          rgba(0, 0, 20, 0.85) 0%,
-          rgba(10, 0, 30, 0.9) 100%
+        padding: 12px 50px;
+        background: linear-gradient(90deg, 
+          transparent 0%, 
+          rgba(0, 240, 255, 0.08) 10%, 
+          rgba(0, 240, 255, 0.12) 50%, 
+          rgba(0, 240, 255, 0.08) 90%, 
+          transparent 100%
         );
-        backdrop-filter: blur(5px);
-        transition: opacity 0.2s, transform 0.2s;
+        border-left: 2px solid rgba(0, 240, 255, 0.8);
+        border-right: 2px solid rgba(0, 240, 255, 0.8);
+        backdrop-filter: blur(4px);
+        transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
         pointer-events: none;
         z-index: 1000;
-        letter-spacing: 4px;
+        letter-spacing: 8px;
+        text-transform: uppercase;
       `;
-      
-      // Тонкие угловые акценты
-      const corners = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
-      corners.forEach(corner => {
-        const cornerEl = document.createElement('div');
-        const [v, h] = corner.split('-');
-        cornerEl.style.cssText = `
-          position: absolute;
-          ${v}: -2px;
-          ${h}: -2px;
-          width: 12px;
-          height: 12px;
-          border-${v}: 2px solid #00ffff;
-          border-${h}: 2px solid #00ffff;
-        `;
-        el!.appendChild(cornerEl);
-      });
-      
       document.body.appendChild(el);
     }
     return el;
   }
 
-  /** Создать элемент сообщений */
+  /** Создать элемент сообщений - CYBERPUNK STYLE */
   private createMessageElement(): HTMLElement {
     let el = document.getElementById('game-message');
     if (!el) {
@@ -193,52 +201,33 @@ export class HUD {
       el.id = 'game-message';
       el.style.cssText = `
         position: fixed;
-        top: 50%;
+        top: 45%;
         left: 50%;
-        transform: translate(-50%, -50%);
+        transform: translate(-50%, -50%) skewX(-2deg);
         font-family: 'Orbitron', sans-serif;
-        font-size: 36px;
+        font-size: 28px;
         font-weight: 700;
-        color: #ff0044;
-        text-shadow: 
-          0 0 15px #ff0044,
-          0 0 30px rgba(255, 0, 68, 0.4);
+        color: #ff3366;
+        text-shadow: 0 0 40px rgba(255, 51, 102, 0.9), 0 2px 0 rgba(0,0,0,0.3);
         opacity: 0;
-        padding: 25px 50px;
-        border: 2px solid rgba(255, 0, 68, 0.7);
-        border-radius: 4px;
-        box-shadow: 
-          0 0 20px rgba(255, 0, 68, 0.4),
-          inset 0 0 30px rgba(255, 0, 68, 0.05);
-        background: linear-gradient(180deg, 
-          rgba(20, 0, 5, 0.9) 0%,
-          rgba(30, 0, 10, 0.95) 100%
+        padding: 18px 60px;
+        background: linear-gradient(90deg, 
+          transparent 0%, 
+          rgba(255, 51, 102, 0.1) 5%, 
+          rgba(255, 51, 102, 0.15) 50%, 
+          rgba(255, 51, 102, 0.1) 95%, 
+          transparent 100%
         );
-        backdrop-filter: blur(5px);
-        transition: opacity 0.4s;
+        border-top: 1px solid rgba(255, 51, 102, 0.5);
+        border-bottom: 1px solid rgba(255, 51, 102, 0.5);
+        backdrop-filter: blur(6px);
+        transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
         pointer-events: none;
         text-align: center;
         z-index: 1000;
-        letter-spacing: 4px;
+        letter-spacing: 6px;
+        text-transform: uppercase;
       `;
-      
-      // Угловые декорации
-      const corners = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
-      corners.forEach(corner => {
-        const cornerEl = document.createElement('div');
-        const [v, h] = corner.split('-');
-        cornerEl.style.cssText = `
-          position: absolute;
-          ${v}: -2px;
-          ${h}: -2px;
-          width: 15px;
-          height: 15px;
-          border-${v}: 2px solid #ff0044;
-          border-${h}: 2px solid #ff0044;
-        `;
-        el!.appendChild(cornerEl);
-      });
-      
       document.body.appendChild(el);
     }
     return el;
@@ -272,7 +261,7 @@ export class HUD {
     return el;
   }
 
-  /** Создать элемент оружия */
+  /** Создать элемент оружия - CYBERPUNK */
   private createWeaponElement(): HTMLElement {
     let el = document.getElementById('weapon-indicator');
     if (!el) {
@@ -280,20 +269,17 @@ export class HUD {
       el.id = 'weapon-indicator';
       el.style.cssText = `
         position: fixed;
-        bottom: 90px;
-        right: 20px;
-        font-family: 'Orbitron', sans-serif;
-        font-size: 16px;
-        font-weight: 700;
-        color: #00ffff;
-        text-shadow: 0 0 10px currentColor;
-        padding: 8px 15px;
-        border: 1px solid rgba(0, 255, 255, 0.5);
-        border-radius: 4px;
-        background: rgba(0, 0, 0, 0.6);
+        bottom: 20px;
+        right: 120px;
+        font-family: 'Rajdhani', sans-serif;
+        font-size: 10px;
+        font-weight: 500;
+        color: rgba(0, 240, 255, 0.5);
+        letter-spacing: 3px;
+        text-transform: uppercase;
         z-index: 100;
       `;
-      el.textContent = '⚔️ КАТАНА';
+      el.textContent = '⚔ КАТАНА';
       document.body.appendChild(el);
     }
     return el;
@@ -502,22 +488,19 @@ export class HUD {
     document.body.appendChild(this.splashChargesEl);
   }
 
-  /** Обновить индикатор двойного прыжка */
-  public updateDoubleJump(cooldown: number, isReady: boolean): void {
+  /** Обновить индикатор двойного прыжка - иконка запрета */
+  public updateDoubleJump(_cooldown: number, isReady: boolean): void {
     if (!this.doubleJumpEl) {
       this.createDoubleJumpElement();
     }
     
     if (this.doubleJumpEl) {
       if (isReady) {
-        this.doubleJumpEl.innerHTML = '⬆️⬆️ ГОТОВ';
-        this.doubleJumpEl.style.color = '#00ff88';
-        this.doubleJumpEl.style.textShadow = '0 0 10px #00ff88';
+        // Скрываем когда готов
+        this.doubleJumpEl.style.opacity = '0';
       } else {
-        const cd = Math.ceil(cooldown * 10) / 10;
-        this.doubleJumpEl.innerHTML = `⬆️⬆️ ${cd.toFixed(1)}s`;
-        this.doubleJumpEl.style.color = '#ff8800';
-        this.doubleJumpEl.style.textShadow = '0 0 10px #ff8800';
+        // Показываем иконку запрета
+        this.doubleJumpEl.style.opacity = '1';
       }
     }
   }
@@ -526,23 +509,32 @@ export class HUD {
     this.doubleJumpEl = document.createElement('div');
     this.doubleJumpEl.style.cssText = `
       position: fixed;
-      bottom: 120px;
-      left: 20px;
-      font-family: 'Orbitron', 'Audiowide', monospace;
-      font-size: 16px;
-      color: #00ff88;
-      text-shadow: 0 0 10px #00ff88;
-      letter-spacing: 2px;
+      bottom: 70px;
+      left: 15px;
+      font-size: 20px;
+      color: rgba(255, 100, 100, 0.7);
+      text-shadow: 0 0 8px rgba(255, 50, 50, 0.5);
       z-index: 1000;
+      opacity: 0;
+      transition: opacity 0.2s;
+      display: none;
     `;
+    this.doubleJumpEl.innerHTML = '⊘'; // Иконка запрета
     document.body.appendChild(this.doubleJumpEl);
   }
 
-  /** Обновить врагов */
+  /** Количество врагов */
+  private enemiesCount = 0;
+  
+  /** Обновить врагов - показываем рядом со счётом */
   public updateAmmo(_wave: number, enemiesLeft: number): void {
+    this.enemiesCount = enemiesLeft;
+    this.updateFragsDisplay();
+    
+    // Скрываем старую панель ammo
     if (this.ammoEl) {
-      this.ammoEl.textContent = `⚔️ ${enemiesLeft}`;
-      this.ammoEl.style.color = enemiesLeft > 0 ? '#00ffff' : '#00ff00';
+      const ammoPanel = this.ammoEl.parentElement;
+      if (ammoPanel) ammoPanel.style.display = 'none';
     }
   }
 
@@ -551,108 +543,122 @@ export class HUD {
     if (this.fragsEl) {
       this.fragsEl.textContent = frags.toString();
     }
+    this.updateFragsDisplay();
+  }
+  
+  /** Обновить отображение счёта с врагами */
+  private updateFragsDisplay(): void {
+    // Добавляем количество врагов к панели счёта
+    let enemyEl = document.getElementById('enemies-inline');
+    if (!enemyEl) {
+      enemyEl = document.createElement('span');
+      enemyEl.id = 'enemies-inline';
+      enemyEl.style.cssText = `
+        margin-left: 15px;
+        color: rgba(0, 212, 224, 0.8);
+        font-size: 14px;
+      `;
+      const fragsPanel = document.getElementById('frags');
+      if (fragsPanel) fragsPanel.appendChild(enemyEl);
+    }
+    
+    if (this.enemiesCount > 0) {
+      enemyEl.innerHTML = `<span style="color:rgba(0,212,224,0.5);">⚔</span> ${this.enemiesCount}`;
+    } else {
+      enemyEl.innerHTML = `<span style="color:#00ff88;">✓</span>`;
+    }
   }
 
-  /** Показать волну */
+  /** Показать волну - CYBERPUNK ANIMATION */
   public showWave(wave: number): void {
     if (this.waveEl) {
-      this.waveEl.textContent = `ВОЛНА ${wave}`;
-      this.waveEl.style.opacity = '1';
-      this.waveEl.style.transform = 'translateX(-50%) scale(1)';
-      this.waveEl.style.color = '#00ffff';
-      this.waveEl.style.borderColor = 'rgba(255, 0, 255, 0.6)';
+      this.waveEl.textContent = `▸ ВОЛНА ${wave} ◂`;
+      this.waveEl.style.color = '#00f0ff';
+      this.waveEl.style.borderColor = 'rgba(0, 240, 255, 0.8)';
       
-      // Плавное появление сверху
+      // Появление с глитч-эффектом
       this.waveEl.animate([
-        { transform: 'translateX(-50%) translateY(-20px) scale(0.9)', opacity: 0 },
-        { transform: 'translateX(-50%) translateY(0) scale(1)', opacity: 1 }
-      ], { duration: 300, easing: 'ease-out' });
+        { opacity: 0, transform: 'translateX(-50%) skewX(-3deg) scaleX(1.5)', filter: 'blur(10px)' },
+        { opacity: 0.5, transform: 'translateX(-48%) skewX(-5deg) scaleX(1.1)', filter: 'blur(2px)' },
+        { opacity: 1, transform: 'translateX(-50%) skewX(-3deg) scaleX(1)', filter: 'blur(0px)' }
+      ], { duration: 400, fill: 'forwards', easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
       
+      setTimeout(() => {
+        if (this.waveEl) {
+          this.waveEl.animate([
+            { opacity: 1, transform: 'translateX(-50%) skewX(-3deg)' },
+            { opacity: 0, transform: 'translateX(-50%) skewX(-3deg) translateY(-15px)' }
+          ], { duration: 300, fill: 'forwards', easing: 'ease-in' });
+        }
+      }, 1800);
+    }
+  }
+
+  /** Показать завершение волны - CYBERPUNK */
+  public showWaveComplete(wave: number): void {
+    if (this.waveEl) {
+      this.waveEl.textContent = `◈ ВОЛНА ${wave} ПРОЙДЕНА ◈`;
+      this.waveEl.style.color = '#00ff88';
+      this.waveEl.style.borderColor = 'rgba(0, 255, 136, 0.8)';
+      
+      // Появление
+      this.waveEl.animate([
+        { opacity: 0, transform: 'translateX(-50%) skewX(-3deg) scaleY(0.5)' },
+        { opacity: 1, transform: 'translateX(-50%) skewX(-3deg) scaleY(1)' }
+      ], { duration: 300, fill: 'forwards', easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
+      
+      // Переключение на "готовься"
+      setTimeout(() => {
+        if (this.waveEl) {
+          this.waveEl.textContent = `▸ ГОТОВЬСЯ ◂`;
+          this.waveEl.style.color = '#ffaa00';
+          this.waveEl.style.borderColor = 'rgba(255, 170, 0, 0.6)';
+        }
+      }, 1500);
+      
+      // Исчезновение
       setTimeout(() => {
         if (this.waveEl) {
           this.waveEl.animate([
             { opacity: 1 },
             { opacity: 0 }
-          ], { duration: 250, easing: 'ease-in' });
-          setTimeout(() => {
-            if (this.waveEl) this.waveEl.style.opacity = '0';
-          }, 230);
+          ], { duration: 400, fill: 'forwards' });
         }
-      }, 1500);
+      }, 3200);
     }
   }
 
-  /** Показать завершение волны */
-  public showWaveComplete(wave: number): void {
-    if (this.waveEl) {
-      this.waveEl.textContent = `✓ ВОЛНА ${wave}`;
-      this.waveEl.style.color = '#00ff88';
-      this.waveEl.style.borderColor = 'rgba(0, 255, 136, 0.6)';
-      this.waveEl.style.opacity = '1';
-      this.waveEl.style.transform = 'translateX(-50%) scale(1)';
-      
-      // Мягкая победная анимация
-      this.waveEl.animate([
-        { transform: 'translateX(-50%) scale(0.95)', opacity: 0 },
-        { transform: 'translateX(-50%) scale(1.02)', opacity: 1 },
-        { transform: 'translateX(-50%) scale(1)', opacity: 1 }
-      ], { duration: 350, easing: 'ease-out' });
-      
-      // Показать "пройдена" потом "готовься"
-      setTimeout(() => {
-        if (this.waveEl) {
-          this.waveEl.textContent = `ГОТОВЬСЯ...`;
-          this.waveEl.style.color = '#ffaa00';
-          this.waveEl.style.borderColor = 'rgba(255, 170, 0, 0.5)';
-        }
-      }, 1200);
-      
-      setTimeout(() => {
-        if (this.waveEl) {
-          this.waveEl.style.opacity = '0';
-          this.waveEl.style.color = '#00ffff';
-          this.waveEl.style.borderColor = 'rgba(255, 0, 255, 0.6)';
-        }
-      }, 3500);
-    }
-  }
-
-  /** Показать Game Over */
+  /** Показать Game Over - CYBERPUNK */
   public showGameOver(score: number, wave: number): void {
     if (this.messageEl) {
       this.messageEl.innerHTML = `
-        ☠ GAME OVER ☠<br>
+        <div style="font-size:32px;letter-spacing:8px;">GAME OVER</div>
         <div style="
-          font-size: 24px; 
-          color: #00ffff; 
-          margin-top: 20px;
-          text-shadow: 0 0 10px #00ffff;
-          letter-spacing: 3px;
+          font-size: 14px; 
+          color: rgba(0,240,255,0.8); 
+          margin-top: 15px;
+          letter-spacing: 4px;
+          font-weight: 400;
         ">
-          СЧЁТ: <span style="color: #ff00ff;">${score}</span><br>
-          ВОЛНА: <span style="color: #ff00ff;">${wave}</span>
+          СЧЁТ <span style="color:#ff00ff;font-size:18px;">${score}</span> · ВОЛНА <span style="color:#ff00ff;font-size:18px;">${wave}</span>
         </div>
       `;
-      this.messageEl.style.opacity = '1';
       
-      // Драматичная анимация
+      // Глитч-появление
       this.messageEl.animate([
-        { transform: 'translate(-50%, -50%) scale(0.5)', opacity: 0 },
-        { transform: 'translate(-50%, -50%) scale(1.2)', opacity: 1 },
-        { transform: 'translate(-50%, -50%) scale(1)', opacity: 1 }
-      ], { duration: 600, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
+        { opacity: 0, transform: 'translate(-50%, -50%) skewX(-2deg) scaleX(2)', filter: 'blur(20px) hue-rotate(90deg)' },
+        { opacity: 0.8, transform: 'translate(-48%, -50%) skewX(-4deg) scaleX(1.1)', filter: 'blur(5px) hue-rotate(0deg)' },
+        { opacity: 1, transform: 'translate(-50%, -50%) skewX(-2deg) scaleX(1)', filter: 'blur(0px) hue-rotate(0deg)' }
+      ], { duration: 500, fill: 'forwards', easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
       
       setTimeout(() => {
         if (this.messageEl) {
           this.messageEl.animate([
             { opacity: 1 },
-            { opacity: 0 }
-          ], { duration: 400 });
-          setTimeout(() => {
-            if (this.messageEl) this.messageEl.style.opacity = '0';
-          }, 380);
+            { opacity: 0, filter: 'blur(10px)' }
+          ], { duration: 500, fill: 'forwards' });
         }
-      }, 2500);
+      }, 3000);
     }
   }
 
@@ -690,40 +696,46 @@ export class HUD {
     this.showDamage('green');
   }
 
-  /** Показать сообщение */
+  /** Показать сообщение - CYBERPUNK TOAST */
   public showMessage(text: string, color: string = 'white'): void {
     const msg = document.createElement('div');
     msg.style.cssText = `
       position: fixed;
-      top: 30%;
+      top: 25%;
       left: 50%;
-      transform: translateX(-50%);
+      transform: translateX(-50%) skewX(-3deg) translateY(20px);
       font-family: 'Orbitron', sans-serif;
-      font-size: 24px;
+      font-size: 18px;
+      font-weight: 600;
       color: ${color};
-      text-shadow: 0 0 10px ${color}, 0 0 20px ${color};
+      text-shadow: 0 0 30px ${color};
+      padding: 10px 40px;
+      background: linear-gradient(90deg, transparent 0%, rgba(0,0,0,0.4) 20%, rgba(0,0,0,0.4) 80%, transparent 100%);
+      border-left: 2px solid ${color};
+      border-right: 2px solid ${color};
       pointer-events: none;
       z-index: 1100;
-      opacity: 1;
-      animation: messageFloat 1s ease-out forwards;
+      opacity: 0;
+      letter-spacing: 3px;
+      text-transform: uppercase;
     `;
     msg.textContent = text;
     document.body.appendChild(msg);
 
-    // Добавляем стиль анимации если его нет
-    if (!document.getElementById('message-anim-style')) {
-      const style = document.createElement('style');
-      style.id = 'message-anim-style';
-      style.textContent = `
-        @keyframes messageFloat {
-          0% { opacity: 1; transform: translateX(-50%) translateY(0); }
-          100% { opacity: 0; transform: translateX(-50%) translateY(-50px); }
-        }
-      `;
-      document.head.appendChild(style);
-    }
+    // Анимация появления
+    msg.animate([
+      { opacity: 0, transform: 'translateX(-50%) skewX(-3deg) translateY(30px)' },
+      { opacity: 1, transform: 'translateX(-50%) skewX(-3deg) translateY(0)' }
+    ], { duration: 200, fill: 'forwards', easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
 
-    setTimeout(() => msg.remove(), 1000);
+    // Анимация исчезновения
+    setTimeout(() => {
+      msg.animate([
+        { opacity: 1, transform: 'translateX(-50%) skewX(-3deg) translateY(0)' },
+        { opacity: 0, transform: 'translateX(-50%) skewX(-3deg) translateY(-20px)' }
+      ], { duration: 300, fill: 'forwards', easing: 'ease-in' });
+      setTimeout(() => msg.remove(), 300);
+    }, 800);
   }
 
   /** Показать оверлей буйства */

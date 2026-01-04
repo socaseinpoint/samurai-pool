@@ -22,10 +22,16 @@ export class Weapon {
   private attackCooldown = 0;
 
   /** Время атаки */
-  private attackDuration = 0.3;
+  private attackDuration = 0.25; // Быстрее!
 
   /** Перезарядка между ударами */
-  private attackCooldownTime = 0.4;
+  private attackCooldownTime = 0.2; // Можно бить быстрее!
+  
+  /** Тип удара: 0 = справа сверху, 1 = слева локтевой */
+  public attackType = 0;
+  
+  /** Следующий тип удара (чередуются) */
+  private nextAttackType = 0;
 
   /** Дальность удара */
   public attackRange = 4.0;
@@ -122,8 +128,15 @@ export class Weapon {
   private attack(isSplash: boolean): void {
     this.isAttacking = true;
     this.attackProgress = 0;
-    this.attackCooldown = isSplash ? 0.6 : this.attackCooldownTime;
+    this.attackCooldown = isSplash ? 0.5 : this.attackCooldownTime;
     this.isSplashAttack = isSplash;
+    
+    // Тип удара устанавливается извне (в Game.ts по позиции врага)
+    // Для сплеша - особый тип
+    if (isSplash) {
+      this.attackType = 2;
+    }
+    // attackType для обычной атаки устанавливается в Game.ts
     
     if (isSplash) {
       // Сплеш-волна
