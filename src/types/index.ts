@@ -189,6 +189,8 @@ export interface ShaderUniforms {
   resolution: WebGLUniformLocation | null;
   /** Время */
   time: WebGLUniformLocation | null;
+  /** Турбо режим */
+  turboMode: WebGLUniformLocation | null;
   /** Позиция камеры */
   cameraPos: WebGLUniformLocation | null;
   /** Направление камеры */
@@ -285,6 +287,12 @@ export interface ShaderUniforms {
   fragments: WebGLUniformLocation | null;
   /** Количество фрагментов */
   fragmentCount: WebGLUniformLocation | null;
+  /** Тени включены (0 или 1) */
+  shadowsEnabled: WebGLUniformLocation | null;
+  /** Постэффекты включены (0 или 1) */
+  postfxEnabled: WebGLUniformLocation | null;
+  /** Катана 3D включена (0 или 1) */
+  katanaEnabled: WebGLUniformLocation | null;
 }
 
 // ========== КОЛЛИЗИИ ==========

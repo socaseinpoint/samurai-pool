@@ -1,9 +1,10 @@
-import { VERTEX_SHADER, FRAGMENT_SHADER } from './Shaders';
+import { VERTEX_SHADER, FRAGMENT_SHADER, COMPOSITE_SHADER } from './Shaders';
 import type { ShaderUniforms, Vec3 } from '@/types';
 
 /**
  * WebGL2 рендерер
  * Ray marching через фрагментный шейдер
+ * Two-pass rendering: geometry (1/2 разрешения) + composite (полное)
  */
 export class WebGLRenderer {
   private gl: WebGL2RenderingContext;
@@ -11,10 +12,48 @@ export class WebGLRenderer {
   private uniforms: ShaderUniforms;
   private vao: WebGLVertexArrayObject | null = null;
 
-  /** Масштаб рендеринга (0-1) */
-  public renderScale = 0.75;
+  // === TWO-PASS RENDERING ===
+  private geometryFBO: WebGLFramebuffer | null = null;
+  private geometryTexture: WebGLTexture | null = null;
+  private geometryWidth = 320;  // targetWidth / 2
+  private geometryHeight = 180; // targetHeight / 2
+  private compositeProgram: WebGLProgram | null = null;
+  private compositeUniforms: Record<string, WebGLUniformLocation | null> = {};
+
+  /** Масштаб рендеринга (0-1) - меньше = быстрее */
+  public renderScale = 0.6;
+  /** Тени включены */
+  public shadowsEnabled = true;
+  /** Постэффекты включены */
+  public postfxEnabled = true;
+  /** 3D катана включена */
+  public katanaEnabled = true;
+  /** Турбо режим (минимум геометрии) */
+  public turboEnabled = false;
+  /** FPS счётчик */
+  private frameCount = 0;
+  private lastFpsUpdate = 0;
+  public currentFps = 60;
+
+  /** Пресеты качества */
+  public static readonly QUALITY_PRESETS = {
+    ultra_low: { width: 426, height: 240 },  // 240p - для слабых ПК
+    low: { width: 640, height: 360 },         // 360p
+    medium: { width: 854, height: 480 },      // 480p
+    high: { width: 1280, height: 720 }        // 720p - максимум
+  };
+  
+  /** Текущее качество */
+  public quality: 'ultra_low' | 'low' | 'medium' | 'high' = 'low';
+  
+  /** Целевое разрешение рендеринга */
+  private targetWidth = 640;
+  private targetHeight = 360;
 
   constructor(private canvas: HTMLCanvasElement) {
+    // Загружаем настройки из localStorage
+    this.loadSettings();
+    console.log(`🖥️ Экран: ${window.screen.width}×${window.screen.height}, качество: ${this.quality.toUpperCase()}`);
     const gl = canvas.getContext('webgl2');
     if (!gl) {
       throw new Error('WebGL2 не поддерживается');
@@ -24,6 +63,7 @@ export class WebGLRenderer {
     this.uniforms = {
       resolution: null,
       time: null,
+      turboMode: null,
       cameraPos: null,
       cameraDir: null,
       cameraYaw: null,
@@ -72,6 +112,9 @@ export class WebGLRenderer {
       deathEffects: null,
       fragments: null,
       fragmentCount: null,
+      shadowsEnabled: null,
+      postfxEnabled: null,
+      katanaEnabled: null,
     };
 
     this.init();
@@ -99,9 +142,16 @@ export class WebGLRenderer {
       throw new Error('Ошибка линковки: ' + gl.getProgramInfoLog(this.program));
     }
 
+    // Создаём composite shader для второго прохода
+    this.createCompositeProgram();
+    
+    // Создаём framebuffer для geometry pass
+    this.createGeometryFBO();
+
     // Получаем uniform locations
     this.uniforms.resolution = gl.getUniformLocation(this.program, 'u_resolution');
     this.uniforms.time = gl.getUniformLocation(this.program, 'u_time');
+    this.uniforms.turboMode = gl.getUniformLocation(this.program, 'u_turboMode');
     this.uniforms.cameraPos = gl.getUniformLocation(this.program, 'u_cameraPos');
     this.uniforms.cameraYaw = gl.getUniformLocation(this.program, 'u_cameraYaw');
     this.uniforms.cameraPitch = gl.getUniformLocation(this.program, 'u_cameraPitch');
@@ -154,6 +204,11 @@ export class WebGLRenderer {
     // Фрагменты врагов
     this.uniforms.fragments = gl.getUniformLocation(this.program, 'u_fragments');
     this.uniforms.fragmentCount = gl.getUniformLocation(this.program, 'u_fragmentCount');
+    
+    // Настройки графики
+    this.uniforms.shadowsEnabled = gl.getUniformLocation(this.program, 'u_shadowsEnabled');
+    this.uniforms.postfxEnabled = gl.getUniformLocation(this.program, 'u_postfxEnabled');
+    this.uniforms.katanaEnabled = gl.getUniformLocation(this.program, 'u_katanaEnabled');
 
     // Создаём fullscreen quad
     this.createQuad();
@@ -206,17 +261,184 @@ export class WebGLRenderer {
     gl.bindVertexArray(null);
   }
 
+  /** Создание framebuffer для geometry pass (сниженное разрешение) */
+  private createGeometryFBO(): void {
+    const gl = this.gl;
+    
+    // Размеры geometry pass (3/4 от target для баланса качества и производительности)
+    // 1/2 слишком мыльно, 3/4 - хороший компромисс
+    this.geometryWidth = Math.floor(this.targetWidth * 0.75);
+    this.geometryHeight = Math.floor(this.targetHeight * 0.75);
+    
+    // Проверяем поддержку float текстур для FBO
+    const ext = gl.getExtension('EXT_color_buffer_float');
+    const useFloat = !!ext;
+    
+    // Текстура для geometry pass
+    this.geometryTexture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, this.geometryTexture);
+    
+    if (useFloat) {
+      // HDR текстура с float (если поддерживается)
+      gl.texImage2D(
+        gl.TEXTURE_2D, 0, gl.RGBA16F,
+        this.geometryWidth, this.geometryHeight,
+        0, gl.RGBA, gl.FLOAT, null
+      );
+    } else {
+      // Fallback на RGBA8 (LDR)
+      gl.texImage2D(
+        gl.TEXTURE_2D, 0, gl.RGBA,
+        this.geometryWidth, this.geometryHeight,
+        0, gl.RGBA, gl.UNSIGNED_BYTE, null
+      );
+    }
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    
+    // Framebuffer
+    this.geometryFBO = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.geometryFBO);
+    gl.framebufferTexture2D(
+      gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0,
+      gl.TEXTURE_2D, this.geometryTexture, 0
+    );
+    
+    // Проверка статуса
+    const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+    if (status !== gl.FRAMEBUFFER_COMPLETE) {
+      console.error('❌ Geometry FBO incomplete:', status);
+    } else {
+      const format = useFloat ? 'RGBA16F' : 'RGBA8';
+      console.log(`✅ Geometry FBO: ${this.geometryWidth}×${this.geometryHeight} (${format})`);
+    }
+    
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  }
+  
+  /** Создание composite shader программы */
+  private createCompositeProgram(): void {
+    const gl = this.gl;
+    
+    const vertShader = this.compileShader(gl.VERTEX_SHADER, VERTEX_SHADER);
+    const fragShader = this.compileShader(gl.FRAGMENT_SHADER, COMPOSITE_SHADER);
+    
+    if (!vertShader || !fragShader) {
+      console.error('❌ Ошибка компиляции composite shader');
+      return;
+    }
+    
+    this.compositeProgram = gl.createProgram()!;
+    gl.attachShader(this.compositeProgram, vertShader);
+    gl.attachShader(this.compositeProgram, fragShader);
+    gl.linkProgram(this.compositeProgram);
+    
+    if (!gl.getProgramParameter(this.compositeProgram, gl.LINK_STATUS)) {
+      console.error('❌ Ошибка линковки composite:', gl.getProgramInfoLog(this.compositeProgram));
+      return;
+    }
+    
+    // Uniform locations для composite shader
+    this.compositeUniforms = {
+      geometryTex: gl.getUniformLocation(this.compositeProgram, 'u_geometryTex'),
+      resolution: gl.getUniformLocation(this.compositeProgram, 'u_resolution'),
+      time: gl.getUniformLocation(this.compositeProgram, 'u_time'),
+      cameraPos: gl.getUniformLocation(this.compositeProgram, 'u_cameraPos'),
+      cameraYaw: gl.getUniformLocation(this.compositeProgram, 'u_cameraYaw'),
+      cameraPitch: gl.getUniformLocation(this.compositeProgram, 'u_cameraPitch'),
+      katanaAttack: gl.getUniformLocation(this.compositeProgram, 'u_katanaAttack'),
+      katanaBob: gl.getUniformLocation(this.compositeProgram, 'u_katanaBob'),
+      katanaCharges: gl.getUniformLocation(this.compositeProgram, 'u_katanaCharges'),
+      katanaTargetAngle: gl.getUniformLocation(this.compositeProgram, 'u_katanaTargetAngle'),
+      katanaTargetDist: gl.getUniformLocation(this.compositeProgram, 'u_katanaTargetDist'),
+      katanaAttackType: gl.getUniformLocation(this.compositeProgram, 'u_katanaAttackType'),
+      katanaEnabled: gl.getUniformLocation(this.compositeProgram, 'u_katanaEnabled'),
+      postfxEnabled: gl.getUniformLocation(this.compositeProgram, 'u_postfxEnabled'),
+      era: gl.getUniformLocation(this.compositeProgram, 'u_era'),
+    };
+    
+    console.log('✅ Composite shader создан');
+  }
+  
+  /** Пересоздание geometry FBO при смене разрешения */
+  private recreateGeometryFBO(): void {
+    const gl = this.gl;
+    
+    // Удаляем старые ресурсы
+    if (this.geometryFBO) gl.deleteFramebuffer(this.geometryFBO);
+    if (this.geometryTexture) gl.deleteTexture(this.geometryTexture);
+    
+    // Создаём заново
+    this.createGeometryFBO();
+  }
+
   /** Обновить размер canvas */
   public resize(): void {
-    const dpr = window.devicePixelRatio || 1;
-    const width = Math.floor(this.canvas.clientWidth * dpr * this.renderScale);
-    const height = Math.floor(this.canvas.clientHeight * dpr * this.renderScale);
+    // Используем целевое разрешение напрямую
+    const width = this.targetWidth;
+    const height = this.targetHeight;
 
     if (this.canvas.width !== width || this.canvas.height !== height) {
       this.canvas.width = width;
       this.canvas.height = height;
       this.gl.viewport(0, 0, width, height);
     }
+  }
+  
+  /** Установить качество */
+  public setQuality(quality: 'ultra_low' | 'low' | 'medium' | 'high'): void {
+    this.quality = quality;
+    const preset = WebGLRenderer.QUALITY_PRESETS[quality];
+    this.targetWidth = preset.width;
+    this.targetHeight = preset.height;
+    
+    // Пересоздаём geometry FBO с новым размером
+    this.recreateGeometryFBO();
+    
+    this.saveSettings();
+    console.log(`📐 Качество: ${quality.toUpperCase()} (${preset.width}×${preset.height}, geometry: ${this.geometryWidth}×${this.geometryHeight})`);
+  }
+  
+  /** Сохранить настройки в localStorage */
+  public saveSettings(): void {
+    const settings = {
+      quality: this.quality,
+      shadows: this.shadowsEnabled,
+      postfx: this.postfxEnabled,
+      katana: this.katanaEnabled,
+      turbo: this.turboEnabled
+    };
+    localStorage.setItem('gameSettings', JSON.stringify(settings));
+  }
+  
+  /** Загрузить настройки из localStorage */
+  private loadSettings(): void {
+    try {
+      const saved = localStorage.getItem('gameSettings');
+      if (saved) {
+        const settings = JSON.parse(saved);
+        if (settings.quality && WebGLRenderer.QUALITY_PRESETS[settings.quality as keyof typeof WebGLRenderer.QUALITY_PRESETS]) {
+          this.quality = settings.quality;
+          const preset = WebGLRenderer.QUALITY_PRESETS[this.quality];
+          this.targetWidth = preset.width;
+          this.targetHeight = preset.height;
+        }
+        if (typeof settings.shadows === 'boolean') this.shadowsEnabled = settings.shadows;
+        if (typeof settings.postfx === 'boolean') this.postfxEnabled = settings.postfx;
+        if (typeof settings.katana === 'boolean') this.katanaEnabled = settings.katana;
+        if (typeof settings.turbo === 'boolean') this.turboEnabled = settings.turbo;
+        console.log('💾 Настройки загружены из localStorage');
+      }
+    } catch (e) {
+      console.warn('⚠️ Не удалось загрузить настройки:', e);
+    }
+  }
+  
+  /** Получить текущее разрешение рендеринга */
+  public getRenderResolution(): { width: number; height: number } {
+    return { width: this.targetWidth, height: this.targetHeight };
   }
 
   /** Рендеринг кадра */
@@ -279,6 +501,7 @@ export class WebGLRenderer {
     // Устанавливаем uniforms
     gl.uniform2f(this.uniforms.resolution, this.canvas.width, this.canvas.height);
     gl.uniform1f(this.uniforms.time, time);
+    gl.uniform1i(this.uniforms.turboMode, this.turboEnabled ? 1 : 0);
     gl.uniform3f(this.uniforms.cameraPos, cameraPos.x, cameraPos.y, cameraPos.z);
     gl.uniform1f(this.uniforms.cameraYaw, cameraYaw);
     gl.uniform1f(this.uniforms.cameraPitch, cameraPitch);
@@ -423,8 +646,77 @@ export class WebGLRenderer {
       gl.uniform1i(this.uniforms.fragmentCount, 0);
     }
 
-    // Рисуем
+    // Настройки графики
+    gl.uniform1i(this.uniforms.shadowsEnabled, this.shadowsEnabled ? 1 : 0);
+    gl.uniform1i(this.uniforms.postfxEnabled, 0); // Постэффекты в composite pass
+    gl.uniform1i(this.uniforms.katanaEnabled, this.katanaEnabled ? 1 : 0); // Катана в geometry pass (временно)
+
+    // === PASS 1: Geometry (низкое разрешение) ===
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.geometryFBO);
+    gl.viewport(0, 0, this.geometryWidth, this.geometryHeight);
+    gl.uniform2f(this.uniforms.resolution, this.geometryWidth, this.geometryHeight);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    
+    // === PASS 2: Composite (полное разрешение) ===
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    
+    if (this.compositeProgram) {
+      gl.useProgram(this.compositeProgram);
+      gl.bindVertexArray(this.vao);  // VAO нужен для обоих проходов
+      
+      // Привязываем текстуру geometry pass
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, this.geometryTexture);
+      gl.uniform1i(this.compositeUniforms.geometryTex, 0);
+      
+      // Composite uniforms - используем targetWidth/Height (рендер разрешение)
+      gl.uniform2f(this.compositeUniforms.resolution, this.targetWidth, this.targetHeight);
+      gl.uniform1f(this.compositeUniforms.time, time);
+      gl.uniform3f(this.compositeUniforms.cameraPos, cameraPos.x, cameraPos.y, cameraPos.z);
+      gl.uniform1f(this.compositeUniforms.cameraYaw, cameraYaw);
+      gl.uniform1f(this.compositeUniforms.cameraPitch, cameraPitch);
+      gl.uniform1f(this.compositeUniforms.katanaAttack, katanaAttack || 0);
+      gl.uniform1f(this.compositeUniforms.katanaBob, katanaBob || 0);
+      gl.uniform1i(this.compositeUniforms.katanaCharges, katanaCharges || 0);
+      gl.uniform1f(this.compositeUniforms.katanaTargetAngle, katanaTargetAngle !== undefined ? katanaTargetAngle : -1);
+      gl.uniform1f(this.compositeUniforms.katanaTargetDist, katanaTargetDist || 100);
+      gl.uniform1i(this.compositeUniforms.katanaAttackType, katanaAttackType || 0);
+      gl.uniform1i(this.compositeUniforms.katanaEnabled, 0); // Катана в geometry pass
+      gl.uniform1i(this.compositeUniforms.postfxEnabled, this.postfxEnabled ? 1 : 0);
+      gl.uniform1i(this.compositeUniforms.era, era || 1);
+      
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+    
+    // FPS counter + адаптивное качество
+    this.frameCount++;
+    if (time - this.lastFpsUpdate >= 1.0) {
+      this.currentFps = this.frameCount;
+      this.frameCount = 0;
+      this.lastFpsUpdate = time;
+      
+      // Обновляем FPS в настройках и на экране
+      const fpsEl = document.getElementById('fps-value');
+      const fpsLive = document.getElementById('fps-live');
+      if (fpsEl) fpsEl.textContent = String(this.currentFps);
+      if (fpsLive) {
+        fpsLive.textContent = String(this.currentFps);
+        // Цвет в зависимости от FPS
+        fpsLive.style.color = this.currentFps >= 55 ? '#00ff88' : 
+                              this.currentFps >= 30 ? '#ffcc00' : '#ff4444';
+      }
+      
+      // Автоматическое снижение качества при низком FPS
+      if (this.currentFps < 25 && this.quality !== 'ultra_low') {
+        const qualities: Array<'ultra_low' | 'low' | 'medium' | 'high'> = ['ultra_low', 'low', 'medium', 'high'];
+        const currentIdx = qualities.indexOf(this.quality);
+        if (currentIdx > 0) {
+          this.setQuality(qualities[currentIdx - 1]);
+          console.warn(`⚠️ Низкий FPS (${this.currentFps}) - качество снижено до ${this.quality}`);
+        }
+      }
+    }
   }
 
   /** Уничтожить рендерер */
