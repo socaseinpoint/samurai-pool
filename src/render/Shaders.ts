@@ -575,16 +575,44 @@ float map(vec3 p) {
       
       if (pType > 0.0) {
         vec3 pickupPos = pickup.xyz;
-        float bob = sin(u_time * 2.0 + pickupPos.x) * 0.1;
+        float bob = sin(u_time * 2.0 + pickupPos.x) * 0.15;
+        float spin = u_time * 2.0; // Вращение
         
-        // Упрощённые пикапы - просто сферы
-        float pickupD = length(p - pickupPos - vec3(0, bob, 0)) - 0.3;
-        if (pickupD < d) {
-          d = pickupD;
-          if (pType == 9.0) materialId = 14; // Красный (хил)
-          else if (pType == 10.0) materialId = 15; // Жёлтый (баф)
-          else if (pType == 11.0) materialId = 17; // Заряд
-          else materialId = 31; // Белый
+        vec3 lp = p - pickupPos - vec3(0, bob + 0.5, 0);
+        
+        // Вращаем вокруг Y
+        float cs = cos(spin), sn = sin(spin);
+        lp.xz = mat2(cs, -sn, sn, cs) * lp.xz;
+        
+        float pickupD;
+        
+        if (pType > 8.5 && pType < 9.5) {
+          // === МАЛЕНЬКАЯ АПТЕЧКА - БЕЛЫЙ КРЕСТ ===
+          float crossV = sdBox(lp, vec3(0.08, 0.35, 0.08));
+          float crossH = sdBox(lp, vec3(0.35, 0.08, 0.08));
+          pickupD = min(crossV, crossH);
+          if (pickupD < d) {
+            d = pickupD;
+            materialId = 31; // Белый светящийся крест
+          }
+        } else if (pType > 11.5 && pType < 12.5) {
+          // === БОЛЬШАЯ АПТЕЧКА - БОЛЬШОЙ БЕЛЫЙ КРЕСТ ===
+          float crossV = sdBox(lp, vec3(0.12, 0.55, 0.12));
+          float crossH = sdBox(lp, vec3(0.55, 0.12, 0.12));
+          pickupD = min(crossV, crossH);
+          if (pickupD < d) {
+            d = pickupD;
+            materialId = 31; // Белый светящийся крест
+          }
+        } else {
+          // Остальные пикапы - сферы
+          pickupD = length(lp) - 0.3;
+          if (pickupD < d) {
+            d = pickupD;
+            if (pType == 10.0) materialId = 15; // Жёлтый (баф)
+            else if (pType == 11.0) materialId = 17; // Заряд
+            else materialId = 31; // Белый
+          }
         }
       }
     }
@@ -1423,31 +1451,55 @@ float sdCapsule(vec3 p, vec3 a, vec3 b, float r) {
   return length(pa - ba * h) - r;
 }
 
-// SDF лезвия катаны - упрощённое для надёжного рендера
+// SDF лезвия катаны - клиновидное сечение с острой кромкой
 float sdKatanaBlade(vec3 p) {
-  float scale = 0.15;
+  float scale = 0.18;  // Чуть крупнее
   vec3 sp = p / scale;
   
   // Длина лезвия
-  float bladeLen = 2.0;
+  float bladeLen = 2.2;
   
-  // Лёгкий изгиб (сори)
-  float curve = sp.y * sp.y * 0.015;
+  // Изгиб катаны (сори) - характерный для японских мечей
+  float curve = sp.y * sp.y * 0.012;
   sp.z -= curve;
   
-  // Сужение к острию
-  float taper = 1.0 - smoothstep(0.0, bladeLen, sp.y) * 0.5;
+  // Сужение к острию (киссаки)
+  float taper = 1.0 - smoothstep(0.0, bladeLen, sp.y) * 0.6;
+  float tipTaper = smoothstep(bladeLen - 0.4, bladeLen, sp.y);
   
-  // Простой бокс вместо треугольного сечения
-  float width = 0.1 * taper;
-  float thick = 0.02 * taper;
+  // === КЛИНОВИДНОЕ СЕЧЕНИЕ (синоги-дзукури) ===
+  // Ширина лезвия (от спинки к кромке)
+  float bladeWidth = 0.09 * taper * (1.0 - tipTaper * 0.5);
   
-  // 2D бокс + ограничение по длине
-  vec2 q = abs(sp.xz) - vec2(width, thick);
-  float d2d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+  // Толщина спинки (мунэ)
+  float spineThick = 0.025 * taper;
+  
+  // Клиновидный профиль: толстая спинка → острая кромка
+  // sp.x = ширина, sp.z = толщина
+  float xDist = abs(sp.x) - bladeWidth;
+  
+  // Клин: толщина уменьшается от спинки (z+) к кромке (z-)
+  float edgeZ = -spineThick * 0.3;  // Позиция режущей кромки
+  float spineZ = spineThick;         // Позиция спинки
+  
+  // Линейная интерполяция толщины от кромки к спинке
+  float normalizedX = clamp((abs(sp.x)) / bladeWidth, 0.0, 1.0);
+  float thickAtX = mix(0.002, spineThick, normalizedX);  // Острая кромка = 2мм
+  
+  float zDist = abs(sp.z - (edgeZ + spineZ) * 0.5) - thickAtX;
+  
+  // Комбинируем
+  float d2d = max(xDist, zDist);
+  
+  // Скругление кромки чтобы raymarching её видел
+  d2d = d2d - 0.003;
+  
+  // Острие (киссаки) - плавное сужение
+  float tipD = length(vec2(sp.x, sp.y - bladeLen + 0.1)) - 0.08 * (1.0 - tipTaper);
+  d2d = mix(d2d, tipD, tipTaper * 0.7);
   
   float d = max(d2d, sp.y - bladeLen);  // Обрезать сверху
-  d = max(d, -sp.y - 0.02);              // Обрезать снизу (начало)
+  d = max(d, -sp.y - 0.02);              // Обрезать снизу
   
   return d * scale;
 }
@@ -1581,10 +1633,10 @@ vec4 renderKatana(vec3 ro, vec3 rd, float attack, float bob, int charges, vec3 a
   localOffset.x += sin(bob) * 0.003;
   localOffset.y += abs(sin(bob * 2.0)) * 0.002;
   
-  // Базовые углы катаны - ОСТРИЕ ВПЕРЁД
-  float rotX = -1.5;  // Лезвие горизонтально, острие вперёд
-  float rotZ = 0.08;  // Минимальный наклон
-  float rotY = 0.05;  // Режущая кромка чуть вниз
+  // Базовые углы катаны - лезвие видно сбоку
+  float rotX = -1.1;  // Острие вперёд-вверх (видно плоскость лезвия)
+  float rotZ = 0.25;  // Наклон вправо
+  float rotY = 0.15;  // Лезвие повёрнуто к игроку
   
   // === УПРЕЖДАЮЩИЙ ЗАМАХ - катана заносится ПРОТИВОПОЛОЖНО врагу! ===
   if (u_katanaTargetAngle > -0.5 && attack < 0.1) {
@@ -3566,33 +3618,35 @@ void main() {
       color *= 1.2;
       
     } else if (mat == 31) {
-      // === БОЛЬШАЯ АПТЕЧКА (на краях карты) ===
-      vec3 healthWhite = vec3(1.0, 1.0, 1.0);
-      vec3 healthGold = vec3(1.0, 0.85, 0.3);
-      vec3 healthGreen = vec3(0.3, 1.0, 0.5);
+      // === БЕЛЫЙ СВЕТЯЩИЙСЯ КРЕСТ (АПТЕЧКА) ===
+      // Мягкая пульсация
+      float pulse = 0.85 + 0.15 * sin(u_time * 3.0);
+      float fastPulse = 0.9 + 0.1 * sin(u_time * 8.0);
       
-      // Пульсация
-      float pulse = 0.7 + 0.3 * sin(u_time * 5.0);
+      // Ядро - чистый яркий белый
+      color = vec3(1.0, 1.0, 1.0);
       
-      // Градиент от золотого к белому
-      float gradient = p.y * 0.5 + 0.5;
-      color = mix(healthGold, healthWhite, gradient);
+      // Очень яркий центр
+      color *= 4.0 * pulse;
       
-      // Зелёный оттенок для "здоровья"
-      color = mix(color, healthGreen, 0.2);
+      // Сильная аура вокруг креста
+      float fresnel = pow(1.0 - max(0.0, dot(-rd, n)), 1.5);
+      vec3 auraColor = vec3(0.95, 0.98, 1.0); // Чуть голубоватая аура
+      color += auraColor * fresnel * 3.5;
       
-      // Очень яркое свечение
-      color *= pulse * 2.5;
-      
-      // Fresnel аура
-      float fresnel = pow(1.0 - max(0.0, dot(-rd, n)), 2.0);
-      color += healthGold * fresnel * 1.5;
-      
-      // Искры
-      float sparkle = sin(u_time * 20.0 + p.x * 10.0 + p.y * 15.0);
-      if (sparkle > 0.9) {
-        color += vec3(1.0) * 0.5;
+      // Мерцающие искорки
+      float sparkle = sin(u_time * 15.0 + p.x * 20.0) * sin(u_time * 12.0 + p.y * 25.0);
+      if (sparkle > 0.7) {
+        color += vec3(1.0) * (sparkle - 0.7) * 5.0;
       }
+      
+      // Лучи света от граней
+      float edgeGlow = pow(max(0.0, 1.0 - abs(dot(n, vec3(0, 1, 0)))), 2.0);
+      color += vec3(1.0) * edgeGlow * fastPulse * 1.5;
+      
+      // Внутреннее сияние
+      float innerGlow = pow(max(0.0, dot(-rd, n)), 3.0);
+      color += vec3(1.0, 1.0, 0.95) * innerGlow * 2.0;
       
     } else if (mat == 30) {
       // === ВОДА В БАССЕЙНЕ (тёмная, атмосферная) ===
@@ -4601,16 +4655,24 @@ float sdCapsule(vec3 p, vec3 a, vec3 b, float r) {
 }
 
 float sdKatanaBlade(vec3 p) {
-  float scale = 0.15;
+  float scale = 0.18;
   vec3 sp = p / scale;
-  float bladeLen = 2.0;
-  float curve = sp.y * sp.y * 0.015;
+  float bladeLen = 2.2;
+  float curve = sp.y * sp.y * 0.012;
   sp.z -= curve;
-  float taper = 1.0 - smoothstep(0.0, bladeLen, sp.y) * 0.5;
-  float width = 0.1 * taper;
-  float thick = 0.02 * taper;
-  vec2 q = abs(sp.xz) - vec2(width, thick);
-  float d2d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+  float taper = 1.0 - smoothstep(0.0, bladeLen, sp.y) * 0.6;
+  float tipTaper = smoothstep(bladeLen - 0.4, bladeLen, sp.y);
+  float bladeWidth = 0.09 * taper * (1.0 - tipTaper * 0.5);
+  float spineThick = 0.025 * taper;
+  float xDist = abs(sp.x) - bladeWidth;
+  float edgeZ = -spineThick * 0.3;
+  float spineZ = spineThick;
+  float normalizedX = clamp((abs(sp.x)) / bladeWidth, 0.0, 1.0);
+  float thickAtX = mix(0.002, spineThick, normalizedX);
+  float zDist = abs(sp.z - (edgeZ + spineZ) * 0.5) - thickAtX;
+  float d2d = max(xDist, zDist) - 0.003;
+  float tipD = length(vec2(sp.x, sp.y - bladeLen + 0.1)) - 0.08 * (1.0 - tipTaper);
+  d2d = mix(d2d, tipD, tipTaper * 0.7);
   float d = max(d2d, sp.y - bladeLen);
   d = max(d, -sp.y - 0.02);
   return d * scale;
@@ -4703,9 +4765,9 @@ vec4 renderKatana(vec3 ro, vec3 rd, float attack, float bob, int charges, vec3 a
   localOffset.x += sin(bob) * 0.003;
   localOffset.y += abs(sin(bob * 2.0)) * 0.002;
   
-  float rotX = -1.5;
-  float rotZ = 0.08;
-  float rotY = 0.05;
+  float rotX = -1.1;
+  float rotZ = 0.25;
+  float rotY = 0.15;
   
   // Упреждающий замах
   if (u_katanaTargetAngle > -0.5 && attack < 0.1) {

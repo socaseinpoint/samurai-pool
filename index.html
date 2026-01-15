@@ -22,6 +22,9 @@
         <span id="health-value">100</span>
       </div>
       
+      <!-- FPS (всегда виден) -->
+      <div id="fps-display"><span id="fps-live">60</span> FPS</div>
+      
       <!-- Враги -->
       <div id="ammo">
         <div id="ammo-label">ВРАГИ</div>
@@ -45,6 +48,15 @@
       
       <!-- Эффект урона -->
       <div id="damage-overlay"></div>
+      
+      <!-- Overlay паузы (при потере фокуса) -->
+      <div id="pause-overlay" style="display: none;" onclick="window.game?.hidePauseOverlay?.()">
+        <div class="pause-content">
+          <div class="pause-icon">⏸</div>
+          <div class="pause-text">ПАУЗА</div>
+          <div class="pause-hint">КЛИКНИТЕ ИЛИ НАЖМИТЕ ЛЮБУЮ КЛАВИШУ</div>
+        </div>
+      </div>
     </div>
     
     <!-- Стартовый экран -->
@@ -85,6 +97,33 @@
             <input type="range" id="sens-slider" min="1" max="100" value="50">
             <span id="sens-value">50%</span>
           </div>
+                  <div class="settings-divider">ГРАФИКА</div>
+                  <div class="setting">
+                    <label>КАЧЕСТВО</label>
+                    <select id="quality-select">
+                      <option value="ultra_low">МИНИМУМ (426×240)</option>
+                      <option value="low" selected>НИЗКОЕ (640×360)</option>
+                      <option value="medium">СРЕДНЕЕ (854×480)</option>
+                      <option value="high">ВЫСОКОЕ (1280×720)</option>
+                    </select>
+                  </div>
+                  <div class="setting checkbox-setting">
+                    <label>ТЕНИ</label>
+                    <input type="checkbox" id="shadows-toggle" checked>
+                  </div>
+                  <div class="setting checkbox-setting">
+                    <label>ПОСТЭФФЕКТЫ</label>
+                    <input type="checkbox" id="postfx-toggle" checked>
+                  </div>
+                  <div class="setting checkbox-setting">
+                    <label>КАТАНА 3D</label>
+                    <input type="checkbox" id="katana-toggle" checked>
+                  </div>
+                  <div class="setting checkbox-setting turbo-setting">
+                    <label>⚡ ТУРБО</label>
+                    <input type="checkbox" id="turbo-toggle">
+                  </div>
+                  <div id="fps-counter">FPS: <span id="fps-value">60</span></div>
         </div>
       </div>
     </div>

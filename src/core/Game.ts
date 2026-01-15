@@ -421,6 +421,9 @@ export class Game {
     this.targetManager.onWaveComplete = (wave) => {
       this.hud.showWaveComplete(wave);
       
+      // Сообщение войти в бассейн для следующей волны
+      setTimeout(() => this.hud.showMessage('🏊 ВОЙДИ В БАССЕЙН! 🏊', 'cyan'), 2000);
+      
       // Возврат к обычной музыке после босса
       if (wave === 5 || wave === 10 || wave === 15) {
         this.audio.setBossMusic(null);
@@ -531,6 +534,11 @@ export class Game {
         this.gameOver();
       }
     };
+    
+    // === ПРЕДУПРЕЖДЕНИЕ О ВЗРЫВЕ БЕЙНЛИНГА ===
+    this.targetManager.onBanelingAboutToExplode = () => {
+      this.audio.playBanelingWarning();
+    };
   }
 
   /** Замедление от фантомов */
@@ -558,6 +566,51 @@ export class Game {
       if (sensValue) sensValue.textContent = `${value}%`;
       // Чувствительность от 0.001 до 0.01
       this.input.setSensitivity(0.001 + (value / 100) * 0.009);
+    });
+
+    // === НАСТРОЙКИ ГРАФИКИ ===
+    const qualitySelect = document.getElementById('quality-select') as HTMLSelectElement;
+    const shadowsToggle = document.getElementById('shadows-toggle') as HTMLInputElement;
+    const postfxToggle = document.getElementById('postfx-toggle') as HTMLInputElement;
+    const katanaToggle = document.getElementById('katana-toggle') as HTMLInputElement;
+
+    // Синхронизируем UI с текущими значениями
+    if (qualitySelect) qualitySelect.value = this.renderer.quality;
+    if (shadowsToggle) shadowsToggle.checked = this.renderer.shadowsEnabled;
+    if (postfxToggle) postfxToggle.checked = this.renderer.postfxEnabled;
+    if (katanaToggle) katanaToggle.checked = this.renderer.katanaEnabled;
+
+    qualitySelect?.addEventListener('change', (e) => {
+      e.stopPropagation();
+      this.renderer.setQuality(qualitySelect.value as 'ultra_low' | 'low' | 'medium' | 'high');
+    });
+
+    shadowsToggle?.addEventListener('change', (e) => {
+      e.stopPropagation();
+      this.renderer.shadowsEnabled = shadowsToggle.checked;
+      this.renderer.saveSettings();
+    });
+
+    postfxToggle?.addEventListener('change', (e) => {
+      e.stopPropagation();
+      this.renderer.postfxEnabled = postfxToggle.checked;
+      this.renderer.saveSettings();
+    });
+
+    katanaToggle?.addEventListener('change', (e) => {
+      e.stopPropagation();
+      this.renderer.katanaEnabled = katanaToggle.checked;
+      this.renderer.saveSettings();
+    });
+
+    // Турбо режим
+    const turboToggle = document.getElementById('turbo-toggle') as HTMLInputElement;
+    if (turboToggle) turboToggle.checked = this.renderer.turboEnabled;
+    
+    turboToggle?.addEventListener('change', (e) => {
+      e.stopPropagation();
+      this.renderer.turboEnabled = turboToggle.checked;
+      this.renderer.saveSettings();
     });
 
     // Предотвращаем запуск игры при клике на слайдеры и кнопки
@@ -618,9 +671,61 @@ export class Game {
       if (e.code === 'KeyF') {
         this.toggleFullscreen();
       }
+      // Любая клавиша снимает паузу
+      if (this.state.isPaused && this.state.isRunning) {
+        this.hidePauseOverlay();
+      }
     });
 
     window.addEventListener('resize', () => this.handleResize());
+    
+    // === ОБРАБОТКА ПОТЕРИ ФОКУСА / POINTER LOCK ===
+    // При потере pointer lock - показываем паузу
+    document.addEventListener('pointerlockchange', () => {
+      if (this.state.isRunning && document.pointerLockElement === null) {
+        this.showPauseOverlay();
+      }
+    });
+    
+    // При сворачивании окна
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden && this.state.isRunning) {
+        this.showPauseOverlay();
+      }
+    });
+    
+    // Клик по pause overlay - возобновляем (делегирование)
+    document.addEventListener('mousedown', (e) => {
+      const target = e.target as HTMLElement;
+      const pauseOverlay = document.getElementById('pause-overlay');
+      if (pauseOverlay && pauseOverlay.style.display !== 'none') {
+        console.log('🎮 Клик по паузе, возобновляем...');
+        e.preventDefault();
+        e.stopPropagation();
+        this.hidePauseOverlay();
+      }
+    });
+  }
+  
+  /** Показать overlay паузы */
+  private showPauseOverlay(): void {
+    const pauseOverlay = document.getElementById('pause-overlay');
+    if (pauseOverlay && this.state.isRunning) {
+      pauseOverlay.style.display = 'flex';
+      this.state.isPaused = true;
+    }
+  }
+  
+  /** Скрыть overlay паузы и продолжить */
+  public hidePauseOverlay(): void {
+    const pauseOverlay = document.getElementById('pause-overlay');
+    if (pauseOverlay && pauseOverlay.style.display !== 'none') {
+      console.log('🎮 hidePauseOverlay вызван');
+      pauseOverlay.style.display = 'none';
+      this.state.isPaused = false;
+      // Запрашиваем pointer lock через Input (он обновит свой флаг isPointerLocked)
+      this.input.requestPointerLock();
+    }
   }
 
   /** Запуск игры */
@@ -658,13 +763,16 @@ export class Game {
     // Начинаем с указанной волны
     this.targetManager.startGame(wave);
     
-    // Сообщение о боссе
+    // Сообщение - войти в бассейн для старта
+    this.hud.showMessage('🏊 ВОЙДИ В БАССЕЙН! 🏊', 'cyan');
+    
+    // Сообщение о боссе (покажется после входа в бассейн)
     if (wave === 5) {
-      this.hud.showMessage('⚠️ ЗЕЛЁНЫЙ БОСС! ⚠️', 'lime');
+      setTimeout(() => this.hud.showMessage('⚠️ ЗЕЛЁНЫЙ БОСС! ⚠️', 'lime'), 100);
     } else if (wave === 10) {
-      this.hud.showMessage('☠️ ЧЁРНЫЙ БОСС! ☠️', 'purple');
+      setTimeout(() => this.hud.showMessage('☠️ ЧЁРНЫЙ БОСС! ☠️', 'purple'), 100);
     } else if (wave === 15) {
-      this.hud.showMessage('⚡ СИНИЙ БОСС! ⚡', 'cyan');
+      setTimeout(() => this.hud.showMessage('⚡ СИНИЙ БОСС! ⚡', 'cyan'), 100);
     }
 
     this.handleResize();

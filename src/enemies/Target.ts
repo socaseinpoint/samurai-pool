@@ -113,6 +113,18 @@ export class Target {
   /** Hopper: время до следующего прыжка */
   private hopTimer = 0;
 
+  /** Baneling: вертикальная скорость (для прыжков) */
+  private banelingVerticalVel = 0;
+  
+  /** Baneling: на земле? */
+  private banelingOnGround = true;
+  
+  /** Baneling: готовится взорваться? */
+  public isAboutToExplode = false;
+  
+  /** Baneling: таймер до взрыва (публичный для проверки) */
+  public explodeTimer = 0;
+
   /** Runner: угол уклонения */
   private dodgeAngle = 0;
 
@@ -210,6 +222,9 @@ export class Target {
   
   /** Callback при вскрике */
   public onSpikerScream?: () => void;
+  
+  /** Callback перед взрывом бейнлинга (характерный звук) */
+  public onAboutToExplode?: () => void;
 
   /** Система коллизий */
   private collision: ICollisionSystem | null = null;
@@ -329,16 +344,51 @@ export class Target {
     }
   }
 
-  /** Обновление бейнлинга - катится по земле к игроку */
+  /** Обновление бейнлинга - катится по земле к игроку, прыгает через препятствия */
   private updateBaneling(dt: number, playerPos: Vec3, time: number): void {
     // Направление к игроку (только по XZ - катимся по земле!)
     const dx = playerPos.x - this.position.x;
     const dz = playerPos.z - this.position.z;
     const dist = Math.sqrt(dx * dx + dz * dz);
 
+    // === ЗАДЕРЖКА ПЕРЕД ВЗРЫВОМ ===
+    // Когда близко к игроку - начинаем отсчёт
+    if (dist < 2.0 && !this.isAboutToExplode) {
+      this.isAboutToExplode = true;
+      this.explodeTimer = 0.5; // 0.5 сек до взрыва
+      this.onAboutToExplode?.(); // Звук предупреждения
+    }
+    
+    // Если игрок отошёл - отменяем взрыв и продолжаем преследование
+    if (this.isAboutToExplode && dist > 3.5) {
+      this.isAboutToExplode = false;
+      this.explodeTimer = 0;
+    }
+    
+    // Если готовимся взорваться - отсчитываем таймер
+    if (this.isAboutToExplode) {
+      this.explodeTimer -= dt;
+      // Дрожание перед взрывом (интенсивнее к концу)
+      const shake = (0.5 - this.explodeTimer) * 0.3;
+      this.position.x += (Math.random() - 0.5) * shake;
+      this.position.z += (Math.random() - 0.5) * shake;
+      // Не двигаемся к игроку - замираем на месте
+      return;
+    }
+
     if (dist > 0.1) {
       const dirX = dx / dist;
       const dirZ = dz / dist;
+
+      // === ПРЫЖКИ ЧЕРЕЗ ПРЕПЯТСТВИЯ ===
+      if (this.collision?.getObstacleHeight && this.banelingOnGround) {
+        const obstacleHeight = this.collision.getObstacleHeight(this.position, dirX, dirZ, 2.0);
+        // Если есть препятствие - прыгаем!
+        if (obstacleHeight > this.position.y && obstacleHeight < 8) {
+          this.banelingVerticalVel = 10 + (obstacleHeight - this.position.y) * 2; // Прыжок
+          this.banelingOnGround = false;
+        }
+      }
 
       // Агрессия растёт при приближении
       const aggression = 1.0 + Math.max(0, (15 - dist) / 15) * 0.8;
@@ -373,7 +423,7 @@ export class Target {
       this.velocity.x = dirX * currentSpeed + perpX * offsetX * 0.3;
       this.velocity.z = dirZ * currentSpeed + perpZ * offsetZ * 0.3;
 
-      // Применяем движение с проверкой коллизий
+      // Применяем горизонтальное движение с проверкой коллизий
       const newX = this.position.x + this.velocity.x * dt;
       const newZ = this.position.z + this.velocity.z * dt;
       
@@ -383,8 +433,20 @@ export class Target {
         this.position.z = newZ;
       }
       
-      // Бейнлинг всегда на земле (его радиус ~0.7)
-      this.position.y = this.radius;
+      // === ВЕРТИКАЛЬНОЕ ДВИЖЕНИЕ (прыжки) ===
+      if (!this.banelingOnGround) {
+        this.banelingVerticalVel -= 25 * dt; // Гравитация
+        this.position.y += this.banelingVerticalVel * dt;
+        
+        if (this.position.y <= this.radius) {
+          this.position.y = this.radius;
+          this.banelingVerticalVel = 0;
+          this.banelingOnGround = true;
+        }
+      } else {
+        // На земле - небольшое подпрыгивание при движении
+        this.position.y = this.radius + Math.abs(Math.sin(time * 8 + this.phase)) * 0.15;
+      }
     }
   }
 
@@ -1330,6 +1392,12 @@ export class TargetManager {
   /** Волна активна? */
   public waveActive = false;
 
+  /** Ожидаем входа игрока в бассейн для старта волны */
+  public waitingForPoolEntry = false;
+
+  /** Радиус бассейна для триггера */
+  private poolTriggerRadius = 8.0;
+
   /** Задержка между волнами (секунды) */
   private waveDelay = 4.0;
   private waveTimer = 0;
@@ -1409,6 +1477,9 @@ export class TargetManager {
   /** Callback при попадании иголки в игрока */
   public onSpikeHit?: () => void;
   
+  /** Callback когда бейнлинг готовится взорваться (звук предупреждения) */
+  public onBanelingAboutToExplode?: () => void;
+  
   // === СИСТЕМА ЛАЗЕРОВ СПАЙКЕРОВ ===
   /** Активные лазеры */
   public spikes: Array<{
@@ -1443,7 +1514,10 @@ export class TargetManager {
     this.greenBossPhase2 = false;
     this.spawnQueue = []; // Очищаем очередь порталов
     this.portalTimers = { left: 0, right: 0 };
-    this.startNextWave();
+    
+    // Ждём входа игрока в бассейн для старта первой волны
+    this.waitingForPoolEntry = true;
+    this.waveActive = false;
   }
 
   /** Начать следующую волну */
@@ -1709,6 +1783,13 @@ export class TargetManager {
       };
     }
     
+    // Подключаем callback для бейнлингов (звук перед взрывом)
+    if (item.type === 'baneling') {
+      enemy.onAboutToExplode = () => {
+        this.onBanelingAboutToExplode?.();
+      };
+    }
+    
     this.targets.push(enemy);
     
     // Callback для звука появления
@@ -1741,11 +1822,23 @@ export class TargetManager {
 
   /** Обновление */
   public update(dt: number, playerPos: Vec3, time: number): void {
+    // Проверяем вход игрока в бассейн для старта волны
+    if (this.waitingForPoolEntry) {
+      const distFromCenter = Math.sqrt(playerPos.x * playerPos.x + playerPos.z * playerPos.z);
+      if (distFromCenter < this.poolTriggerRadius) {
+        // Игрок вошёл в бассейн - начинаем волну!
+        this.waitingForPoolEntry = false;
+        this.startNextWave();
+      }
+      return; // Пока ждём - не обновляем врагов
+    }
+
     // Таймер между волнами
     if (!this.waveActive && this.waveTimer > 0) {
       this.waveTimer -= dt;
       if (this.waveTimer <= 0) {
-        this.startNextWave();
+        // Между волнами тоже ждём входа в бассейн
+        this.waitingForPoolEntry = true;
       }
       return;
     }
@@ -1806,8 +1899,15 @@ export class TargetManager {
             this.onPlayerHit?.(target);
             this.phantomDamageCooldown.set(target['id'] as number, 1.5); // 1.5 сек кулдаун для боссов
           }
+        } else if (target.enemyType === 'baneling') {
+          // Бейнлинг взрывается ТОЛЬКО после задержки!
+          if (target.isAboutToExplode && target.explodeTimer <= 0) {
+            this.onPlayerHit?.(target);
+            target.active = false;
+          }
+          // Если ещё не готов - ничего не делаем, он дрожит и ждёт
         } else {
-          // Обычные враги взрываются
+          // Остальные враги взрываются сразу
           this.onPlayerHit?.(target);
           target.active = false;
         }
@@ -2343,6 +2443,11 @@ export class TargetManager {
     );
     
     const baneling = new Target(pos, speed, this.enemyIdCounter++, 'baneling', this.collision || undefined);
+    
+    // Подключаем callback для звука перед взрывом
+    baneling.onAboutToExplode = () => {
+      this.onBanelingAboutToExplode?.();
+    };
     
     baneling.velocity = vec3(
       Math.cos(angle) * 8,

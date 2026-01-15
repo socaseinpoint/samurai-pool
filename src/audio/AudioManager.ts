@@ -977,6 +977,89 @@ export class AudioManager {
     noise.start(now);
   }
   
+  /** Звук предупреждения перед взрывом бейнлинга - хоррорная сирена */
+  public playBanelingWarning(): void {
+    if (!this.ctx || !this.sfxGain) return;
+    
+    const now = this.ctx.currentTime;
+    const duration = 0.5;
+    
+    // === ЖУТКАЯ СИРЕНА - воющий звук ===
+    const siren = this.ctx.createOscillator();
+    const sirenGain = this.ctx.createGain();
+    const sirenFilter = this.ctx.createBiquadFilter();
+    
+    siren.type = 'sawtooth'; // Резкий пилообразный звук
+    // Сирена воет вверх-вниз очень быстро
+    siren.frequency.setValueAtTime(300, now);
+    siren.frequency.linearRampToValueAtTime(800, now + 0.1);
+    siren.frequency.linearRampToValueAtTime(400, now + 0.2);
+    siren.frequency.linearRampToValueAtTime(900, now + 0.3);
+    siren.frequency.linearRampToValueAtTime(500, now + 0.4);
+    siren.frequency.linearRampToValueAtTime(1200, now + 0.5);
+    
+    sirenFilter.type = 'bandpass';
+    sirenFilter.frequency.value = 600;
+    sirenFilter.Q.value = 8; // Резонанс для жуткого звука
+    
+    sirenGain.gain.setValueAtTime(0.15, now);
+    sirenGain.gain.linearRampToValueAtTime(0.4, now + 0.3);
+    sirenGain.gain.linearRampToValueAtTime(0.5, now + duration);
+    
+    siren.connect(sirenFilter);
+    sirenFilter.connect(sirenGain);
+    sirenGain.connect(this.sfxGain);
+    
+    siren.start(now);
+    siren.stop(now + duration);
+    
+    // === НИЗКИЙ ГУДОК - зловещий бас ===
+    const bass = this.ctx.createOscillator();
+    const bassGain = this.ctx.createGain();
+    
+    bass.type = 'sine';
+    bass.frequency.setValueAtTime(60, now);
+    bass.frequency.linearRampToValueAtTime(100, now + duration);
+    
+    bassGain.gain.setValueAtTime(0.3, now);
+    bassGain.gain.linearRampToValueAtTime(0.5, now + duration);
+    
+    bass.connect(bassGain);
+    bassGain.connect(this.sfxGain);
+    
+    bass.start(now);
+    bass.stop(now + duration);
+    
+    // === ТРЕСК/ИСКАЖЕНИЕ - цифровой хоррор ===
+    const noiseLen = Math.floor(this.ctx.sampleRate * duration);
+    const noiseBuffer = this.ctx.createBuffer(1, noiseLen, this.ctx.sampleRate);
+    const noiseData = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < noiseLen; i++) {
+      const t = i / noiseLen;
+      // Пульсирующий треск
+      const pulse = Math.sin(t * 80) > 0 ? 1 : 0.3;
+      noiseData[i] = (Math.random() * 2 - 1) * t * pulse * 0.4;
+    }
+    
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = noiseBuffer;
+    
+    const noiseFilter = this.ctx.createBiquadFilter();
+    noiseFilter.type = 'highpass';
+    noiseFilter.frequency.value = 2000;
+    
+    const noiseGain = this.ctx.createGain();
+    noiseGain.gain.setValueAtTime(0.1, now);
+    noiseGain.gain.linearRampToValueAtTime(0.3, now + duration);
+    
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(this.sfxGain);
+    
+    noise.start(now);
+    noise.stop(now + duration);
+  }
+  
   /** Звук появления фантома - зловещий свист из портала */
   public playPhantomSpawn(): void {
     if (!this.ctx || !this.sfxGain) return;
