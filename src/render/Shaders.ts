@@ -73,10 +73,10 @@ uniform int u_fragmentCount;
 in vec2 v_uv;
 out vec4 fragColor;
 
-// === ПАРАМЕТРЫ РЕЙТРЕЙСИНГА (ОПТИМИЗИРОВАНО) ===
-#define MAX_STEPS 48
-#define MAX_DIST 100.0
-#define SURF_DIST 0.005
+// === ПАРАМЕТРЫ РЕЙТРЕЙСИНГА (ТУРБО-ОПТИМИЗАЦИЯ) ===
+#define MAX_STEPS 32
+#define MAX_DIST 80.0
+#define SURF_DIST 0.01
 #define PI 3.14159265
 
 // === РАЗМЕРЫ АРЕНЫ ===
@@ -107,7 +107,7 @@ vec2 getDeathEffect(vec3 worldPos) {
   float totalDissolve = 0.0;
   float totalGlitch = 0.0;
   
-  for (int i = 0; i < 8; i++) {
+  for (int i = 0; i < 4; i++) {
     vec4 death = u_deathEffects[i];
     if (death.w > 0.01) {
       float dist = length(worldPos - death.xyz);
@@ -423,9 +423,9 @@ float map(vec3 p) {
     }
   }
   
-  // === ЭНЕРГЕТИЧЕСКИЕ ЛУЧИ ===
+  // === ЭНЕРГЕТИЧЕСКИЕ ЛУЧИ (оптимизировано) ===
   for (int i = 0; i < u_dartCount; i++) {
-    if (i >= 16) break;
+    if (i >= 8) break;
     vec4 dart = u_darts[i];
     vec4 dartDir = u_dartDirs[i];
     
@@ -442,7 +442,7 @@ float map(vec3 p) {
       
       // Длинный красивый след
       float trail = 1000.0;
-      for (int t = 1; t <= 8; t++) {
+      for (int t = 1; t <= 4; t++) {
         float trailDist = float(t) * 0.4;
         vec3 trailPos = dartPos - dir * trailDist;
         float trailSize = 0.2 - float(t) * 0.02;
@@ -453,7 +453,7 @@ float map(vec3 p) {
       }
       
       // Дополнительные искры вокруг следа
-      for (int s = 0; s < 4; s++) {
+      for (int s = 0; s < 2; s++) {
         float sparkOffset = float(s) * 0.5 + sin(u_time * 20.0 + float(s)) * 0.3;
         vec3 sparkPos = dartPos - dir * sparkOffset;
         sparkPos += vec3(
@@ -1301,7 +1301,7 @@ float map(vec3 p) {
   
   // === ФРАГМЕНТЫ ВРАГОВ (КАПЛИ ЖИЖИ) ===
   for (int i = 0; i < u_fragmentCount; i++) {
-    if (i >= 32) break;
+    if (i >= 16) break;
     vec4 frag = u_fragments[i];
     if (frag.w > 0.0) {
       vec3 fp = p - frag.xyz;
@@ -1425,56 +1425,51 @@ vec3 getNormal(vec3 p) {
   );
 }
 
-// === ДИНАМИЧЕСКИЕ ТЕНИ ОТ ВРАГОВ ===
+// === ДИНАМИЧЕСКИЕ ТЕНИ ОТ ВРАГОВ (оптимизировано) ===
 float enemyShadow(vec3 p, vec4 targets[16], int targetCount) {
-  float shadow = 1.0;
-  
   // Только на полу (y < 0.5)
   if (p.y > 0.5) return 1.0;
   
-  for (int i = 0; i < 16; i++) {
+  float shadow = 1.0;
+  
+  for (int i = 0; i < 8; i++) {
     if (i >= targetCount) break;
     
     vec4 enemy = targets[i];
-    if (enemy.w < 0.5) continue; // Неактивный
+    if (enemy.w < 0.5) continue;
     
-    // Blob shadow под врагом
     vec2 toEnemy = p.xz - enemy.xz;
     float dist = length(toEnemy);
-    float enemyHeight = enemy.y;
+    if (dist > 3.0) continue; // Далеко - пропускаем
     
-    // Размер тени зависит от высоты врага
-    float shadowRadius = 0.8 + enemyHeight * 0.3;
-    float shadowStrength = smoothstep(shadowRadius, 0.0, dist);
-    shadowStrength *= smoothstep(5.0, 0.0, enemyHeight); // Выше = слабее тень
-    
-    shadow = min(shadow, 1.0 - shadowStrength * 0.6);
+    float shadowStrength = smoothstep(1.5, 0.0, dist);
+    shadow = min(shadow, 1.0 - shadowStrength * 0.5);
   }
   
   return shadow;
 }
 
-// === БЫСТРЫЕ ТЕНИ (6 шагов) ===
+// === БЫСТРЫЕ ТЕНИ (3 шага) ===
 float softShadow(vec3 ro, vec3 rd, float mint, float maxt, float k) {
   float res = 1.0;
   float t = mint;
   
-  for (int i = 0; i < 6; i++) {
+  for (int i = 0; i < 3; i++) {
     float h = map(ro + rd * t);
     res = min(res, k * h / t);
-    t += clamp(h, 0.2, 1.0);
-    if (res < 0.01 || t > maxt) break;
+    t += clamp(h, 0.5, 3.0);
+    if (res < 0.1 || t > maxt) break;
   }
-  return clamp(res, 0.2, 1.0);
+  return clamp(res, 0.25, 1.0);
 }
 
-// === КОНТАКТНЫЕ ТЕНИ (динамические) ===
+// === КОНТАКТНЫЕ ТЕНИ (2 шага) ===
 float contactShadowRay(vec3 p, vec3 rd, float maxDist) {
-  float t = 0.05;
-  for (int i = 0; i < 4; i++) {
+  float t = 0.1;
+  for (int i = 0; i < 2; i++) {
     float h = map(p + rd * t);
-    if (h < 0.01) return 0.3;
-    t += max(h, 0.1);
+    if (h < 0.02) return 0.4;
+    t += max(h, 0.3);
     if (t > maxDist) break;
   }
   return 1.0;
@@ -1849,7 +1844,7 @@ vec4 renderKatana(vec3 ro, vec3 rd, float attack, float bob, int charges, vec3 a
   float t = 0.0;
   float maxDist = 1.0;
   
-  for (int i = 0; i < 64; i++) {
+  for (int i = 0; i < 32; i++) {
     vec3 p = ro + rd * t;
     
     // Трансформация в локальное пространство катаны
@@ -1857,7 +1852,7 @@ vec4 renderKatana(vec3 ro, vec3 rd, float attack, float bob, int charges, vec3 a
     
     float d = sdKatana(localP);
     
-    if (d < 0.0005) {
+    if (d < 0.001) {
       vec3 hitP = localP;
       int mat = getKatanaMaterial(hitP);
       
