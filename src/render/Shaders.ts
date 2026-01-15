@@ -73,10 +73,10 @@ uniform int u_fragmentCount;
 in vec2 v_uv;
 out vec4 fragColor;
 
-// === ПАРАМЕТРЫ РЕЙТРЕЙСИНГА (ТУРБО-ОПТИМИЗАЦИЯ) ===
-#define MAX_STEPS 32
-#define MAX_DIST 80.0
-#define SURF_DIST 0.01
+// === ПАРАМЕТРЫ РЕЙТРЕЙСИНГА (УЛЬТРА-ОПТИМИЗАЦИЯ) ===
+#define MAX_STEPS 24
+#define MAX_DIST 60.0
+#define SURF_DIST 0.015
 #define PI 3.14159265
 
 // === РАЗМЕРЫ АРЕНЫ ===
@@ -411,10 +411,10 @@ float map(vec3 p) {
         materialId = 19; // Снаряд кислоты
       }
       
-      // Хвост из капель
-      for (int j = 1; j <= 3; j++) {
-        vec3 tailPos = projPos - vec3(0.0, float(j) * 0.4, 0.0);
-        float tailDrop = length(p - tailPos) - (0.3 - float(j) * 0.08);
+      // Хвост из капель (упрощён)
+      for (int j = 1; j <= 2; j++) {
+        vec3 tailPos = projPos - vec3(0.0, float(j) * 0.5, 0.0);
+        float tailDrop = length(p - tailPos) - (0.25 - float(j) * 0.1);
         if (tailDrop < d) {
           d = tailDrop;
           materialId = 19;
@@ -442,10 +442,10 @@ float map(vec3 p) {
       
       // Длинный красивый след
       float trail = 1000.0;
-      for (int t = 1; t <= 4; t++) {
-        float trailDist = float(t) * 0.4;
+      for (int t = 1; t <= 2; t++) {
+        float trailDist = float(t) * 0.6;
         vec3 trailPos = dartPos - dir * trailDist;
-        float trailSize = 0.2 - float(t) * 0.02;
+        float trailSize = 0.18 - float(t) * 0.04;
         if (trailSize > 0.02) {
           float trailSphere = length(p - trailPos) - trailSize;
           trail = min(trail, trailSphere);
@@ -1094,7 +1094,7 @@ float map(vec3 p) {
   // 11-12=boss_green, 13-14=boss_black, 15-16=boss_blue
   // w >= 100 = умирает (тип = w - 100)
   for (int i = 0; i < u_targetCount; i++) {
-    if (i >= 16) break;
+    if (i >= 12) break;
     vec4 target = u_targets[i];
     if (target.w > 0.5) {
       // Проверка на умирающего врага
@@ -1416,7 +1416,7 @@ float rayMarch(vec3 ro, vec3 rd) {
 
 vec3 getNormal(vec3 p) {
   // Тетраэдрный метод - 4 вызова вместо 6!
-  vec2 e = vec2(0.003, -0.003);
+  vec2 e = vec2(0.01, -0.01);
   return normalize(
     e.xyy * map(p + e.xyy) +
     e.yyx * map(p + e.yyx) +
@@ -1449,18 +1449,18 @@ float enemyShadow(vec3 p, vec4 targets[16], int targetCount) {
   return shadow;
 }
 
-// === БЫСТРЫЕ ТЕНИ (3 шага) ===
+// === БЫСТРЫЕ ТЕНИ (2 шага) ===
 float softShadow(vec3 ro, vec3 rd, float mint, float maxt, float k) {
   float res = 1.0;
   float t = mint;
   
-  for (int i = 0; i < 3; i++) {
+  for (int i = 0; i < 2; i++) {
     float h = map(ro + rd * t);
     res = min(res, k * h / t);
-    t += clamp(h, 0.5, 3.0);
-    if (res < 0.1 || t > maxt) break;
+    t += clamp(h, 1.0, 5.0);
+    if (res < 0.2 || t > maxt) break;
   }
-  return clamp(res, 0.25, 1.0);
+  return clamp(res, 0.3, 1.0);
 }
 
 // === КОНТАКТНЫЕ ТЕНИ (2 шага) ===
@@ -1497,21 +1497,10 @@ float contactShadow(vec3 p) {
   return smoothstep(-1.0, 2.0, p.y) * 0.5 + 0.5;
 }
 
-// === КРАСИВАЯ ПЛЁНОЧНАЯ ЗЕРНИСТОСТЬ ===
+// === ПЛЁНОЧНАЯ ЗЕРНИСТОСТЬ (упрощённая) ===
 float filmGrain(vec2 uv, float time) {
-  // Динамический шум меняется каждый кадр
   float seed = dot(uv, vec2(12.9898, 78.233)) + time;
-  float noise1 = fract(sin(seed) * 43758.5453);
-  float noise2 = fract(sin(seed * 1.1) * 28461.2314);
-  float noise3 = fract(sin(seed * 0.9) * 51732.8912);
-  
-  // Смешиваем несколько слоёв для органичности
-  float grain = (noise1 + noise2 + noise3) / 3.0;
-  
-  // Центрируем около 0 для симметричного влияния
-  grain = grain - 0.5;
-  
-  return grain;
+  return fract(sin(seed) * 43758.5453) - 0.5;
 }
 
 // === КАУСТИКИ (упрощённые) ===
@@ -1844,7 +1833,7 @@ vec4 renderKatana(vec3 ro, vec3 rd, float attack, float bob, int charges, vec3 a
   float t = 0.0;
   float maxDist = 1.0;
   
-  for (int i = 0; i < 32; i++) {
+  for (int i = 0; i < 20; i++) {
     vec3 p = ro + rd * t;
     
     // Трансформация в локальное пространство катаны
@@ -1852,7 +1841,7 @@ vec4 renderKatana(vec3 ro, vec3 rd, float attack, float bob, int charges, vec3 a
     
     float d = sdKatana(localP);
     
-    if (d < 0.001) {
+    if (d < 0.002) {
       vec3 hitP = localP;
       int mat = getKatanaMaterial(hitP);
       
@@ -2070,24 +2059,17 @@ float lightning(vec2 uv, float time, float seed) {
   // Основной канал молнии с зигзагами
   float bolt = 0.0;
   float x = strikeX;
-  float segments = 8.0;
+  float segments = 4.0;
   
   for (float i = 0.0; i < segments; i++) {
     float segY = 1.0 - i / segments;
     float nextY = 1.0 - (i + 1.0) / segments;
+    float nextX = x + (fract(sin((strikeTime + i) * 73.7) * 43758.5453) - 0.5) * 0.4;
     
-    // Случайное смещение для зигзага
-    float nextX = x + (fract(sin((strikeTime + i) * 73.7) * 43758.5453) - 0.5) * 0.3;
-    
-    // Проверяем попадает ли пиксель в сегмент
     if (uv.y < segY && uv.y > nextY) {
       float t = (segY - uv.y) / (segY - nextY);
-      float lineX = mix(x, nextX, t);
-      float dist = abs(uv.x - lineX);
-      
-      // Яркое ядро + свечение
-      bolt += smoothstep(0.02, 0.0, dist) * 2.0;
-      bolt += smoothstep(0.08, 0.0, dist) * 0.5;
+      float dist = abs(uv.x - mix(x, nextX, t));
+      bolt += smoothstep(0.03, 0.0, dist) * 2.0;
     }
     x = nextX;
   }
@@ -2215,10 +2197,10 @@ vec3 renderVoidSky(vec3 rd, float time) {
   float downGrad = max(0.0, -rd.y);
   skyColor = mix(skyColor, baseSky * 0.3, downGrad);
   
-  // === ЗВЁЗДЫ/ЧАСТИЦЫ ТЬМЫ ===
+  // === ЗВЁЗДЫ (оптимизировано) ===
   vec3 starDir = normalize(rd);
   
-  for (float i = 0.0; i < 50.0; i++) {
+  for (float i = 0.0; i < 20.0; i++) {
     vec3 starPos = normalize(vec3(
       sin(i * 73.1) * cos(i * 127.3),
       sin(i * 91.7) * cos(i * 173.1),
@@ -2226,24 +2208,13 @@ vec3 renderVoidSky(vec3 rd, float time) {
     ));
     
     float starDist = length(starDir - starPos);
-    float starSize = 0.01 + fract(sin(i * 37.7) * 100.0) * 0.02;
-    float twinkle = sin(time * 2.0 + i * 1.7) * 0.5 + 0.5;
-    float star = smoothstep(starSize, 0.0, starDist) * twinkle;
-    
-    vec3 starColor = mix(starColor1, starColor2, fract(i * 0.37));
-    skyColor += starColor * star * 0.3;
+    float star = smoothstep(0.02, 0.0, starDist);
+    skyColor += mix(starColor1, starColor2, fract(i * 0.37)) * star * 0.4;
   }
   
-  // === ТУМАННОСТИ ===
-  float nebula1 = sin(rd.x * 3.0 + rd.z * 2.0 + time * 0.1) * 
-                  cos(rd.y * 4.0 + rd.x * 1.5);
-  nebula1 = smoothstep(-0.3, 0.5, nebula1);
-  skyColor += nebulaColor1 * nebula1 * 0.3;
-  
-  float nebula2 = cos(rd.x * 2.0 - rd.z * 3.0 + time * 0.05) * 
-                  sin(rd.y * 2.5 - rd.x * 2.0);
-  nebula2 = smoothstep(-0.2, 0.6, nebula2);
-  skyColor += nebulaColor2 * nebula2 * 0.2;
+  // === ТУМАННОСТИ (упрощённые) ===
+  float nebula = sin(rd.x * 3.0 + rd.z * 2.0) * cos(rd.y * 4.0);
+  skyColor += nebulaColor1 * smoothstep(-0.3, 0.5, nebula) * 0.25;
   
   return skyColor;
 }
@@ -4543,37 +4514,16 @@ void main() {
   vec2 screenPos = v_uv * 2.0 - 1.0;
   vec2 screenUV = gl_FragCoord.xy / u_resolution;
   
-  // === GOD RAYS (тёплые лучи от оранжевой луны) ===
-  vec2 moonScreenPos = vec2(0.35, 0.55); // Позиция луны на экране
-  vec2 rayDir = screenPos - moonScreenPos;
-  float rayDist = length(rayDir);
+  // === GOD RAYS (упрощённые) ===
+  vec2 moonScreenPos = vec2(0.35, 0.55);
+  float rayDist = length(screenPos - moonScreenPos);
+  float godRays = exp(-rayDist * 2.5) * 0.15 * smoothstep(0.8, 0.0, rayDist);
+  color += vec3(0.8, 0.4, 0.1) * godRays;
   
-  float godRays = 0.0;
-  for (int i = 0; i < 6; i++) {
-    float t = float(i) / 6.0;
-    vec2 samplePos = screenPos - rayDir * t * 0.3;
-    float raySample = exp(-length(samplePos - moonScreenPos) * 3.0);
-    godRays += raySample * (1.0 - t);
-  }
-  godRays *= 0.06 * smoothstep(0.6, 0.0, rayDist);
-  color += vec3(0.8, 0.4, 0.1) * godRays; // Оранжевые лучи
-  
-  // === ПРИГЛУШЁННЫЙ VOLUMETRIC ===
-  vec3 volumetric = vec3(0.0);
-  float depthFactor = 1.0 - smoothstep(0.0, 100.0, d);
-  
-  // Мягкие лучи (уменьшенная интенсивность)
-  float beam1 = exp(-pow(length(screenPos - vec2(0.0, 0.4)), 2.0) * 5.0);
-  volumetric += vec3(0.0, 0.5, 0.55) * beam1 * 0.05;
-  
-  float beam2 = exp(-pow(length(screenPos - vec2(0.0, -0.4)), 2.0) * 5.0);
-  volumetric += vec3(0.55, 0.08, 0.4) * beam2 * 0.04;
-  
-  float beam3 = exp(-pow(length(screenPos - vec2(0.5, 0.0)), 2.0) * 4.0);
-  float beam4 = exp(-pow(length(screenPos - vec2(-0.5, 0.0)), 2.0) * 4.0);
-  volumetric += volAccent * (beam3 + beam4) * 0.03;
-  
-  color += volumetric * depthFactor * 0.6;
+  // === VOLUMETRIC (упрощённый) ===
+  float depthFactor = 1.0 - smoothstep(0.0, 60.0, d);
+  float beam = exp(-length(screenPos) * 3.0);
+  color += volAccent * beam * depthFactor * 0.04;
   
   // === МИНИМАЛИСТИЧНЫЕ ЧАСТИЦЫ ===
   
