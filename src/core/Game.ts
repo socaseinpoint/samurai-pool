@@ -680,9 +680,9 @@ export class Game {
     window.addEventListener('resize', () => this.handleResize());
     
     // === ОБРАБОТКА ПОТЕРИ ФОКУСА / POINTER LOCK ===
-    // При потере pointer lock - показываем паузу
+    // При потере pointer lock - показываем паузу (на таче захвата нет — пауза только кнопкой)
     document.addEventListener('pointerlockchange', () => {
-      if (this.state.isRunning && document.pointerLockElement === null) {
+      if (this.input.usesPointerLock && this.state.isRunning && document.pointerLockElement === null) {
         this.showPauseOverlay();
       }
     });

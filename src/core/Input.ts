@@ -1,4 +1,5 @@
 import type { InputState } from '@/types';
+import { isTouchDevice } from './Platform';
 
 /**
  * Менеджер ввода
@@ -25,6 +26,9 @@ export class Input {
   /** Pointer Lock активен */
   public isPointerLocked = false;
 
+  /** Обзор мышью через Pointer Lock (нет на тач-устройствах и в iOS Safari) */
+  public readonly usesPointerLock: boolean;
+
   /** Чувствительность мыши (выше = быстрее) */
   public sensitivity = 0.005;
 
@@ -44,6 +48,7 @@ export class Input {
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
+    this.usesPointerLock = typeof canvas.requestPointerLock === 'function' && !isTouchDevice();
     this.setupListeners();
   }
 
@@ -66,15 +71,24 @@ export class Input {
     document.addEventListener('pointerlockchange', this.handlePointerLockChange.bind(this));
   }
 
-  /** Запросить Pointer Lock */
+  /** Запросить Pointer Lock (на таче и без API — ничего не делаем) */
   public requestPointerLock(onLockChange?: () => void): void {
     this.onPointerLockChange = onLockChange;
-    this.canvas.requestPointerLock();
+    if (!this.usesPointerLock) return;
+    try {
+      // В новых браузерах возвращает Promise — отказ не должен ронять игру
+      const result = this.canvas.requestPointerLock() as unknown as Promise<void> | undefined;
+      result?.catch?.(() => {});
+    } catch {
+      // Браузер отказал (нет жеста пользователя, iframe и т.п.)
+    }
   }
 
   /** Выйти из Pointer Lock */
   public exitPointerLock(): void {
-    document.exitPointerLock();
+    if (document.pointerLockElement && typeof document.exitPointerLock === 'function') {
+      document.exitPointerLock();
+    }
   }
 
   /** Сбросить дельту мыши (вызывать в конце кадра) */
