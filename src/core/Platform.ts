@@ -42,3 +42,11 @@ export function wantsPhoneProfile(): boolean {
   if (q) return q === 'phone';
   return isTouchDevice() || isSmallScreen();
 }
+
+/** Адрес хаба игр: игра лежит в подпапке Midnight (/samurai-pool/), хаб — ../launch.html */
+export const HUB_URL = '../launch.html';
+
+/** Вернуться в хаб */
+export function goToHub(): void {
+  window.location.href = new URL(HUB_URL, window.location.href).href;
+}

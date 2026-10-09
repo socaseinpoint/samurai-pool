@@ -196,18 +196,13 @@ export class Player {
   private updateMovement(dt: number, input: InputState): void {
     const { state, config } = this;
 
-    // Направление движения от ввода
-    let moveX = 0;
-    let moveZ = 0;
+    // Направление движения от ввода: аналоговый вектор (клавиши, стик, тач), длина ≤ 1
+    let moveX = input.moveX;
+    let moveZ = -input.moveY;
 
-    if (input.forward) moveZ -= 1;
-    if (input.backward) moveZ += 1;
-    if (input.left) moveX -= 1;
-    if (input.right) moveX += 1;
-
-    // Нормализуем если движемся по диагонали
+    // Не быстрее единицы по диагонали; неполное отклонение стика — медленнее
     const moveLen = Math.sqrt(moveX * moveX + moveZ * moveZ);
-    if (moveLen > 0) {
+    if (moveLen > 1) {
       moveX /= moveLen;
       moveZ /= moveLen;
     }

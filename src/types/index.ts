@@ -153,7 +153,14 @@ export interface InputState {
   reload: boolean;
   /** Бросок гранаты (колёсико) */
   throwGrenade: boolean;
+  /** Аналоговое движение вбок (-1..1, вправо +): клавиши + стик + тач */
+  moveX: number;
+  /** Аналоговое движение вперёд (-1..1, вперёд +); длина (moveX, moveY) ≤ 1 */
+  moveY: number;
 }
+
+/** Действия-кнопки, которые может зажать любой источник (клавиатура, мышь, пад, тач) */
+export type InputAction = 'run' | 'jump' | 'fire' | 'altFire' | 'reload' | 'throwGrenade';
 
 // ========== АУДИО ==========
 

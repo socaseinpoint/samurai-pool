@@ -1,6 +1,7 @@
 import type { GameState, GameConfig, Vec3 } from '@/types';
 import { GameLoop } from './GameLoop';
-import { Input } from './Input';
+import { Input, PAD } from './Input';
+import { goToHub } from './Platform';
 import { Player } from '@/player/Player';
 import { Weapon } from '@/weapon/Weapon';
 import { WeaponRenderer } from '@/weapon/WeaponRenderer';
@@ -256,6 +257,33 @@ export class Game {
 
     // Обработчики
     this.setupEventHandlers();
+    this.setupGamepad();
+  }
+
+  /** Геймпад: Start — пауза/старт, View — в хаб, A — старт из меню */
+  private setupGamepad(): void {
+    this.input.onPadButton = (button) => {
+      if (button === PAD.VIEW) {
+        goToHub();
+        return;
+      }
+      if (!this.state.isRunning) {
+        if (button === PAD.A || button === PAD.START) this.start();
+        return;
+      }
+      if (button === PAD.START) {
+        if (this.state.isPaused) this.hidePauseOverlay();
+        else this.showPauseOverlay();
+      }
+    };
+
+    // В меню игровой цикл стоит — опрашиваем пад отдельно, пока игра не началась
+    const pollMenu = () => {
+      if (this.state.isRunning) return;
+      this.input.poll(0);
+      requestAnimationFrame(pollMenu);
+    };
+    if (typeof navigator.getGamepads === 'function') requestAnimationFrame(pollMenu);
   }
 
   /** Настройка callbacks для врагов */
@@ -787,7 +815,12 @@ export class Game {
 
   /** Обновление игры */
   private update(dt: number): void {
-    if (this.state.isPaused || this.isPaused) return;
+    // Опрос ввода (геймпад, тач) — и на паузе, чтобы Start на паде её снимал
+    this.input.poll(dt);
+    if (this.state.isPaused || this.isPaused) {
+      this.input.resetMouseDelta();
+      return;
+    }
 
     this.gameTime += dt;
 
@@ -910,8 +943,7 @@ export class Game {
     this.updateVoidPortal(dt);
 
     // Обновляем катану
-    const isMoving = this.input.state.forward || this.input.state.backward ||
-                     this.input.state.left || this.input.state.right;
+    const isMoving = this.input.isMoving();
     this.weapon.update(dt, isMoving, this.input.state.run);
 
     // Синхронизируем анимацию с рендерером
@@ -1036,8 +1068,7 @@ export class Game {
 
   /** Звуки движения */
   private updateMovementSounds(dt: number): void {
-    const isMoving = this.input.state.forward || this.input.state.backward ||
-                     this.input.state.left || this.input.state.right;
+    const isMoving = this.input.isMoving();
 
     if (isMoving && this.player.state.grounded) {
       this.footstepTimer -= dt;
