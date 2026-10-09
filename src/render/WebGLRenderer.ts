@@ -1,5 +1,9 @@
 import { VERTEX_SHADER, FRAGMENT_SHADER, COMPOSITE_SHADER } from './Shaders';
 import type { ShaderUniforms, Vec3 } from '@/types';
+import { getPhoneScale, getQualityParam, wantsPhoneProfile } from '@/core/Platform';
+
+/** Шагов ray marching в phone-профиле (в шейдере по умолчанию 40) */
+const PHONE_MAX_STEPS = 28;
 
 /**
  * WebGL2 рендерер
@@ -50,9 +54,20 @@ export class WebGLRenderer {
   private targetWidth = 640;
   private targetHeight = 360;
 
+  /**
+   * Phone-профиль: масштаб рендера от CSS-пикселей окна (DPR 1), 0 — выключен.
+   * Включается сам на тач/маленьком экране или через ?quality=phone (?scale= — масштаб)
+   */
+  public phoneScale = 0;
+  /** Phone-профиль активен (в т.ч. для 2D-канваса оружия — DPR 1) */
+  public get isPhoneProfile(): boolean {
+    return this.phoneScale > 0;
+  }
+
   constructor(private canvas: HTMLCanvasElement) {
     // Загружаем настройки из localStorage
     this.loadSettings();
+    this.applyProfile();
     console.log(`🖥️ Экран: ${window.screen.width}×${window.screen.height}, качество: ${this.quality.toUpperCase()}`);
     const gl = canvas.getContext('webgl2');
     if (!gl) {
@@ -126,7 +141,11 @@ export class WebGLRenderer {
 
     // Компилируем шейдеры
     const vertShader = this.compileShader(gl.VERTEX_SHADER, VERTEX_SHADER);
-    const fragShader = this.compileShader(gl.FRAGMENT_SHADER, FRAGMENT_SHADER);
+    // Phone: меньше шагов ray marching
+    const fragSource = this.isPhoneProfile
+      ? FRAGMENT_SHADER.replace('#define MAX_STEPS 40', `#define MAX_STEPS ${PHONE_MAX_STEPS}`)
+      : FRAGMENT_SHADER;
+    const fragShader = this.compileShader(gl.FRAGMENT_SHADER, fragSource);
 
     if (!vertShader || !fragShader) {
       throw new Error('Ошибка компиляции шейдеров');
@@ -374,8 +393,39 @@ export class WebGLRenderer {
     this.createGeometryFBO();
   }
 
+  /** Профиль из адресной строки и устройства (поверх сохранённых настроек, сам не сохраняется) */
+  private applyProfile(): void {
+    const q = getQualityParam();
+    if (q && q !== 'phone') {
+      this.quality = q;
+      const preset = WebGLRenderer.QUALITY_PRESETS[q];
+      this.targetWidth = preset.width;
+      this.targetHeight = preset.height;
+    }
+    if (wantsPhoneProfile()) {
+      this.phoneScale = getPhoneScale();
+      this.shadowsEnabled = false;
+      this.updatePhoneTarget();
+      console.log(`📱 Phone-профиль: рендер ×${this.phoneScale} от окна (${this.targetWidth}×${this.targetHeight}), без теней, MAX_STEPS ${PHONE_MAX_STEPS}`);
+    }
+  }
+
+  /** Phone: цель рендера = окно в CSS-пикселях × масштаб; true — размер поменялся */
+  private updatePhoneTarget(): boolean {
+    const w = Math.max(160, Math.round(window.innerWidth * this.phoneScale));
+    const h = Math.max(90, Math.round(window.innerHeight * this.phoneScale));
+    if (w === this.targetWidth && h === this.targetHeight) return false;
+    this.targetWidth = w;
+    this.targetHeight = h;
+    return true;
+  }
+
   /** Обновить размер canvas */
   public resize(): void {
+    // Phone: следим за окном (поворот телефона)
+    if (this.isPhoneProfile && this.geometryFBO && this.updatePhoneTarget()) {
+      this.recreateGeometryFBO();
+    }
     // Используем целевое разрешение напрямую
     const width = this.targetWidth;
     const height = this.targetHeight;
@@ -390,6 +440,7 @@ export class WebGLRenderer {
   /** Установить качество */
   public setQuality(quality: 'ultra_low' | 'low' | 'medium' | 'high'): void {
     this.quality = quality;
+    this.phoneScale = 0; // ручной выбор качества отключает phone-профиль
     const preset = WebGLRenderer.QUALITY_PRESETS[quality];
     this.targetWidth = preset.width;
     this.targetHeight = preset.height;
@@ -708,7 +759,12 @@ export class WebGLRenderer {
       }
       
       // Автоматическое снижение качества при низком FPS
-      if (this.currentFps < 25 && this.quality !== 'ultra_low') {
+      if (this.isPhoneProfile) {
+        if (this.currentFps < 25 && this.phoneScale > 0.35) {
+          this.phoneScale = Math.max(0.35, this.phoneScale - 0.1);
+          console.warn(`⚠️ Низкий FPS (${this.currentFps}) - масштаб рендера ${this.phoneScale.toFixed(2)}`);
+        }
+      } else if (this.currentFps < 25 && this.quality !== 'ultra_low') {
         const qualities: Array<'ultra_low' | 'low' | 'medium' | 'high'> = ['ultra_low', 'low', 'medium', 'high'];
         const currentIdx = qualities.indexOf(this.quality);
         if (currentIdx > 0) {

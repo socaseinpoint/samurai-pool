@@ -2377,7 +2377,8 @@ export class Game {
 
   /** Обработка resize */
   private handleResize(): void {
-    const dpr = window.devicePixelRatio || 1;
+    // Phone: 2D-канвас оружия в CSS-пикселях (на iPhone DPR 3 — в 9 раз больше пикселей)
+    const dpr = this.renderer.isPhoneProfile ? 1 : (window.devicePixelRatio || 1);
 
     this.weaponCanvas.width = window.innerWidth * dpr;
     this.weaponCanvas.height = window.innerHeight * dpr;
