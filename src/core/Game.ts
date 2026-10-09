@@ -1,7 +1,8 @@
 import type { GameState, GameConfig, Vec3 } from '@/types';
 import { GameLoop } from './GameLoop';
 import { Input, PAD } from './Input';
-import { goToHub } from './Platform';
+import { goToHub, isTouchDevice } from './Platform';
+import { TouchControls } from '@/ui/TouchControls';
 import { Player } from '@/player/Player';
 import { Weapon } from '@/weapon/Weapon';
 import { WeaponRenderer } from '@/weapon/WeaponRenderer';
@@ -258,6 +259,21 @@ export class Game {
     // Обработчики
     this.setupEventHandlers();
     this.setupGamepad();
+
+    // Тач-управление (телефон, планшет)
+    if (isTouchDevice()) {
+      this.touch = new TouchControls(this.input, () => this.togglePause());
+    }
+  }
+
+  /** Тач-оверлей (только на тач-устройствах) */
+  private touch: TouchControls | null = null;
+
+  /** Пауза кнопкой (тач, Start на паде) */
+  private togglePause(): void {
+    if (!this.state.isRunning) return;
+    if (this.state.isPaused) this.hidePauseOverlay();
+    else this.showPauseOverlay();
   }
 
   /** Геймпад: Start — пауза/старт, View — в хаб, A — старт из меню */
@@ -271,10 +287,7 @@ export class Game {
         if (button === PAD.A || button === PAD.START) this.start();
         return;
       }
-      if (button === PAD.START) {
-        if (this.state.isPaused) this.hidePauseOverlay();
-        else this.showPauseOverlay();
-      }
+      if (button === PAD.START) this.togglePause();
     };
 
     // В меню игровой цикл стоит — опрашиваем пад отдельно, пока игра не началась
@@ -741,6 +754,7 @@ export class Game {
     if (pauseOverlay && this.state.isRunning) {
       pauseOverlay.style.display = 'flex';
       this.state.isPaused = true;
+      this.touch?.setMode('paused');
     }
   }
   
@@ -751,6 +765,7 @@ export class Game {
       console.log('🎮 hidePauseOverlay вызван');
       pauseOverlay.style.display = 'none';
       this.state.isPaused = false;
+      this.touch?.setMode('play');
       // Запрашиваем pointer lock через Input (он обновит свой флаг isPointerLocked)
       this.input.requestPointerLock();
     }
@@ -787,6 +802,7 @@ export class Game {
     this.audio.start();
     this.gameLoop.start();
     this.state.isRunning = true;
+    this.touch?.setMode('play');
 
     // Начинаем с указанной волны
     this.targetManager.startGame(wave);

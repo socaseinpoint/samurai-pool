@@ -1,0 +1,573 @@
+{
+  "version": 1,
+  "about": "Тач-раскладки хаба (SOC-129). Одна схема на все игры: левый плавающий стик, правая половина — свайп-обзор, дуга кнопок у правого края, верхняя полоса. id действий — как в /Users/socaseinpoint/Documents/projects/edge/game/input.js (bindings). bind — сырые контролы из input.js, pad/key — что рисуем на бейдже. \"todo\" — биндинга в коде нет. proposal — поле, где значение предложено, а не взято из кода (перечислены имена полей). Копия для Samurai Pool (creativity/02-raytracer-ts): мир samurai дописан под реальные биндинги src/core/Input.ts (ветка hub/touch); остальные миры — как у дизайнера.",
+  "zones": {
+    "top-bar": "верхняя полоса: slot left = «← в хаб», slot right = ⚙ настройки управления",
+    "left-stick": "плавающий стик в левой половине (центр там, где коснулся палец); axes: xy | x",
+    "right-look-swipe": "правая половина экрана вне кнопок: свайп = обзор (look) или жест игры",
+    "right-arc": "дуга у правого нижнего угла: pos 1 — главная кнопка в углу (крупная), pos 2..N идут от «слева от главной» до «над главной»"
+  },
+  "glyphs": {
+    "pad": {
+      "GP0": "A",
+      "GP1": "B",
+      "GP2": "X",
+      "GP3": "Y",
+      "GP4": "LB",
+      "GP5": "RB",
+      "GP6": "LT",
+      "GP7": "RT",
+      "GP8": "View",
+      "GP9": "Menu",
+      "GP10": "LS",
+      "GP11": "RS",
+      "axes0-1": "LS",
+      "axes2-3": "RS"
+    },
+    "padNote": "LS/RS на кнопке действия = нажатие стика (GP10/GP11); в зоне стика = сам стик",
+    "key": {
+      "KeyW": "W",
+      "KeyA": "A",
+      "KeyS": "S",
+      "KeyD": "D",
+      "KeyC": "C",
+      "KeyE": "E",
+      "KeyQ": "Q",
+      "Space": "Space",
+      "ShiftLeft": "Shift",
+      "ShiftRight": "Shift",
+      "ControlLeft": "Ctrl",
+      "Mouse0": "ЛКМ",
+      "Mouse1": "СКМ",
+      "Mouse2": "ПКМ"
+    }
+  },
+  "common": {
+    "top-bar": [
+      {
+        "id": "hub",
+        "slot": "left",
+        "label": "в хаб",
+        "icon": "back",
+        "pad": "View",
+        "key": "todo",
+        "note": "в играх биндинга нет; предложение: View (GP8) → в хаб",
+        "proposal": [
+          "pad"
+        ]
+      },
+      {
+        "id": "settings",
+        "slot": "right",
+        "label": "Управление",
+        "icon": "gear",
+        "pad": "Menu",
+        "key": "Esc",
+        "note": "в играх биндинга нет; предложение: Menu (GP9) и Esc → ⚙ (Esc сначала снимает pointer lock — браузер)",
+        "proposal": [
+          "pad",
+          "key"
+        ]
+      }
+    ]
+  },
+  "worlds": {
+    "drive": {
+      "title": "Езда",
+      "status": "ready",
+      "bg": "bg/drive.png",
+      "source": "edge/game/drive.js:215,245-247 · city-rig.js:214 (interact = выйти из машины)",
+      "controls": [
+        {
+          "id": "move",
+          "zone": "left-stick",
+          "axes": "x",
+          "label": "Руль",
+          "pad": "LS",
+          "key": "A D",
+          "bind": {
+            "left": "KeyA",
+            "right": "KeyD",
+            "stick": "axes0"
+          },
+          "note": "в езде читается только move.x, ось Y стика мертва"
+        },
+        {
+          "id": "look",
+          "zone": "right-look-swipe",
+          "label": "Обзор",
+          "pad": "RS",
+          "key": "Мышь",
+          "bind": {
+            "mouse": "movementX/Y под pointer lock",
+            "stick": "axes2-3"
+          },
+          "note": "орбита камеры, сама гаснет к курсу"
+        },
+        {
+          "id": "accel",
+          "zone": "right-arc",
+          "pos": 1,
+          "label": "Газ",
+          "icon": "accel",
+          "pad": "RT",
+          "key": "W",
+          "analog": true,
+          "bind": [
+            "KeyW",
+            "GP7"
+          ]
+        },
+        {
+          "id": "brake",
+          "zone": "right-arc",
+          "pos": 2,
+          "label": "Тормоз",
+          "icon": "brake",
+          "pad": "LT",
+          "key": "S",
+          "analog": true,
+          "bind": [
+            "KeyS",
+            "GP6"
+          ],
+          "note": "держать на месте = задний ход"
+        },
+        {
+          "id": "handbrake",
+          "zone": "right-arc",
+          "pos": 3,
+          "label": "Ручник",
+          "icon": "handbrake",
+          "pad": "X",
+          "key": "Space",
+          "bind": [
+            "Space",
+            "GP2"
+          ]
+        },
+        {
+          "id": "boost",
+          "zone": "right-arc",
+          "pos": 4,
+          "label": "Нитро",
+          "icon": "boost",
+          "pad": "LS",
+          "key": "Shift",
+          "bind": [
+            "ShiftLeft",
+            "ShiftRight",
+            "GP10"
+          ],
+          "note": "на паде = нажать левый стик (как в input.js), им же рулишь. Предложение техлиду: перенести на RB (GP5 свободна)"
+        },
+        {
+          "id": "interact",
+          "zone": "top-bar",
+          "slot": "right",
+          "hold": 0.5,
+          "label": "Выйти",
+          "icon": "exit",
+          "pad": "Y",
+          "key": "E",
+          "bind": [
+            "KeyE",
+            "GP3"
+          ],
+          "note": "выйти из машины (city-rig.js exitCar). На тач — в верхней полосе рядом с ⚙, удержание 0,5 с с кольцом прогресса, чтобы не выйти случайно; пад и клавиша — как в input.js, без удержания"
+        }
+      ]
+    },
+    "flight": {
+      "title": "Полёт",
+      "status": "ready",
+      "bg": "bg/flight.png",
+      "source": "edge/game/flight.js:33-41",
+      "controls": [
+        {
+          "id": "move",
+          "zone": "left-stick",
+          "axes": "xy",
+          "label": "Тяга",
+          "pad": "LS",
+          "key": "WASD",
+          "bind": {
+            "up": "KeyW",
+            "down": "KeyS",
+            "left": "KeyA",
+            "right": "KeyD",
+            "stick": "axes0-1"
+          }
+        },
+        {
+          "id": "look",
+          "zone": "right-look-swipe",
+          "label": "Обзор",
+          "pad": "RS",
+          "key": "Мышь",
+          "bind": {
+            "mouse": "movementX/Y под pointer lock",
+            "stick": "axes2-3"
+          }
+        },
+        {
+          "id": "ascend",
+          "zone": "right-arc",
+          "pos": 1,
+          "label": "Вверх",
+          "icon": "up",
+          "pad": "A",
+          "key": "Space",
+          "bind": [
+            "Space",
+            "GP0"
+          ]
+        },
+        {
+          "id": "descend",
+          "zone": "right-arc",
+          "pos": 2,
+          "label": "Вниз",
+          "icon": "down",
+          "pad": "B",
+          "key": "C",
+          "bind": [
+            "KeyC",
+            "ControlLeft",
+            "GP1"
+          ],
+          "note": "на клавиатуре ещё Ctrl"
+        },
+        {
+          "id": "boost",
+          "zone": "right-arc",
+          "pos": 3,
+          "label": "Форсаж",
+          "icon": "boost",
+          "pad": "LS",
+          "key": "Shift",
+          "bind": [
+            "ShiftLeft",
+            "ShiftRight",
+            "GP10"
+          ]
+        }
+      ]
+    },
+    "space-explorer": {
+      "title": "Space Explorer",
+      "status": "ready",
+      "bg": "bg/space-explorer.png",
+      "source": "forge/raw/space-explorer/index.html: клавиши :391-401, свайпы :673-735, гироскоп :625-670, колесо = скорость :743-747. На телефоне игра управляется сама (свайпы, гироскоп) — тач-оверлей рисует только верхнюю полосу (решение техлида хаба). controls ниже — только для строки-подсказки на компе",
+      "controls": [
+        {
+          "id": "lanes",
+          "zone": "native",
+          "label": "Полоса",
+          "pad": "todo",
+          "key": "WASD",
+          "bind": {
+            "left": [
+              "ArrowLeft",
+              "KeyA"
+            ],
+            "right": [
+              "ArrowRight",
+              "KeyD"
+            ],
+            "up": [
+              "ArrowUp",
+              "KeyW"
+            ],
+            "down": [
+              "ArrowDown",
+              "KeyS"
+            ],
+            "touch": "свайп ≥50px / гироскоп"
+          },
+          "note": "на клавиатуре ещё стрелки; пад предложение: LS и крестовина"
+        },
+        {
+          "id": "speed",
+          "zone": "native",
+          "label": "Скорость",
+          "pad": "todo",
+          "key": "Колесо",
+          "bind": [
+            "wheel"
+          ],
+          "note": "пад предложение: RT/LT"
+        }
+      ],
+      "overlay": "top-bar-only",
+      "hint": {
+        "text": "Свайп — смена полосы",
+        "icon": "swipe",
+        "showMs": 2500,
+        "when": "при старте забега, один раз за сессию"
+      }
+    },
+    "space-explorer-alt": {
+      "title": "Space Explorer — вариант со стиком",
+      "status": "proposal",
+      "needsYes": "новая механика, нужно «да» Гриши: на телефоне сейчас скорость не управляется, здесь Газ/Тормоз + стик полос",
+      "bg": "bg/space-explorer.png",
+      "source": "как space-explorer",
+      "controls": [
+        {
+          "id": "move",
+          "zone": "left-stick",
+          "axes": "xy",
+          "mode": "flick",
+          "label": "Полоса",
+          "pad": "todo",
+          "key": "WASD",
+          "bind": {
+            "left": [
+              "ArrowLeft",
+              "KeyA"
+            ],
+            "right": [
+              "ArrowRight",
+              "KeyD"
+            ],
+            "up": [
+              "ArrowUp",
+              "KeyW"
+            ],
+            "down": [
+              "ArrowDown",
+              "KeyS"
+            ]
+          },
+          "note": "отклонение за порог = один шаг полосы (moveLaneX/Y); пад предложение: LS и крестовина"
+        },
+        {
+          "id": "lanes-swipe",
+          "zone": "right-look-swipe",
+          "label": "Свайп — полоса",
+          "pad": "todo",
+          "key": "стрелки",
+          "bind": {
+            "touch": "свайп ≥50px, уже есть в игре"
+          }
+        },
+        {
+          "id": "accel",
+          "zone": "right-arc",
+          "pos": 1,
+          "label": "Газ",
+          "icon": "accel",
+          "pad": "todo",
+          "key": "Колесо▲",
+          "bind": [
+            "wheel deltaY<0"
+          ],
+          "note": "пад предложение: RT"
+        },
+        {
+          "id": "brake",
+          "zone": "right-arc",
+          "pos": 2,
+          "label": "Тормоз",
+          "icon": "brake",
+          "pad": "todo",
+          "key": "Колесо▼",
+          "bind": [
+            "wheel deltaY>0"
+          ],
+          "note": "пад предложение: LT"
+        }
+      ]
+    },
+    "samurai": {
+      "title": "Samurai Pool",
+      "status": "build",
+      "bg": "bg/samurai.png",
+      "source": "creativity/02-raytracer-ts: src/core/Input.ts (PAD_BINDINGS, virtual), src/ui/TouchControls.ts",
+      "controls": [
+        {
+          "id": "move",
+          "zone": "left-stick",
+          "axes": "xy",
+          "label": "Ход",
+          "pad": "LS",
+          "key": "WASD",
+          "bind": {
+            "up": "KeyW",
+            "down": "KeyS",
+            "left": "KeyA",
+            "right": "KeyD",
+            "stick": "axes0-1"
+          },
+          "note": "аналог: неполное отклонение — медленнее"
+        },
+        {
+          "id": "look",
+          "zone": "right-look-swipe",
+          "label": "Обзор",
+          "pad": "RS",
+          "key": "Мышь",
+          "bind": {
+            "mouse": "movementX/Y под pointer lock",
+            "stick": "axes2-3",
+            "touch": "свайп, px × чувствительность"
+          }
+        },
+        {
+          "id": "fire",
+          "zone": "right-arc",
+          "pos": 1,
+          "label": "Удар",
+          "icon": "attack",
+          "pad": "RT",
+          "key": "ЛКМ",
+          "bind": [
+            "Mouse0",
+            "GP7"
+          ]
+        },
+        {
+          "id": "altFire",
+          "zone": "right-arc",
+          "pos": 2,
+          "label": "Волна",
+          "icon": "wave",
+          "pad": "LT",
+          "key": "ПКМ",
+          "bind": [
+            "Mouse2",
+            "GP6"
+          ],
+          "note": "сплеш-волна при зарядах, дротики при запасе"
+        },
+        {
+          "id": "jump",
+          "zone": "right-arc",
+          "pos": 3,
+          "label": "Прыжок",
+          "icon": "jump",
+          "pad": "A",
+          "key": "Space",
+          "bind": [
+            "Space",
+            "GP0"
+          ],
+          "note": "второй тап в воздухе — двойной прыжок"
+        },
+        {
+          "id": "throwGrenade",
+          "zone": "right-arc",
+          "pos": 4,
+          "label": "Граната",
+          "icon": "grenade",
+          "pad": "RB",
+          "key": "Колесо",
+          "bind": [
+            "Mouse1",
+            "wheel",
+            "GP5"
+          ]
+        },
+        {
+          "id": "run",
+          "zone": "right-arc",
+          "pos": 5,
+          "label": "Бег",
+          "icon": "run",
+          "pad": "LB",
+          "key": "Shift",
+          "bind": [
+            "ShiftLeft",
+            "ShiftRight",
+            "GP4",
+            "GP1"
+          ],
+          "note": "на паде ещё B"
+        },
+        {
+          "id": "pause",
+          "zone": "top-bar",
+          "slot": "right",
+          "label": "Пауза",
+          "icon": "pause",
+          "pad": "Menu",
+          "key": "Esc",
+          "bind": [
+            "Escape",
+            "GP9"
+          ],
+          "note": "вместо ⚙: настройки игры — на её стартовом экране; на таче пауза только этой кнопкой"
+        }
+      ],
+      "open": [
+        "R / X (reload) в Input.ts есть, но игра его не читает (катана без перезарядки) — кнопки на тач нет",
+        "M звук и F фулскрин (Game.ts) — на тач не выносим"
+      ]
+    },
+    "office": {
+      "title": "Офис",
+      "status": "draft",
+      "bg": "bg/office.png",
+      "source": "edge/game/office-world.js:87-93",
+      "controls": [
+        {
+          "id": "move",
+          "zone": "left-stick",
+          "axes": "xy",
+          "label": "Ход",
+          "pad": "LS",
+          "key": "WASD",
+          "bind": {
+            "up": "KeyW",
+            "down": "KeyS",
+            "left": "KeyA",
+            "right": "KeyD",
+            "stick": "axes0-1"
+          }
+        },
+        {
+          "id": "look",
+          "zone": "right-look-swipe",
+          "label": "Обзор",
+          "pad": "RS",
+          "key": "Мышь",
+          "bind": {
+            "mouse": "movementX/Y под pointer lock",
+            "stick": "axes2-3"
+          }
+        },
+        {
+          "id": "interact",
+          "zone": "right-arc",
+          "pos": 1,
+          "label": "Лифт",
+          "icon": "elevator",
+          "pad": "Y",
+          "key": "E",
+          "bind": [
+            "KeyE",
+            "GP3"
+          ],
+          "note": "работает только на платформе лифта — кнопку показывать там"
+        },
+        {
+          "id": "run",
+          "zone": "right-arc",
+          "pos": 2,
+          "label": "Бег",
+          "icon": "run",
+          "pad": "X",
+          "padAlt": "LS",
+          "key": "Shift",
+          "bind": [
+            "ShiftLeft",
+            "ShiftRight",
+            "GP10",
+            "GP2"
+          ]
+        }
+      ]
+    }
+  }
+}

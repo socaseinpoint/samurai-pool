@@ -1,0 +1,40 @@
+/* Samurai Pool поверх touch.css хаба (SOC-129): зона стика, режимы оверлея, сдвиг HUD под верхнюю полосу */
+
+/* над паузой (150), под модалками настроек (200) */
+.sp-tc { z-index: 160; }
+
+/* левая половина под полосой ловит палец для плавающего стика */
+.sp-stickzone {
+  position: absolute; left: 0; width: 50%; top: calc(56px + var(--tc-st)); bottom: 0;
+  pointer-events: auto; touch-action: none;
+}
+
+/* меню: только «← в хаб»; пауза: полоса без стика и кнопок */
+.sp-tc[data-mode="menu"] .sp-stickzone,
+.sp-tc[data-mode="menu"] .tc-stick,
+.sp-tc[data-mode="menu"] .tc-look,
+.sp-tc[data-mode="menu"] .tc-arc,
+.sp-tc[data-mode="menu"] .tc-rotate,
+.sp-tc[data-mode="menu"] .sp-pause,
+.sp-tc[data-mode="paused"] .sp-stickzone,
+.sp-tc[data-mode="paused"] .tc-stick,
+.sp-tc[data-mode="paused"] .tc-look,
+.sp-tc[data-mode="paused"] .tc-arc { display: none; }
+
+/* телефон: без скролла и резинки, канвасы не отдают жесты браузеру */
+body.sp-touch { overscroll-behavior: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+body.sp-touch #game-canvas, body.sp-touch #weapon-canvas { touch-action: none; }
+body.sp-touch #game-container { height: 100dvh; }
+
+/* HUD уходит из-под верхней полосы (56px + safe-area) и стика */
+body.sp-touch #frags { top: calc(64px + env(safe-area-inset-top, 0px)); left: calc(15px + env(safe-area-inset-left, 0px)); }
+body.sp-touch #fps-display { top: calc(64px + env(safe-area-inset-top, 0px)); right: calc(10px + env(safe-area-inset-right, 0px)); }
+body.sp-touch #health { bottom: auto; top: calc(120px + env(safe-area-inset-top, 0px)); left: calc(15px + env(safe-area-inset-left, 0px)); }
+
+/* правая колонка HUD (дротики, очки, алтарь, заряды) — из-под дуги кнопок в верхнюю полосу, в ряд слева от паузы */
+body.sp-touch #altar-score { bottom: auto !important; top: calc(10px + env(safe-area-inset-top, 0px)) !important; right: calc(84px + env(safe-area-inset-right, 0px)) !important; }
+body.sp-touch #score-carrying { bottom: auto !important; top: calc(10px + env(safe-area-inset-top, 0px)) !important; right: calc(170px + env(safe-area-inset-right, 0px)) !important; }
+body.sp-touch #darts-count { bottom: auto !important; top: calc(10px + env(safe-area-inset-top, 0px)) !important; right: calc(256px + env(safe-area-inset-right, 0px)) !important; }
+body.sp-touch #weapon-indicator { bottom: auto !important; right: auto !important; top: calc(12px + env(safe-area-inset-top, 0px)) !important; left: 42% !important; transform: translateX(-50%); }
+body.sp-touch #splash-charges { bottom: auto !important; right: auto !important; top: calc(40px + env(safe-area-inset-top, 0px)) !important; left: 42% !important; transform: translateX(-50%); }
+body.sp-touch #double-jump { bottom: auto !important; top: calc(186px + env(safe-area-inset-top, 0px)) !important; left: calc(15px + env(safe-area-inset-left, 0px)) !important; }

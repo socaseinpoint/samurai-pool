@@ -1,0 +1,200 @@
+/* Тач-оверлей хаба (SOC-129) — одна раскладка на все игры.
+   Контейнер: <div class="tc tc--touch"> (телефон) или <div class="tc tc--desktop"> (комп: оверлей скрыт, внизу строка-подсказка).
+   Внутри: .tc-top (полоса: .tc-hub слева; .tc-top-r справа — кнопки мира .tc-hold и .tc-gear) · .tc-stick (левый плавающий стик) ·
+   .tc-look (правая половина, свайп-обзор) · .tc-arc[data-n] > .tc-btn[data-pos] (дуга у правого края) ·
+   .tc-keys (подсказка клавиш/пада, только комп) · .tc-rotate (подсказка «поверни», только портрет) · .tc-toast (подсказка при старте).
+   Состояния: .tc-btn.on (зажата) · .tc-look.used (подсказка свайпа погашена) · .tc-stick.live (палец на стике) · .tc-hold.done.
+   Крутилки экрана настроек — --tc-scale, --tc-alpha, --tc-ink, класс .tc--mirror (левша).
+   Цвета и шрифты — токены studio-brand.css (output/hub/brand/), здесь только фолбэки. Правила бренда:
+   янтарь = действие (главная кнопка дуги, нажатое состояние, удержание), циан = фокус и стик, зелёный — только «подключено». */
+
+.tc{
+  --tc-scale: 1;                     /* размер кнопок: 0.85 … 1.3 */
+  --tc-alpha: .55;                   /* плотность подложки кнопок: 0.15 … 0.8 */
+  --tc-ink: 1;                       /* непрозрачность подписей и обводок: 0.5 … 1 */
+  --tc-edge: 20px;                   /* отступ от края экрана (поверх safe-area) */
+  --tc-fit: 1;                       /* служебный множитель под экран (портрет телефона), не настройка */
+  --tc-k: calc(var(--tc-scale) * var(--tc-fit));
+
+  --tc-bg: var(--studio-bg, #09080c);
+  --tc-act: var(--studio-amber, #ffb547);                    /* действие */
+  --tc-act-ink: var(--studio-amber-ink, #140d02);
+  --tc-act-soft: var(--studio-amber-soft, rgba(255,181,71,.14));
+  --tc-focus: var(--studio-focus, #35e6ff);                  /* фокус и стик */
+  --tc-text: var(--studio-ink, #eeeaf2);
+  --tc-dim: var(--studio-dim, #9a93a6);
+  --tc-key: var(--studio-key, #1a1a1f);
+  --tc-line: var(--studio-edge-2, #34343d);
+  --tc-disp: var(--studio-disp, "Oswald", "Arial Narrow", "Roboto Condensed", system-ui, sans-serif);
+  --tc-mono: var(--studio-mono, "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace);
+  --tc-rs: var(--studio-r-sm, 4px);
+
+  --tc-main: calc(80px * var(--tc-k));        /* pos 1 */
+  --tc-btn: calc(64px * var(--tc-k));         /* pos 2..N; ≥56px, пока scale×fit ≥ .875 */
+  --tc-r: calc(118px * var(--tc-k));          /* радиус дуги от центра главной */
+  --tc-ax: calc(var(--tc-edge) + var(--tc-main) / 2);   /* центр главной от правого/нижнего края */
+  --tc-sr: env(safe-area-inset-right, 0px);
+  --tc-sl: env(safe-area-inset-left, 0px);
+  --tc-st: env(safe-area-inset-top, 0px);
+  --tc-sb: env(safe-area-inset-bottom, 0px);
+
+  position: fixed; inset: 0; z-index: 50; pointer-events: none;
+  font-family: var(--tc-disp); color: var(--tc-text);
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.tc *{ box-sizing: border-box; }
+
+/* общая «пластина»: тёмное стекло + тёмный ободок — читается и на ночи, и на светлом небе */
+.tc-plate{
+  background: color-mix(in srgb, var(--tc-bg) calc(var(--tc-alpha) * 100%), transparent);
+  -webkit-backdrop-filter: blur(6px) saturate(1.2); backdrop-filter: blur(6px) saturate(1.2);
+  box-shadow: 0 0 0 1px rgba(0,0,0,.35), 0 2px 10px rgba(0,0,0,.25);
+}
+/* фокус (клавиатура, геймпад) — как в бренде: циан 2 px */
+.tc button:focus-visible, .tc .tc-pf{ outline: 2px solid var(--tc-focus); outline-offset: 3px; }
+
+/* ── верхняя полоса (форма — как .studio-back бренда: малый радиус, моно капсом) ── */
+.tc-top{ position: absolute; left: 0; right: 0; top: 0; height: calc(56px + var(--tc-st));
+  padding: var(--tc-st) calc(var(--tc-edge) - 8px + var(--tc-sr)) 0 calc(var(--tc-edge) - 8px + var(--tc-sl));
+  display: flex; align-items: center; justify-content: space-between; }
+.tc-hub, .tc-gear{ pointer-events: auto; position: relative; min-height: 56px; min-width: 56px; padding: 8px;
+  display: flex; align-items: center; justify-content: center; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; touch-action: manipulation; }
+.tc-hub > i, .tc-gear > i{ font-style: normal; display: flex; align-items: center; gap: 8px; height: 40px; border-radius: var(--tc-rs);
+  border: 1.5px solid color-mix(in srgb, var(--tc-text) calc(var(--tc-ink) * 45%), transparent); }
+.tc-hub > i{ padding: 0 14px 0 10px; font: 500 12px/1 var(--tc-mono); letter-spacing: .14em; text-transform: uppercase; }
+.tc-gear > i{ width: 40px; justify-content: center; }
+.tc-hub svg, .tc-gear svg{ width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.tc-top .tc-badges{ margin-left: 2px; }
+
+/* ── бейджи: глиф пада + клавиша (моно; цвета A/B/X/Y — как .st-pad бренда) ── */
+.tc-badges{ display: flex; gap: 3px; align-items: center; justify-content: center; pointer-events: none; }
+.tc-pad, .tc-key{ display: inline-flex; align-items: center; justify-content: center; height: 15px; min-width: 15px; padding: 0 3px;
+  font: 700 9px/1 var(--tc-mono); letter-spacing: 0; white-space: nowrap; text-transform: none; }
+.tc-pad{ border-radius: 8px; background: var(--tc-key); color: var(--tc-text); }
+.tc-pad[data-g="A"]{ color: #5ed16a; } .tc-pad[data-g="B"]{ color: #ff5a5a; }
+.tc-pad[data-g="X"]{ color: #4fa3ff; } .tc-pad[data-g="Y"]{ color: #ffd24a; }
+.tc-pad[data-g="A"], .tc-pad[data-g="B"], .tc-pad[data-g="X"], .tc-pad[data-g="Y"]{ width: 15px; padding: 0; border-radius: 50%; box-shadow: inset 0 0 0 1.5px currentColor; }
+.tc-pad[data-g="RT"], .tc-pad[data-g="LT"], .tc-pad[data-g="RB"], .tc-pad[data-g="LB"]{ border-radius: 3px 3px 7px 7px; }
+.tc-key{ border-radius: 3px; border: 1px solid var(--tc-line); border-bottom-width: 2px; color: var(--tc-text); background: var(--tc-key); }
+/* todo — биндинга нет: приглушённый пунктир (не янтарь — янтарь только у действия) */
+.tc-pad[data-g="todo"], .tc-key[data-k="todo"]{ color: var(--tc-dim); background: rgba(0,0,0,.4); border: 1px dashed var(--tc-dim); box-shadow: none; }
+/* proposal — предложено, в коде пока нет: светлый пунктир */
+.tc-pad[data-proposal], .tc-key[data-proposal]{ border: 1px dashed var(--tc-text); background: rgba(0,0,0,.45); color: var(--tc-text); }
+
+/* ── кнопки дуги: обычные — нейтральная кромка; главная (pos 1) и нажатая — янтарь ── */
+.tc-btn{ --s: var(--tc-btn); --a: 180deg;
+  position: absolute; width: var(--s); height: var(--s); border-radius: 50%;
+  right: calc(var(--tc-ax) - var(--tc-r) * cos(var(--a)) - var(--s) / 2 + var(--tc-sr));
+  bottom: calc(var(--tc-ax) + var(--tc-r) * sin(var(--a)) - var(--s) / 2 + var(--tc-sb));
+  pointer-events: auto; touch-action: none; padding: 0 0 calc(10px * var(--tc-k)); margin: 0; cursor: pointer; color: var(--tc-text);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  border: 2px solid color-mix(in srgb, var(--tc-text) calc(var(--tc-ink) * 60%), transparent);
+  transition: transform .06s, background-color .06s; }
+.tc-btn[data-pos="1"]{ --s: var(--tc-main); right: calc(var(--tc-edge) + var(--tc-sr)); bottom: calc(var(--tc-edge) + var(--tc-sb));
+  border: 2.5px solid color-mix(in srgb, var(--tc-act) calc(var(--tc-ink) * 100%), transparent); color: var(--tc-act);
+  background: color-mix(in srgb, var(--tc-bg) calc(var(--tc-alpha) * 100%), var(--tc-act) 10%); }
+.tc-btn svg{ width: calc(18px * var(--tc-k)); height: calc(18px * var(--tc-k)); stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; opacity: var(--tc-ink); }
+.tc-btn[data-pos="1"] svg{ width: calc(22px * var(--tc-k)); height: calc(22px * var(--tc-k)); }
+/* подписи — Oswald капсом (display-шрифт бренда) */
+.tc-lbl{ font: 600 calc(12px * var(--tc-k))/1 var(--tc-disp); letter-spacing: .06em; text-transform: uppercase;
+  text-shadow: 0 1px 2px rgba(0,0,0,.7); opacity: var(--tc-ink); white-space: nowrap; }
+.tc-btn[data-pos="1"] .tc-lbl{ font-size: calc(15px * var(--tc-k)); letter-spacing: .1em; }
+/* бейджи — «язычок» на нижней кромке кнопки: не тесним подпись и не режемся кругом */
+.tc-btn .tc-badges{ position: absolute; left: 50%; bottom: -9px; transform: translateX(-50%); padding: 2px; border-radius: 9px;
+  background: rgba(9,8,12,.86); box-shadow: 0 0 0 1px var(--tc-line); }
+.tc-btn.on{ background: var(--tc-act); border-color: var(--tc-act); color: var(--tc-act-ink); transform: scale(.94);
+  box-shadow: var(--studio-glow-amber, 0 0 14px -2px rgba(255,181,71,.55)); -webkit-backdrop-filter: none; backdrop-filter: none; }
+.tc-btn.on .tc-lbl{ text-shadow: none; }
+
+/* углы дуги по числу кнопок (pos 2..N: слева от главной → над ней) */
+.tc-arc[data-n="2"] .tc-btn[data-pos="2"]{ --a: 165deg; }
+.tc-arc[data-n="3"] .tc-btn[data-pos="2"]{ --a: 180deg; } .tc-arc[data-n="3"] .tc-btn[data-pos="3"]{ --a: 105deg; }
+.tc-arc[data-n="4"] .tc-btn[data-pos="2"]{ --a: 180deg; } .tc-arc[data-n="4"] .tc-btn[data-pos="3"]{ --a: 135deg; } .tc-arc[data-n="4"] .tc-btn[data-pos="4"]{ --a: 90deg; }
+.tc-arc[data-n="5"]{ --tc-r: calc(176px * var(--tc-k)); }  /* 30° между соседями: язычок бейджа ≥8px от соседа */
+.tc-arc[data-n="5"] .tc-btn[data-pos="2"]{ --a: 180deg; } .tc-arc[data-n="5"] .tc-btn[data-pos="3"]{ --a: 150deg; }
+.tc-arc[data-n="5"] .tc-btn[data-pos="4"]{ --a: 120deg; } .tc-arc[data-n="5"] .tc-btn[data-pos="5"]{ --a: 90deg; }
+
+/* ── левый плавающий стик (циан — фокус/состояние): в покое призрак на месте по умолчанию, при касании переезжает под палец ── */
+.tc-stick{ --d: calc(124px * var(--tc-k)); --kx: 0px; --ky: 0px;
+  position: absolute; width: var(--d); height: var(--d); border-radius: 50%;
+  left: calc(var(--tc-edge) + 18px + var(--tc-sl)); bottom: calc(var(--tc-edge) + 14px + var(--tc-sb));
+  border: 2px solid color-mix(in srgb, var(--tc-text) calc(var(--tc-ink) * 45%), transparent); }
+.tc-stick::before{ /* направляющие */ content: ""; position: absolute; inset: 22%; border-radius: 50%;
+  border: 1px dashed color-mix(in srgb, var(--tc-text) calc(var(--tc-ink) * 25%), transparent); }
+.tc-knob{ position: absolute; left: 50%; top: 50%; width: 44%; height: 44%; border-radius: 50%;
+  transform: translate(calc(-50% + var(--kx)), calc(-50% + var(--ky)));
+  background: color-mix(in srgb, var(--tc-focus) calc(var(--tc-ink) * 70%), transparent);
+  box-shadow: 0 0 0 1px rgba(0,0,0,.4), var(--studio-glow-focus, 0 0 18px -4px rgba(53,230,255,.6)); }
+.tc-stick[data-axes="x"]{ border-radius: calc(var(--d) / 2); height: calc(var(--d) * .56); }
+.tc-stick[data-axes="x"]::before{ inset: 50% 14% auto; height: 0; border-radius: 0; }
+.tc-stick[data-axes="x"] .tc-knob{ width: calc(var(--d) * .4); height: calc(var(--d) * .4); }
+.tc-stick .tc-arrows{ position: absolute; inset: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 9px;
+  font: 700 11px/1 var(--tc-mono); color: color-mix(in srgb, var(--tc-text) calc(var(--tc-ink) * 60%), transparent); }
+.tc-cap{ position: absolute; left: 50%; bottom: calc(100% + 6px); transform: translateX(-50%);
+  display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.tc-cap .tc-lbl{ font-size: 13px; }
+.tc-stick .tc-cap{ padding: 4px 6px 4px 9px; border-radius: var(--tc-rs); }
+.tc-stick:not(.live){ opacity: .8; }
+
+/* ── правая половина: свайп-обзор (подсказка гаснет после первого свайпа) ── */
+.tc-look{ position: absolute; left: 50%; right: 0; top: calc(56px + var(--tc-st)); bottom: 0; pointer-events: auto; touch-action: none; }
+.tc-look .tc-cap{ left: 38%; top: 30%; bottom: auto; flex-direction: column; gap: 6px;
+  padding: 10px 14px; border-radius: var(--studio-r, 6px); opacity: calc(var(--tc-ink) * .85); transition: opacity .6s; }
+.tc-look .tc-swipe{ width: 56px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.tc-look.used .tc-cap{ opacity: 0; }
+
+/* ── портрет: подсказка «поверни экран», раскладка остаётся рабочей под ней ── */
+.tc-rotate{ display: none; position: absolute; left: 50%; top: calc(84px + var(--tc-st)); transform: translateX(-50%);
+  width: min(300px, calc(100% - 40px)); padding: 14px 16px; border-radius: var(--studio-r, 6px); gap: 12px; align-items: center; pointer-events: auto;
+  border: 1.5px solid var(--tc-line); }
+.tc-rotate svg{ flex: none; width: 34px; height: 34px; stroke: var(--tc-text); fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.tc-rotate b{ display: block; font: 600 18px/1.1 var(--tc-disp); letter-spacing: .05em; text-transform: uppercase; }
+.tc-rotate span{ display: block; margin-top: 4px; font: 400 12px/1.35 var(--tc-mono); color: var(--tc-dim); }
+@media (orientation: portrait){
+  .tc--touch{ --tc-fit: .9; }
+  .tc--touch .tc-rotate{ display: flex; }
+  .tc--touch .tc-look .tc-cap{ left: 22%; top: 46%; }
+}
+
+/* ── комп: тач скрыт, ненавязчивая строка клавиш/пада внизу ── */
+.tc-keys{ display: none; }
+.tc--desktop .tc-stick, .tc--desktop .tc-look, .tc--desktop .tc-arc, .tc--desktop .tc-rotate{ display: none; }
+.tc--desktop .tc-top{ height: 52px; }
+.tc--desktop .tc-hub > i, .tc--desktop .tc-gear > i{ opacity: .75; }
+.tc--desktop .tc-keys{ display: flex; position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%);
+  width: max-content; max-width: calc(100vw - 200px); flex-wrap: wrap; justify-content: center; gap: 4px 16px; padding: 8px 16px; border-radius: var(--studio-r, 6px);
+  font: 500 13px/1 var(--tc-disp); letter-spacing: .04em; text-transform: uppercase; color: color-mix(in srgb, var(--tc-text) 82%, transparent); opacity: .9; transition: opacity .4s; }
+.tc-keys > span{ display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.tc-keys .tc-pad, .tc-keys .tc-key{ height: 17px; min-width: 17px; font-size: 10px; }
+.tc-keys .tc-pad[data-g="A"], .tc-keys .tc-pad[data-g="B"], .tc-keys .tc-pad[data-g="X"], .tc-keys .tc-pad[data-g="Y"]{ width: 17px; }
+.tc-keys .tc-or{ color: var(--tc-dim); font-size: 10px; }
+.tc--desktop.idle .tc-keys{ opacity: .25; }
+
+/* ── кнопки мира в верхней полосе (Езда: «Выйти», удержание 0,5 с — янтарное кольцо прогресса --p 0..1) ── */
+.tc-top-r{ display: flex; align-items: center; gap: 8px; }          /* 8px между тап-зонами 56px */
+.tc-hold > i{ position: relative; padding: 0 10px 0 8px; gap: 6px; }
+.tc-hold > i::after{ content: ""; position: absolute; inset: -3px; border-radius: calc(var(--tc-rs) + 3px); pointer-events: none;
+  padding: 2.5px; background: conic-gradient(var(--tc-act) calc(var(--p, 0) * 360deg), transparent 0);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
+.tc-hold.done > i{ background: var(--tc-act); color: var(--tc-act-ink); }
+.tc-hold .tc-badges{ margin-left: 2px; }
+
+/* подсказка при старте (Space Explorer: «свайп — смена полосы»), гаснет через showMs */
+.tc-toast{ position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%); display: flex; align-items: center; gap: 14px;
+  padding: 12px 18px; border-radius: var(--studio-r, 6px); border: 1.5px solid var(--tc-line);
+  font: 600 18px/1.1 var(--tc-disp); letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; transition: opacity .5s; }
+.tc-toast .tc-swipe{ width: 56px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.tc-toast.gone{ opacity: 0; }
+.tc--desktop .tc-toast{ display: none; }
+
+/* метка варианта (alt-раскладки, которым нужно «да») — только в демо и на кадрах; лента как .st-tape бренда */
+.tc-tag{ position: absolute; left: 50%; top: calc(18px + var(--tc-st)); transform: translateX(-50%); max-width: 50%;
+  padding: .55em .9em; background: var(--studio-ink-2, #cfc9d8); color: var(--tc-bg);
+  font: 700 11px/1.2 var(--tc-mono); letter-spacing: .14em; text-transform: uppercase; text-align: center; }
+
+/* ── левша: зеркало (стик справа, дуга слева) ── */
+.tc.tc--mirror .tc-stick{ left: auto; right: calc(var(--tc-edge) + 18px + var(--tc-sr)); }
+.tc.tc--mirror .tc-look{ left: 0; right: 50%; }
+.tc.tc--mirror .tc-btn{ left: calc(var(--tc-ax) - var(--tc-r) * cos(var(--a)) - var(--s) / 2 + var(--tc-sl)); right: auto; }
+.tc.tc--mirror .tc-btn[data-pos="1"]{ left: calc(var(--tc-edge) + var(--tc-sl)); }

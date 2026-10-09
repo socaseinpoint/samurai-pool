@@ -473,6 +473,7 @@ export class HUD {
   
   private createSplashChargesElement(): void {
     this.splashChargesEl = document.createElement('div');
+    this.splashChargesEl.id = 'splash-charges';
     this.splashChargesEl.style.cssText = `
       position: fixed;
       bottom: 80px;
@@ -507,6 +508,7 @@ export class HUD {
 
   private createDoubleJumpElement(): void {
     this.doubleJumpEl = document.createElement('div');
+    this.doubleJumpEl.id = 'double-jump';
     this.doubleJumpEl.style.cssText = `
       position: fixed;
       bottom: 70px;
