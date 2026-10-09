@@ -1,0 +1,94 @@
+/* ============================================================================
+   studio-brand.css — бренд студии для хаба старых игр (SOC-129).
+   Язык взят у Ночной смены (шрифты, палитра, угловая рамка камеры, лента «скоро»)
+   и у Groovamp v2 «Elektron» (один янтарный акцент, панели с кромкой, LED-клавиши,
+   сегментные шкалы с крупной цифрой, глифы пада). Подробно: README.md рядом.
+
+   Имя студии здесь НЕ пишется: оно в studio.config.js, знак — SVG в marks/.
+   Шрифты: локально, brand/fonts.css (подключать до этого файла)
+   (без сети — системные фолбэки ниже, вёрстка не ломается).
+   ============================================================================ */
+:root{
+  /* фон и плашки */
+  --studio-bg:#09080c; --studio-bg-2:#0e0d12;
+  --studio-plate:#111114; --studio-plate-2:#17171b; --studio-key:#1a1a1f;
+  --studio-edge:#25252c; --studio-edge-2:#34343d;
+  /* текст */
+  --studio-ink:#eeeaf2; --studio-ink-2:#cfc9d8; --studio-dim:#9a93a6; --studio-mute:#6c6676;
+  /* акценты: янтарь — ОДНО главное действие на экран; циан — фокус; live — только «подключено» */
+  --studio-amber:#ffb547; --studio-amber-ink:#140d02; --studio-amber-soft:rgba(255,181,71,.14);
+  --studio-focus:#35e6ff; --studio-focus-soft:rgba(53,230,255,.16);
+  --studio-live:#3dff9a; --studio-red:#ff4d5e;
+  /* шрифты */
+  --studio-disp:"Oswald","Arial Narrow","Roboto Condensed",system-ui,sans-serif;
+  --studio-mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  /* форма */
+  --studio-r:6px; --studio-r-sm:4px; --studio-bw:1.5px;
+  --studio-tap:44px; --studio-tap-main:64px;
+  --studio-shadow:0 18px 40px -18px rgba(0,0,0,.8);
+  --studio-glow-amber:0 0 14px -2px rgba(255,181,71,.55);
+  --studio-glow-focus:0 0 18px -4px rgba(53,230,255,.6);
+  --studio-ease:cubic-bezier(.16,1,.3,1);
+  /* safe areas (как в Смене и Groovamp: ДОБАВЛЯТЬ к отступу, не заменять) */
+  --studio-sa-t:env(safe-area-inset-top,0px); --studio-sa-b:env(safe-area-inset-bottom,0px);
+  --studio-sa-l:env(safe-area-inset-left,0px); --studio-sa-r:env(safe-area-inset-right,0px);
+  color-scheme:dark;
+}
+
+/* ── логотип: знак (SVG-слот) + имя. Имя любой длины: ужимается, потом многоточие ── */
+.studio-logo{display:inline-flex;align-items:center;gap:12px;min-width:0;max-width:100%;color:var(--studio-ink);text-decoration:none}
+.studio-mark{flex:none;display:grid;place-items:center;width:40px;height:40px;border:var(--studio-bw) solid var(--studio-edge-2);border-radius:var(--studio-r);background:var(--studio-plate)}
+.studio-mark img,.studio-mark svg{width:30px;height:30px;display:block}
+.studio-logo .studio-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font:600 26px/1 var(--studio-disp);letter-spacing:.08em;text-transform:uppercase;color:#fff}
+.studio-logo .studio-kind{flex:none;font:500 11px/1 var(--studio-mono);letter-spacing:.22em;text-transform:uppercase;color:var(--studio-amber);align-self:flex-end;padding-bottom:3px}
+html[data-studio-len="long"] .studio-logo .studio-name{font-size:22px;letter-spacing:.05em}
+
+/* ── типографика ── */
+.st-lbl{font:500 11px/1.2 var(--studio-mono);letter-spacing:.18em;text-transform:uppercase;color:var(--studio-dim)}
+.st-h{font:600 26px/1.02 var(--studio-disp);letter-spacing:.05em;text-transform:uppercase;color:#fff;margin:0}
+.st-num{font:600 1em/1 var(--studio-disp);font-variant-numeric:tabular-nums;letter-spacing:.02em}
+
+/* ── кнопки ── */
+.st-btn{display:inline-flex;align-items:center;justify-content:center;gap:12px;min-height:var(--studio-tap);padding:0 20px;border:0;border-radius:var(--studio-r-sm);cursor:pointer;text-decoration:none;
+  background:var(--studio-amber);color:var(--studio-amber-ink);font:600 18px/1 var(--studio-disp);letter-spacing:.12em;text-transform:uppercase;box-shadow:var(--studio-glow-amber)}
+.st-btn.main{min-height:var(--studio-tap-main);font-size:24px;width:100%}
+.st-ghost{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:var(--studio-tap);padding:0 16px;border:var(--studio-bw) solid var(--studio-edge-2);border-radius:var(--studio-r-sm);cursor:pointer;text-decoration:none;
+  background:var(--studio-key);color:var(--studio-ink);font:500 12px/1 var(--studio-mono);letter-spacing:.14em;text-transform:uppercase;white-space:nowrap}
+.st-ghost:hover{border-color:var(--studio-focus);color:#fff}
+.st-ibtn{display:grid;place-items:center;flex:none;width:var(--studio-tap);height:var(--studio-tap);padding:0;border:var(--studio-bw) solid var(--studio-edge-2);border-radius:var(--studio-r-sm);background:var(--studio-key);color:var(--studio-ink);cursor:pointer}
+.st-ghost svg,.st-ibtn svg,.st-btn svg{width:20px;height:20px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* фокус один на всё (мышь, клавиатура, геймпад): циан 2 px. .st-pf — фокус, выставленный геймпадом */
+:is(a,button,input,[tabindex]):focus-visible,.st-pf{outline:2px solid var(--studio-focus)!important;outline-offset:3px}
+
+/* ── угловая рамка камеры (Смена .camf) — выбранная карточка ── */
+.st-camf{--cc:var(--studio-focus);--cl:22px;--cw:2px;position:absolute;inset:-7px;pointer-events:none;
+  background:
+    linear-gradient(var(--cc),var(--cc)) left top/var(--cl) var(--cw),linear-gradient(var(--cc),var(--cc)) left top/var(--cw) var(--cl),
+    linear-gradient(var(--cc),var(--cc)) right top/var(--cl) var(--cw),linear-gradient(var(--cc),var(--cc)) right top/var(--cw) var(--cl),
+    linear-gradient(var(--cc),var(--cc)) left bottom/var(--cl) var(--cw),linear-gradient(var(--cc),var(--cc)) left bottom/var(--cw) var(--cl),
+    linear-gradient(var(--cc),var(--cc)) right bottom/var(--cl) var(--cw),linear-gradient(var(--cc),var(--cc)) right bottom/var(--cw) var(--cl);
+  background-repeat:no-repeat;filter:drop-shadow(0 0 6px rgba(53,230,255,.55))}
+
+/* ── мелочь ── */
+.st-tape{display:inline-block;padding:.5em .9em;background:var(--studio-ink-2);color:var(--studio-bg);font:700 11px/1 var(--studio-mono);letter-spacing:.26em;text-transform:uppercase}
+.st-led{display:inline-block;flex:none;width:8px;height:8px;border-radius:50%;background:var(--studio-edge-2)}
+.st-led.on{background:var(--studio-amber);box-shadow:0 0 6px 1px rgba(255,181,71,.8)}
+.st-led.live{background:var(--studio-live);box-shadow:0 0 8px var(--studio-live)}
+kbd.st-kbd{display:inline-flex;align-items:center;justify-content:center;min-width:26px;height:26px;padding:0 7px;border:var(--studio-bw) solid var(--studio-edge-2);border-bottom-width:3px;border-radius:var(--studio-r-sm);
+  background:var(--studio-key);color:var(--studio-ink);font:700 11px/1 var(--studio-mono);letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
+/* глиф кнопки Xbox-пада: <i class="st-pad a">A</i>; плечи/курки/стики: .sh (LB RB LT RT), .st (LS RS L3), .mn (Menu View) */
+.st-pad{display:inline-grid;place-items:center;flex:none;width:26px;height:26px;border-radius:50%;font:700 12px/1 var(--studio-mono);font-style:normal;
+  color:var(--pc,#fff);background:var(--studio-key);border:2px solid var(--pc,var(--studio-edge-2))}
+.st-pad.a{--pc:#5ed16a}.st-pad.b{--pc:#ff5a5a}.st-pad.x{--pc:#4fa3ff}.st-pad.y{--pc:#ffd24a}
+.st-pad.sh,.st-pad.mn{width:auto;min-width:34px;padding:0 6px;border-radius:7px 7px 4px 4px;font-size:10.5px;color:var(--studio-ink);border-color:var(--studio-edge-2)}
+.st-pad.mn{border-radius:13px}
+.st-pad.st{width:auto;min-width:28px;padding:0 5px;border-radius:13px;font-size:10.5px;color:var(--studio-ink);border-color:var(--studio-edge-2);border-style:dashed}
+
+/* ── кнопка «← в хаб» внутри игры (вставляет модуль studio-controls) ── */
+.studio-back{position:fixed;z-index:50;left:calc(12px + var(--studio-sa-l));top:calc(12px + var(--studio-sa-t));
+  display:inline-flex;align-items:center;gap:8px;min-height:var(--studio-tap);padding:0 14px 0 10px;border:var(--studio-bw) solid var(--studio-edge-2);border-radius:var(--studio-r-sm);
+  background:rgba(9,8,12,.78);backdrop-filter:blur(6px);color:var(--studio-ink);font:500 12px/1 var(--studio-mono);letter-spacing:.14em;text-transform:uppercase;text-decoration:none}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}

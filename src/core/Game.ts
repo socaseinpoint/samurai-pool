@@ -1,7 +1,7 @@
 import type { GameState, GameConfig, Vec3 } from '@/types';
 import { GameLoop } from './GameLoop';
 import { Input, PAD } from './Input';
-import { goToHub, isTouchDevice } from './Platform';
+import { goToHub, isTouchDevice, onStudioControlsChange, readStudioControls, type StudioControls } from './Platform';
 import { TouchControls } from '@/ui/TouchControls';
 import { Player } from '@/player/Player';
 import { Weapon } from '@/weapon/Weapon';
@@ -264,6 +264,16 @@ export class Game {
     if (isTouchDevice()) {
       this.touch = new TouchControls(this.input, () => this.togglePause());
     }
+
+    // Общие настройки управления студии (studio.controls.v1), живое обновление из другой вкладки
+    const applyStudio = (c: StudioControls) => {
+      this.input.touchLookScale = c.lookSens;
+      this.input.padLookScale = c.lookSens;
+      this.input.invertPadTouchY = c.invertY;
+      this.touch?.applyStudio(c);
+    };
+    applyStudio(readStudioControls());
+    onStudioControlsChange(applyStudio);
   }
 
   /** Тач-оверлей (только на тач-устройствах) */

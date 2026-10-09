@@ -38,3 +38,10 @@ body.sp-touch #darts-count { bottom: auto !important; top: calc(10px + env(safe-
 body.sp-touch #weapon-indicator { bottom: auto !important; right: auto !important; top: calc(12px + env(safe-area-inset-top, 0px)) !important; left: 42% !important; transform: translateX(-50%); }
 body.sp-touch #splash-charges { bottom: auto !important; right: auto !important; top: calc(40px + env(safe-area-inset-top, 0px)) !important; left: 42% !important; transform: translateX(-50%); }
 body.sp-touch #double-jump { bottom: auto !important; top: calc(186px + env(safe-area-inset-top, 0px)) !important; left: calc(15px + env(safe-area-inset-left, 0px)) !important; }
+
+/* левша (studio.controls.v1 leftHanded): стик справа, свайп слева */
+.sp-tc.tc--mirror .sp-stickzone { left: 50%; right: 0; width: auto; }
+/* у левши дуга кнопок слева — левая колонка HUD (счёт, здоровье) уезжает вправо под FPS */
+body.sp-touch.sp-lefty #frags { left: auto; right: calc(15px + env(safe-area-inset-right, 0px)); top: calc(100px + env(safe-area-inset-top, 0px)); }
+body.sp-touch.sp-lefty #health { left: auto; right: calc(15px + env(safe-area-inset-right, 0px)); top: calc(156px + env(safe-area-inset-top, 0px)); }
+body.sp-touch.sp-lefty #double-jump { left: auto !important; right: calc(15px + env(safe-area-inset-right, 0px)) !important; top: calc(222px + env(safe-area-inset-top, 0px)) !important; }

@@ -1,7 +1,10 @@
 import type { InputAction } from '@/types';
 import type { Input } from '@/core/Input';
-import { goToHub } from '@/core/Platform';
+import { goToHub, type StudioControls } from '@/core/Platform';
 import layouts from './hub-touch/layouts.json';
+// Бренд студии (токены --studio-*, локальные Oswald / JetBrains Mono) — копия studio-games/brand
+import './studio-brand/fonts.css';
+import './studio-brand/studio-brand.css';
 import './hub-touch/touch.css';
 import './touch-samurai.css';
 
@@ -69,6 +72,14 @@ export class TouchControls {
     this.bindButtons();
     this.blockBrowserGestures();
     this.setMode('menu');
+  }
+
+  /** Общие настройки студии: размер и плотность кнопок, левша */
+  public applyStudio(c: StudioControls): void {
+    this.root.style.setProperty('--tc-scale', String(c.touchSize / 100));
+    this.root.style.setProperty('--tc-alpha', String(c.touchOpacity / 100));
+    this.root.classList.toggle('tc--mirror', c.leftHanded);
+    document.body.classList.toggle('sp-lefty', c.leftHanded);
   }
 
   /** Переключить режим (меню / игра / пауза) */

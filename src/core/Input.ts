@@ -89,6 +89,9 @@ export class Input {
   /** Множитель обзора свайпом (поверх чувствительности) */
   public touchLookScale = 1;
 
+  /** Инверсия вертикали для свайпа и стика (общая настройка студии invertY) */
+  public invertPadTouchY = false;
+
   /** Геймпад подключён */
   public padConnected = false;
 
@@ -119,7 +122,7 @@ export class Input {
     },
     /** Свайп обзора в CSS-пикселях */
     addLook: (dx: number, dy: number): void => {
-      this.addLookPixels(dx, dy, this.touchLookScale);
+      this.addLookPixels(dx, this.invertPadTouchY ? -dy : dy, this.touchLookScale);
     },
     /** Зажать / отпустить действие (тап короче кадра не теряется) */
     set: (action: InputAction, pressed: boolean): void => {
@@ -263,7 +266,7 @@ export class Input {
     const [rx, ry] = this.stick(pad, 2, 3);
     const speed = PAD_LOOK_SPEED * this.padLookScale * (this.sensitivity / DEFAULT_SENSITIVITY) * dt;
     this.mouseDelta.x += (this.invertX ? -1 : 1) * rx * Math.abs(rx) * speed;
-    this.mouseDelta.y += (this.invertY ? -1 : 1) * ry * Math.abs(ry) * speed;
+    this.mouseDelta.y += (this.invertY !== this.invertPadTouchY ? -1 : 1) * ry * Math.abs(ry) * speed;
   }
 
   /** Стик с калибровкой и радиальной мёртвой зоной → [x, y] в -1..1 */
