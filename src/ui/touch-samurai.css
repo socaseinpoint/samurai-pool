@@ -59,3 +59,13 @@ body.sp-touch.sp-lefty #double-jump { left: auto !important; right: calc(15px + 
 .sp-tc.sp-has-gear .sp-pause { display: none; }
 /* полоса .tc-top сама пропускает касания — шестерёнке модуля их надо ловить */
 .sp-tc .tc-top-r .glint-gear { pointer-events: auto; display: inline-flex; }
+
+/* SOC-176: студия, портрет — между «‹ Glint» (до 126px) и шестерёнкой (56px + 12px справа) ряд счётчиков не влезает:
+   счётчики (дротики, очки, алтарь) — строкой под полосой справа, оружие и заряды — по центру свободного места полосы */
+@media (orientation: portrait) {
+  body.sp-touch.sp-has-gear #altar-score { top: calc(64px + env(safe-area-inset-top, 0px)) !important; right: calc(12px + env(safe-area-inset-right, 0px)) !important; }
+  body.sp-touch.sp-has-gear #score-carrying { top: calc(64px + env(safe-area-inset-top, 0px)) !important; right: calc(86px + env(safe-area-inset-right, 0px)) !important; }
+  body.sp-touch.sp-has-gear #darts-count { top: calc(64px + env(safe-area-inset-top, 0px)) !important; right: calc(152px + env(safe-area-inset-right, 0px)) !important; }
+  body.sp-touch.sp-has-gear #weapon-indicator,
+  body.sp-touch.sp-has-gear #splash-charges { left: calc(50% + 29px) !important; }
+}
