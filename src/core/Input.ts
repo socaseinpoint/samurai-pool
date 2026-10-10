@@ -103,6 +103,9 @@ export class Input {
    * зажатые в момент закрытия меню, не доходят до игры, пока их не отпустят.
    */
   private blocked = false;
+  /** Внешняя «проглотка» кнопок пада (GlintSettings.padHeld): зажатые при закрытии меню — до отпускания */
+  public padSwallowed: ((button: number) => boolean) | null = null;
+
   /** Кнопки пада, которые игра не видит до отпускания (нажаты в меню) */
   private padLatched: boolean[] = [];
 
@@ -307,7 +310,8 @@ export class Input {
       return;
     }
     for (let i = 0; i < raw.length; i++) if (!raw[i]) this.padLatched[i] = false;
-    const now = raw.map((v, i) => v && !this.padLatched[i]);
+    const swallowed = this.padSwallowed;
+    const now = raw.map((v, i) => v && !this.padLatched[i] && !(swallowed && swallowed(i)));
     for (let i = 0; i < now.length; i++) {
       if (now[i] && !this.padButtons[i]) {
         if (i === PAD_BINDINGS.throwGrenade[0]) this.state.throwGrenade = true;

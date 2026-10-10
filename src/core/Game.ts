@@ -355,6 +355,10 @@ export class Game {
     }
     this.glint = g;
     document.body.classList.add('sp-glint');
+    // Кнопки, зажатые при закрытии меню, игре не отдаём до отпускания: своя защёлка Input + padHeld модуля
+    if (typeof g.padHeld === 'function') {
+      this.input.padSwallowed = (i) => { try { return !g.isOpen() && !!g.padHeld!(i); } catch { return false; } };
+    }
 
     // Текущие значения из модуля (он мог мигрировать или поправить их)
     const c = glintControls(g);

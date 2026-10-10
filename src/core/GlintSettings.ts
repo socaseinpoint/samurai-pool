@@ -53,6 +53,8 @@ export interface GlintSettingsApi {
   open(tab?: string): void;
   close(): void;
   isOpen(): boolean;
+  /** Кнопка пада, зажатая при закрытии меню, ещё не отпущена (без аргумента — любая); пока меню открыто — true */
+  padHeld?(button?: number): boolean;
   mountGear(container: HTMLElement, opts?: Record<string, unknown>): unknown;
 }
 
