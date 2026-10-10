@@ -50,7 +50,7 @@ export interface GlintSettingsApi {
   setGame(id: string, patch: Record<string, unknown>): void;
   on(fn: (settings: Record<string, unknown>, changedKeys: string[]) => void): () => void;
   register(cfg: GlintRegistration): void;
-  open(tab?: string): void;
+  open(tab?: string, opts?: { via?: 'keys' | 'pad' | 'pointer' | 'touch' }): void;
   close(): void;
   isOpen(): boolean;
   /** Кнопка пада, зажатая при закрытии меню, ещё не отпущена (без аргумента — любая); пока меню открыто — true */

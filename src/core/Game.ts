@@ -933,7 +933,9 @@ export class Game {
           this.state.isPaused = true;
           const g = this.glint;
           window.setTimeout(() => {
-            if (!g.isOpen()) g.open();
+            // Esc съел браузер (снял захват) — для модуля это открытие с клавиатуры: фокус сразу на первой строке.
+            // Второй аргумент — предложение к модулю (open(tab, {via})); текущий модуль его игнорирует
+            if (!g.isOpen()) g.open(undefined, { via: 'keys' });
             if (!g.isOpen()) { this.state.isPaused = false; this.showPauseOverlay(); } // меню не открылось — обычная пауза
           }, 80);
           return;
