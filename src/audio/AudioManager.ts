@@ -10,6 +10,20 @@ export class AudioManager {
   private musicGain: GainNode | null = null;
   private sfxGain: GainNode | null = null;
 
+  // Микшер игрока (SOC-176): множители музыки и эффектов поверх внутренних уровней шин (их рампы пишут абсолютные значения)
+  /** musicGain → musicMix → войд-фильтр */
+  private musicMix: GainNode | null = null;
+  /** музыка → реверб (арпеджио и пэд синей темы босса) */
+  private musicSend: GainNode | null = null;
+  /** sfxGain → sfxMix → войд-фильтр */
+  private sfxMix: GainNode | null = null;
+  /** эффекты → реверб */
+  private sfxSend: GainNode | null = null;
+  /** эффекты мимо шины: дождь, гром, воронка → мастер */
+  private sfxDirect: GainNode | null = null;
+  private musicLevel = 1;
+  private effectsLevel = 1;
+
   // Эффекты
   private reverb: ConvolverNode | null = null;
   private distortion: WaveShaperNode | null = null;
@@ -53,6 +67,16 @@ export class AudioManager {
     this.reverb = this.createReverb(2.5);
     this.reverb.connect(this.masterGain);
 
+    // Микшер игрока: посылы в реверб и прямой выход эффектов
+    this.musicSend = this.ctx.createGain();
+    this.musicSend.connect(this.reverb);
+    this.sfxSend = this.ctx.createGain();
+    this.sfxSend.connect(this.reverb);
+    this.sfxDirect = this.ctx.createGain();
+    this.sfxDirect.connect(this.masterGain);
+    this.musicMix = this.ctx.createGain();
+    this.sfxMix = this.ctx.createGain();
+
     // Музыка
     this.musicGain = this.ctx.createGain();
     this.musicGain.gain.value = 0.12;
@@ -72,9 +96,12 @@ export class AudioManager {
     // Вставляем фильтр перед мастером
     this.musicGain.disconnect();
     this.sfxGain.disconnect();
-    this.musicGain.connect(this.voidFilter);
-    this.sfxGain.connect(this.voidFilter);
+    this.musicGain.connect(this.musicMix);
+    this.sfxGain.connect(this.sfxMix);
+    this.musicMix.connect(this.voidFilter);
+    this.sfxMix.connect(this.voidFilter);
     this.voidFilter.connect(this.distortion);
+    this.applyMix();
 
     this.isStarted = true;
 
@@ -137,6 +164,31 @@ export class AudioManager {
     if (this.masterGain && !this.isMuted) {
       this.masterGain.gain.value = this.volume;
     }
+  }
+
+  /** Музыка и эффекты отдельно (0-1, множители поверх общей громкости) */
+  public setMix(music: number, effects: number): void {
+    this.musicLevel = Math.max(0, Math.min(1, music));
+    this.effectsLevel = Math.max(0, Math.min(1, effects));
+    this.applyMix();
+  }
+
+  /** Текущие уровни узлов (для проверок): мастер, музыка, эффекты */
+  public getLevels(): { master: number; music: number; effects: number; started: boolean } {
+    return {
+      master: this.masterGain ? this.masterGain.gain.value : (this.isMuted ? 0 : this.volume),
+      music: this.musicMix ? this.musicMix.gain.value : this.musicLevel,
+      effects: this.sfxMix ? this.sfxMix.gain.value : this.effectsLevel,
+      started: this.isStarted,
+    };
+  }
+
+  private applyMix(): void {
+    if (this.musicMix) this.musicMix.gain.value = this.musicLevel;
+    if (this.musicSend) this.musicSend.gain.value = this.musicLevel;
+    if (this.sfxMix) this.sfxMix.gain.value = this.effectsLevel;
+    if (this.sfxSend) this.sfxSend.gain.value = this.effectsLevel;
+    if (this.sfxDirect) this.sfxDirect.gain.value = this.effectsLevel;
   }
 
   /** Войти в войд режим - глубокий low pass фильтр */
@@ -671,7 +723,7 @@ export class AudioManager {
 
     boom.connect(boomGain);
     boomGain.connect(this.sfxGain);
-    boomGain.connect(this.reverb!);
+    boomGain.connect(this.sfxSend!);
 
     boom.start(now);
     boom.stop(now + 0.5);
@@ -766,7 +818,7 @@ export class AudioManager {
     whistle.connect(whistleFilter);
     whistleFilter.connect(whistleGain);
     whistleGain.connect(this.sfxGain);
-    whistleGain.connect(this.reverb!);
+    whistleGain.connect(this.sfxSend!);
 
     whistle.start(now);
     whistle.stop(now + 1.4);
@@ -1090,7 +1142,7 @@ export class AudioManager {
     whistle.connect(whistleFilter);
     whistleFilter.connect(whistleGain);
     whistleGain.connect(this.sfxGain);
-    whistleGain.connect(this.reverb!);
+    whistleGain.connect(this.sfxSend!);
     
     whistle.start(now);
     whistle.stop(now + 0.55);
@@ -1257,7 +1309,7 @@ export class AudioManager {
     roar.connect(roarFilter);
     roarFilter.connect(roarGain);
     roarGain.connect(this.sfxGain);
-    roarGain.connect(this.reverb!);
+    roarGain.connect(this.sfxSend!);
     
     roar.start(now);
     roar.stop(now + 1.1);
@@ -1305,7 +1357,7 @@ export class AudioManager {
     noise.connect(noiseFilter);
     noiseFilter.connect(noiseGain);
     noiseGain.connect(this.sfxGain);
-    noiseGain.connect(this.reverb!);
+    noiseGain.connect(this.sfxSend!);
     
     noise.start(now);
   }
@@ -1335,7 +1387,7 @@ export class AudioManager {
     
     hum.connect(humGain);
     humGain.connect(this.sfxGain);
-    humGain.connect(this.reverb!);
+    humGain.connect(this.sfxSend!);
     
     lfo.start(now);
     hum.start(now);
@@ -1550,7 +1602,7 @@ export class AudioManager {
     swoosh.connect(swooshFilter);
     swooshFilter.connect(swooshGain);
     swooshGain.connect(this.sfxGain);
-    swooshGain.connect(this.reverb!);
+    swooshGain.connect(this.sfxSend!);
 
     swoosh.start(now);
     swoosh.stop(now + 0.5);
@@ -1674,7 +1726,7 @@ export class AudioManager {
     zap.connect(zapFilter);
     zapFilter.connect(zapGain);
     zapGain.connect(this.sfxGain);
-    zapGain.connect(this.reverb!);
+    zapGain.connect(this.sfxSend!);
 
     zap.start(now);
     zap.stop(now + 0.3);
@@ -1738,7 +1790,7 @@ export class AudioManager {
       osc.connect(filter);
       filter.connect(gain);
       gain.connect(this.sfxGain);
-      gain.connect(this.reverb!);
+      gain.connect(this.sfxSend!);
 
       osc.start(now + delay);
       osc.stop(now + delay + 0.1);
@@ -1920,7 +1972,7 @@ export class AudioManager {
 
     kick.connect(kickGain);
     kickGain.connect(this.sfxGain);
-    kickGain.connect(this.reverb!);
+    kickGain.connect(this.sfxSend!);
 
     kick.start(now);
     kick.stop(now + 0.25);
@@ -1960,7 +2012,7 @@ export class AudioManager {
 
     thud.connect(thudGain);
     thudGain.connect(this.sfxGain);
-    thudGain.connect(this.reverb!);
+    thudGain.connect(this.sfxSend!);
 
     thud.start(now);
     thud.stop(now + 0.25);
@@ -1981,7 +2033,7 @@ export class AudioManager {
     splat.connect(splatFilter);
     splatFilter.connect(splatGain);
     splatGain.connect(this.sfxGain);
-    splatGain.connect(this.reverb!);
+    splatGain.connect(this.sfxSend!);
 
     // Пузырящееся растекание (короткие тоны)
     for (let i = 0; i < 3; i++) {
@@ -2115,7 +2167,7 @@ export class AudioManager {
     wave.connect(waveFilter);
     waveFilter.connect(waveGain);
     waveGain.connect(this.sfxGain);
-    waveGain.connect(this.reverb!);
+    waveGain.connect(this.sfxSend!);
 
     wave.start(now);
     wave.stop(now + 0.5);
@@ -2204,7 +2256,7 @@ export class AudioManager {
     charge2.connect(chargeFilter);
     chargeFilter.connect(chargeGain);
     chargeGain.connect(this.sfxGain);
-    chargeGain.connect(this.reverb!);
+    chargeGain.connect(this.sfxSend!);
 
     charge.start(now);
     charge.stop(now + 0.5);
@@ -2222,7 +2274,7 @@ export class AudioManager {
     shimmerGain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
 
     shimmer.connect(shimmerGain);
-    shimmerGain.connect(this.reverb!);
+    shimmerGain.connect(this.sfxSend!);
 
     shimmer.start(now + 0.15);
     shimmer.stop(now + 0.55);
@@ -2474,7 +2526,7 @@ export class AudioManager {
 
     gong.connect(gongGain);
     gongGain.connect(this.sfxGain);
-    gongGain.connect(this.reverb!);
+    gongGain.connect(this.sfxSend!);
 
     gong.start(now);
     gong.stop(now + 2.5);
@@ -2492,7 +2544,7 @@ export class AudioManager {
 
     gong2.connect(gong2Gain);
     gong2Gain.connect(this.sfxGain);
-    gong2Gain.connect(this.reverb!);
+    gong2Gain.connect(this.sfxSend!);
 
     gong2.start(now + 0.5);
     gong2.stop(now + 3.0);
@@ -2512,7 +2564,7 @@ export class AudioManager {
 
     whisper.connect(whisperFilter);
     whisperFilter.connect(whisperGain);
-    whisperGain.connect(this.reverb!);
+    whisperGain.connect(this.sfxSend!);
   }
 
   // ==================== SYNTHWAVE МУЗЫКА ====================
@@ -2573,7 +2625,7 @@ export class AudioManager {
     // Создаём gain для дождя
     this.rainGain = this.ctx.createGain();
     this.rainGain.gain.value = 0;
-    this.rainGain.connect(this.masterGain);
+    this.rainGain.connect(this.sfxDirect!);
 
     // Создаём буфер с шумом дождя (белый шум + фильтр)
     const sampleRate = this.ctx.sampleRate;
@@ -2642,7 +2694,7 @@ export class AudioManager {
       // Создаём gain для грома
       const thunderGain = this.ctx.createGain();
       thunderGain.gain.value = 0;
-      thunderGain.connect(this.masterGain);
+      thunderGain.connect(this.sfxDirect!);
 
       // === НИЗКИЙ РАСКАТ ГРОМА ===
       // Шум для грома
@@ -3596,7 +3648,7 @@ export class AudioManager {
       // Создаём gain
       this.vortexGain = this.ctx.createGain();
       this.vortexGain.gain.value = 0;
-      this.vortexGain.connect(this.masterGain);
+      this.vortexGain.connect(this.sfxDirect!);
 
       // Низкий гудящий осциллятор (ветер)
       this.vortexOsc = this.ctx.createOscillator();
@@ -4683,7 +4735,7 @@ export class AudioManager {
       gain.connect(delay);
       delay.connect(delayGain);
       delayGain.connect(this.musicGain!);
-      delayGain.connect(this.reverb!);
+      delayGain.connect(this.musicSend!);
 
       osc.start(now);
       osc.stop(now + 0.15);
@@ -4741,7 +4793,7 @@ export class AudioManager {
         osc2.connect(filter);
         filter.connect(gain);
         gain.connect(this.musicGain!);
-        gain.connect(this.reverb!);
+        gain.connect(this.musicSend!);
 
         osc.start(now + i * 0.1);
         osc.stop(now + 4.5);

@@ -310,8 +310,12 @@ export class HUD {
   /** Оверлей замедления */
   private slowOverlay: HTMLElement | null = null;
 
+  /** Игрок получил урон (вибрация по общей настройке студии) */
+  public onDamage?: () => void;
+
   /** Показать урон с определённым цветом */
   public showDamage(color: 'green' | 'purple' = 'green'): void {
+    this.onDamage?.();
     if (this.damageOverlay) {
       if (color === 'purple') {
         // Фиолетовый для фантома + ЗАМЕДЛЕНИЕ

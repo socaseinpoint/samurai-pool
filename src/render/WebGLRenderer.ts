@@ -1,6 +1,7 @@
 import { VERTEX_SHADER, FRAGMENT_SHADER, COMPOSITE_SHADER } from './Shaders';
 import type { ShaderUniforms, Vec3 } from '@/types';
-import { getPhoneScale, getQualityParam, wantsPhoneProfile } from '@/core/Platform';
+import { getPhoneScale, getQualityParam, inStudio, isPhoneLike, readStudioControls, wantsPhoneProfile, type StudioControls } from '@/core/Platform';
+import { readGameSettings } from '@/core/GlintSettings';
 
 /** Шагов ray marching в phone-профиле (в шейдере по умолчанию 40) */
 const PHONE_MAX_STEPS = 28;
@@ -64,10 +65,22 @@ export class WebGLRenderer {
     return this.phoneScale > 0;
   }
 
+  /**
+   * Сайт студии: тени/постэффекты/катана/турбо — из 'studio.game.samurai.v1', качество — из общего studio.controls.v1;
+   * старый ключ 'gameSettings' в студии не пишется (вне студии — как раньше)
+   */
+  public readonly studio = inStudio();
+  /** Облегчённый шейдер (меньше шагов): phone-профиль или телефон в студии при любом качестве */
+  private lightShader = false;
+  /** Общее качество студии (auto — адаптив, авто-понижение только в памяти сессии) */
+  private studioQuality: StudioControls['quality'] = 'auto';
+
   constructor(private canvas: HTMLCanvasElement) {
     // Загружаем настройки из localStorage
     this.loadSettings();
     this.applyProfile();
+    if (this.studio) this.applyStudioQuality(readStudioControls().quality);
+    this.lightShader = this.isPhoneProfile || (this.studio && isPhoneLike());
     console.log(`🖥️ Экран: ${window.screen.width}×${window.screen.height}, качество: ${this.quality.toUpperCase()}`);
     const gl = canvas.getContext('webgl2');
     if (!gl) {
@@ -142,7 +155,7 @@ export class WebGLRenderer {
     // Компилируем шейдеры
     const vertShader = this.compileShader(gl.VERTEX_SHADER, VERTEX_SHADER);
     // Phone: меньше шагов ray marching
-    const fragSource = this.isPhoneProfile
+    const fragSource = this.lightShader
       ? FRAGMENT_SHADER.replace('#define MAX_STEPS 40', `#define MAX_STEPS ${PHONE_MAX_STEPS}`)
       : FRAGMENT_SHADER;
     const fragShader = this.compileShader(gl.FRAGMENT_SHADER, fragSource);
@@ -404,7 +417,8 @@ export class WebGLRenderer {
     }
     if (wantsPhoneProfile()) {
       this.phoneScale = getPhoneScale();
-      this.shadowsEnabled = false;
+      // В студии выбор игрока хранится как есть, тени гасятся при отрисовке (см. render: phone-профиль без теней)
+      if (!this.studio) this.shadowsEnabled = false;
       this.updatePhoneTarget();
       console.log(`📱 Phone-профиль: рендер ×${this.phoneScale} от окна (${this.targetWidth}×${this.targetHeight}), без теней, MAX_STEPS ${PHONE_MAX_STEPS}`);
     }
@@ -437,8 +451,8 @@ export class WebGLRenderer {
     }
   }
   
-  /** Установить качество */
-  public setQuality(quality: 'ultra_low' | 'low' | 'medium' | 'high'): void {
+  /** Установить качество (persist=false — только на эту сессию: авто-понижение, общее меню студии) */
+  public setQuality(quality: 'ultra_low' | 'low' | 'medium' | 'high', persist = true): void {
     this.quality = quality;
     this.phoneScale = 0; // ручной выбор качества отключает phone-профиль
     const preset = WebGLRenderer.QUALITY_PRESETS[quality];
@@ -446,14 +460,41 @@ export class WebGLRenderer {
     this.targetHeight = preset.height;
     
     // Пересоздаём geometry FBO с новым размером
-    this.recreateGeometryFBO();
+    if (this.geometryFBO) this.recreateGeometryFBO();
     
-    this.saveSettings();
+    if (persist) this.saveSettings();
     console.log(`📐 Качество: ${quality.toUpperCase()} (${preset.width}×${preset.height}, geometry: ${this.geometryWidth}×${this.geometryHeight})`);
   }
+
+  /**
+   * Общее качество студии (studio.controls.v1 quality): low — 240p на телефоне / 360p на компьютере,
+   * medium — 480p, high — 720p, auto — адаптив: телефон — окно × масштаб, компьютер — 360p с авто-понижением.
+   * Ничего не сохраняет (настройка живёт в общем ключе). ?quality= в адресе главнее (отладка).
+   */
+  public applyStudioQuality(q: StudioControls['quality']): void {
+    this.studioQuality = q;
+    if (getQualityParam()) return;
+    if (q === 'auto') {
+      if (isPhoneLike()) {
+        this.phoneScale = getPhoneScale();
+        this.updatePhoneTarget();
+        if (this.geometryFBO) this.recreateGeometryFBO();
+        if (this.gl) this.resize();
+        console.log(`📐 Качество: AUTO (телефон, окно ×${this.phoneScale}: ${this.targetWidth}×${this.targetHeight})`);
+      } else {
+        this.setQuality('low', false);
+        if (this.gl) this.resize();
+      }
+      return;
+    }
+    const preset = q === 'low' ? (isPhoneLike() ? 'ultra_low' : 'low') : q;
+    this.setQuality(preset, false);
+    if (this.gl) this.resize();
+  }
   
-  /** Сохранить настройки в localStorage */
+  /** Сохранить настройки в localStorage (в студии — нет: там их хранит общий модуль) */
   public saveSettings(): void {
+    if (this.studio) return;
     const settings = {
       quality: this.quality,
       shadows: this.shadowsEnabled,
@@ -466,6 +507,14 @@ export class WebGLRenderer {
   
   /** Загрузить настройки из localStorage */
   private loadSettings(): void {
+    if (this.studio) {
+      const g = readGameSettings();
+      this.shadowsEnabled = g.shadows;
+      this.postfxEnabled = g.postfx;
+      this.katanaEnabled = g.katana;
+      this.turboEnabled = g.turbo;
+      return;
+    }
     try {
       const saved = localStorage.getItem('gameSettings');
       if (saved) {
@@ -698,7 +747,7 @@ export class WebGLRenderer {
     }
 
     // Настройки графики
-    gl.uniform1i(this.uniforms.shadowsEnabled, this.shadowsEnabled ? 1 : 0);
+    gl.uniform1i(this.uniforms.shadowsEnabled, this.shadowsEnabled && !this.isPhoneProfile ? 1 : 0);
     gl.uniform1i(this.uniforms.postfxEnabled, 0); // Постэффекты в composite pass
     gl.uniform1i(this.uniforms.katanaEnabled, this.katanaEnabled ? 1 : 0); // Катана в geometry pass (временно)
 
@@ -764,11 +813,12 @@ export class WebGLRenderer {
           this.phoneScale = Math.max(0.35, this.phoneScale - 0.1);
           console.warn(`⚠️ Низкий FPS (${this.currentFps}) - масштаб рендера ${this.phoneScale.toFixed(2)}`);
         }
-      } else if (this.currentFps < 25 && this.quality !== 'ultra_low') {
+      } else if (this.currentFps < 25 && this.quality !== 'ultra_low' && (!this.studio || this.studioQuality === 'auto')) {
+        // В студии понижаем только в «авто» (выбор игрока не трогаем); понижение — в памяти сессии, не в настройках
         const qualities: Array<'ultra_low' | 'low' | 'medium' | 'high'> = ['ultra_low', 'low', 'medium', 'high'];
         const currentIdx = qualities.indexOf(this.quality);
         if (currentIdx > 0) {
-          this.setQuality(qualities[currentIdx - 1]);
+          this.setQuality(qualities[currentIdx - 1], false);
           console.warn(`⚠️ Низкий FPS (${this.currentFps}) - качество снижено до ${this.quality}`);
         }
       }

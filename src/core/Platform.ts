@@ -40,11 +40,23 @@ export function getPhoneScale(): number {
 export function wantsPhoneProfile(): boolean {
   const q = getQualityParam();
   if (q) return q === 'phone';
-  // Общая настройка студии: low — всегда облегчённо, high — никогда
   const studio = readStudioControls().quality;
+  // В студии качество выбирают в общем меню: облегчённый профиль (окно × масштаб) — только у «авто» на телефоне
+  if (inStudio()) return studio === 'auto' && isPhoneLike();
+  // Вне студии: low — всегда облегчённо, medium/high — никогда
   if (studio === 'low') return true;
-  if (studio === 'high') return false;
+  if (studio === 'medium' || studio === 'high') return false;
+  return isPhoneLike();
+}
+
+/** Телефон или планшет: тач или маленький экран */
+export function isPhoneLike(): boolean {
   return isTouchDevice() || isSmallScreen();
+}
+
+/** Игра открыта на сайте студии Glint (/games/<id>/) — там есть общий модуль меню /studio/glint-settings.js */
+export function inStudio(): boolean {
+  return window.location.pathname.startsWith('/games/');
 }
 
 /**
@@ -70,27 +82,47 @@ export function goToHub(): void {
   window.location.href = new URL(hubUrl(), window.location.href).href;
 }
 
-/** Общие настройки управления студии (localStorage, общий origin с сайтом студии) */
+/** Общие настройки студии Glint (localStorage, общий origin с сайтом студии; модуль /studio/glint-settings.js) */
 export interface StudioControls {
-  lookSens: number;      // 0.2–3, чувствительность обзора / свайпа
+  lookSens: number;      // 0.2–3, чувствительность обзора (мышь, стик, свайп)
   invertY: boolean;      // инверсия вертикали
   touchSize: number;     // %, 70–150, размер тач-кнопок
   touchOpacity: number;  // %, 20–100
   leftHanded: boolean;   // стик справа, кнопки слева
   vibration: boolean;
-  quality: 'auto' | 'low' | 'high';
-  volume: number;        // 0–100
+  quality: 'auto' | 'low' | 'medium' | 'high';
+  volume: number;        // 0–100, общая громкость
+  music: number;         // 0–100, музыка (поверх общей)
+  effects: number;       // 0–100, эффекты (поверх общей)
 }
 
 export const STUDIO_CONTROLS_KEY = 'studio.controls.v1';
 
 const STUDIO_DEFAULTS: StudioControls = {
   lookSens: 1, invertY: false, touchSize: 100, touchOpacity: 70,
-  leftHanded: false, vibration: true, quality: 'auto', volume: 80,
+  leftHanded: false, vibration: true, quality: 'auto', volume: 80, music: 100, effects: 100,
 };
 
 const num = (v: unknown, def: number, min: number, max: number): number =>
   typeof v === 'number' && Number.isFinite(v) ? Math.max(min, Math.min(max, v)) : def;
+
+/** Привести сырой объект настроек к StudioControls: чужие и битые поля — дефолты с клампом */
+export function normalizeStudioControls(raw: Record<string, unknown> | null | undefined): StudioControls {
+  const r = raw && typeof raw === 'object' ? raw : {};
+  const d = STUDIO_DEFAULTS;
+  return {
+    lookSens: num(r.lookSens, d.lookSens, 0.2, 3),
+    invertY: typeof r.invertY === 'boolean' ? r.invertY : d.invertY,
+    touchSize: num(r.touchSize, d.touchSize, 70, 150),
+    touchOpacity: num(r.touchOpacity, d.touchOpacity, 20, 100),
+    leftHanded: typeof r.leftHanded === 'boolean' ? r.leftHanded : d.leftHanded,
+    vibration: typeof r.vibration === 'boolean' ? r.vibration : d.vibration,
+    quality: r.quality === 'low' || r.quality === 'medium' || r.quality === 'high' ? r.quality : 'auto',
+    volume: num(r.volume, d.volume, 0, 100),
+    music: num(r.music, d.music, 0, 100),
+    effects: num(r.effects, d.effects, 0, 100),
+  };
+}
 
 /** Прочитать настройки студии с дефолтами; битый или чужой формат — дефолты, без ошибок */
 export function readStudioControls(): StudioControls {
@@ -101,20 +133,10 @@ export function readStudioControls(): StudioControls {
   } catch {
     // нет доступа к localStorage или не JSON — дефолты
   }
-  const d = STUDIO_DEFAULTS;
-  return {
-    lookSens: num(raw.lookSens, d.lookSens, 0.2, 3),
-    invertY: typeof raw.invertY === 'boolean' ? raw.invertY : d.invertY,
-    touchSize: num(raw.touchSize, d.touchSize, 70, 150),
-    touchOpacity: num(raw.touchOpacity, d.touchOpacity, 20, 100),
-    leftHanded: typeof raw.leftHanded === 'boolean' ? raw.leftHanded : d.leftHanded,
-    vibration: typeof raw.vibration === 'boolean' ? raw.vibration : d.vibration,
-    quality: raw.quality === 'low' || raw.quality === 'high' ? raw.quality : 'auto',
-    volume: num(raw.volume, d.volume, 0, 100),
-  };
+  return normalizeStudioControls(raw);
 }
 
-/** Подписка на изменение настроек студии в другой вкладке (событие storage) */
+/** Подписка на изменение настроек студии в другой вкладке (событие storage) — когда модуля студии нет */
 export function onStudioControlsChange(cb: (c: StudioControls) => void): void {
   window.addEventListener('storage', (e) => {
     if (e.key === STUDIO_CONTROLS_KEY) cb(readStudioControls());

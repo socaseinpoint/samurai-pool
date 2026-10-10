@@ -1,7 +1,9 @@
 import type { GameState, GameConfig, Vec3 } from '@/types';
 import { GameLoop } from './GameLoop';
 import { Input, PAD } from './Input';
-import { goToHub, hubLabel, hubUrl, isTouchDevice, onStudioControlsChange, readStudioControls, type StudioControls } from './Platform';
+import { goToHub, hubLabel, hubUrl, inStudio, isTouchDevice, normalizeStudioControls, onStudioControlsChange, readStudioControls, type StudioControls } from './Platform';
+import { GLINT_GAME_ID, glintControls, glintOpen, loadGlintSettings, normalizeGameSettings, type GlintButton, type GlintSettingsApi, type SamuraiGameSettings } from './GlintSettings';
+import layouts from '@/ui/hub-touch/layouts.json';
 import { TouchControls } from '@/ui/TouchControls';
 import { Player } from '@/player/Player';
 import { Weapon } from '@/weapon/Weapon';
@@ -38,6 +40,9 @@ const DEFAULT_CONFIG: GameConfig = {
     automatic: false,
   },
 };
+
+/** Мастер-громкость при общей громкости студии 100% (по умолчанию в студии 80% → 0.4, как звучала игра на старте) */
+const STUDIO_MASTER_AT_100 = 0.5;
 
 /**
  * Samurai Pool Arena
@@ -275,15 +280,176 @@ export class Game {
       }
     }
 
-    // Общие настройки управления студии (studio.controls.v1), живое обновление из другой вкладки
-    const applyStudio = (c: StudioControls) => {
-      this.input.touchLookScale = c.lookSens;
-      this.input.padLookScale = c.lookSens;
-      this.input.invertPadTouchY = c.invertY;
-      this.touch?.applyStudio(c);
-    };
-    applyStudio(readStudioControls());
-    onStudioControlsChange(applyStudio);
+    // Общие настройки студии (studio.controls.v1): сразу из localStorage, живое обновление — из модуля студии или из другой вкладки
+    this.hud.onDamage = () => this.haptic();
+    this.applyStudio(readStudioControls());
+    onStudioControlsChange((c) => this.applyStudio(c));
+
+    // Единое меню настроек студии Glint (SOC-176): только на сайте студии; без модуля — своя модалка, как раньше
+    if (inStudio()) {
+      loadGlintSettings().then((g) => {
+        if (g) this.attachGlint(g);
+        else console.warn('Меню студии /studio/glint-settings.js не загрузилось — остаётся своя модалка настроек');
+      });
+    }
+  }
+
+  /** Общие настройки студии, применённые сейчас */
+  private studioControls: StudioControls = readStudioControls();
+  /** Качество студии, которое уже отдано рендереру (чтобы не пересоздавать буферы на каждое изменение) */
+  private appliedQuality: StudioControls['quality'] | null = null;
+
+  /** Применить общие настройки студии: обзор (мышь, стик, свайп), тач, звук, качество */
+  private applyStudio(c: StudioControls): void {
+    this.studioControls = c;
+    this.input.touchLookScale = c.lookSens;
+    this.input.padLookScale = c.lookSens;
+    this.input.mouseLookScale = c.lookSens;
+    this.input.invertPadTouchY = c.invertY;
+    this.input.invertMouseY = c.invertY;
+    this.touch?.applyStudio(c);
+    if (!this.renderer.studio) return;
+    this.applyStudioAudio();
+    if (this.appliedQuality === null) {
+      this.appliedQuality = c.quality; // рендерер уже стартовал с этим качеством
+    } else if (c.quality !== this.appliedQuality) {
+      this.appliedQuality = c.quality;
+      this.renderer.applyStudioQuality(c.quality);
+      this.handleResize();
+    }
+  }
+
+  /** Звук студии: общая громкость — мастер (80% студии = прежний уровень игры 0.4), музыка и эффекты — свои шины */
+  private applyStudioAudio(): void {
+    const c = this.studioControls;
+    this.audio.setVolume((c.volume / 100) * STUDIO_MASTER_AT_100);
+    this.audio.setMix(c.music / 100, c.effects / 100);
+  }
+
+  /** Модуль меню студии (после register) */
+  private glint: GlintSettingsApi | null = null;
+
+  /** Подключить единое меню студии: блок GAME, схема кнопок, пауза на время меню, шестерёнка на таче */
+  private attachGlint(g: GlintSettingsApi): void {
+    const r = this.renderer;
+    try {
+      g.register({
+        gameId: GLINT_GAME_ID,
+        title: 'Samurai Pool',
+        items: [
+          // Подписи — по макету меню студии (spec.md п. 2, THIS GAME · Samurai, группа «Effects»)
+          { key: 'shadows', label: 'Shadows', type: 'toggle', def: true, hint: 'off on a phone in Auto quality' },
+          { key: 'postfx', label: 'Post effects', type: 'toggle', def: true },
+          { key: 'katana', label: '3D katana', type: 'toggle', def: true },
+          { key: 'turbo', label: 'Turbo', type: 'toggle', def: false, hint: 'fewer effects, more FPS' },
+        ],
+        buttons: this.controlButtons(),
+        onOpen: () => this.onMenuOpen(),
+        onClose: () => this.onMenuClose(),
+        onGameChange: (values) => this.applyGameSettings(normalizeGameSettings(values)),
+      });
+    } catch (e) {
+      console.warn('Меню студии: register не удался — остаётся своя модалка', e);
+      return;
+    }
+    this.glint = g;
+    document.body.classList.add('sp-glint');
+
+    // Текущие значения из модуля (он мог мигрировать или поправить их)
+    const c = glintControls(g);
+    if (c) this.applyStudio(c);
+    try {
+      this.applyGameSettings(normalizeGameSettings({
+        shadows: r.shadowsEnabled, postfx: r.postfxEnabled, katana: r.katanaEnabled, turbo: r.turboEnabled,
+        ...g.getGame(GLINT_GAME_ID),
+      }));
+    } catch {
+      // нет getGame — остаются значения из localStorage
+    }
+    g.on((settings) => this.applyStudio(normalizeStudioControls(settings)));
+
+    // Тач: шестерёнка студии в правом краю верхней полосы, пауза — слева от неё
+    if (this.touch) this.touch.mountGear(g);
+  }
+
+  /** Тени / постэффекты / катана 3D / турбо из блока GAME */
+  private applyGameSettings(v: SamuraiGameSettings): void {
+    this.renderer.shadowsEnabled = v.shadows;
+    this.renderer.postfxEnabled = v.postfx;
+    this.renderer.katanaEnabled = v.katana;
+    this.renderer.turboEnabled = v.turbo;
+  }
+
+  /** Схема управления для меню студии (BUTTONS, только чтение) — биндинги из той же раскладки, что и тач (layouts.json, мир samurai) */
+  private controlButtons(): GlintButton[] {
+    // Меню студии англоязычное (макет SOC-176) — имена действий по id
+    const NAME: Record<string, string> = { move: 'Move', look: 'Look', fire: 'Attack', altFire: 'Wave', jump: 'Jump', throwGrenade: 'Grenade', run: 'Run' };
+    const KEY: Record<string, string> = { 'Мышь': 'Mouse', 'ЛКМ': 'LMB', 'ПКМ': 'RMB', 'Колесо': 'Wheel' };
+    const touchOf = (c: { id: string; zone?: string }): string =>
+      c.zone === 'left-stick' ? 'left stick' : c.zone === 'right-look-swipe' ? 'swipe on the right' : (NAME[c.id] ?? c.id).toLowerCase() + ' button';
+    const controls = (layouts.worlds.samurai.controls as Array<{ id: string; zone?: string; label: string; pad: string; key: string }>)
+      .filter((c) => NAME[c.id]);
+    return [
+      ...controls.map((c) => ({ action: NAME[c.id], pad: c.pad, keys: KEY[c.key] ?? c.key, touch: touchOf(c) })),
+      { action: 'Settings and pause', pad: 'Menu', keys: 'Esc', touch: 'gear, top right' },
+      { action: 'Quit to Glint', pad: 'View', touch: '‹ Glint, top left' },
+      { action: 'Sound on/off', keys: 'M' },
+      { action: 'Fullscreen', keys: 'F' },
+    ];
+  }
+
+  /** Меню студии открылось: игра на паузе, свой ввод заглушён, курсор свободен */
+  private onMenuOpen(): void {
+    this.input.setBlocked(true);
+    if (this.state.isRunning) {
+      this.state.isPaused = true;
+      this.touch?.setMode('paused');
+    }
+    this.input.exitPointerLock();
+  }
+
+  /** Меню студии закрылось: после текущего события (клавиша или клик закрытия не уходят в игру) — ввод и игра дальше */
+  private onMenuClose(): void {
+    window.setTimeout(() => {
+      if (glintOpen()) return;
+      this.input.setBlocked(false);
+      if (this.state.isRunning) this.resumeAfterMenu();
+    }, 0);
+  }
+
+  /** Снять паузу после меню; на компьютере без захвата мыши (меню закрыли Esc) — «кликните, чтобы продолжить» */
+  private resumeAfterMenu(): void {
+    const pauseOverlay = document.getElementById('pause-overlay');
+    if (pauseOverlay) pauseOverlay.style.display = 'none';
+    this.state.isPaused = false;
+    this.touch?.setMode('play');
+    this.input.requestPointerLock();
+    if (this.input.usesPointerLock && !this.input.padConnected) {
+      window.setTimeout(() => {
+        if (this.state.isRunning && !this.state.isPaused && !glintOpen() && document.pointerLockElement === null) {
+          this.showPauseOverlay();
+        }
+      }, 400);
+    }
+  }
+
+  /** Вибрация при уроне (общая настройка студии vibration): телефон и пад */
+  private lastHaptic = 0;
+  private haptic(): void {
+    if (!this.studioControls.vibration || !this.state.isRunning || this.state.isPaused) return;
+    const now = performance.now();
+    if (now - this.lastHaptic < 150) return;
+    this.lastHaptic = now;
+    try {
+      if (this.touch && typeof navigator.vibrate === 'function') navigator.vibrate(40);
+      const pads = typeof navigator.getGamepads === 'function' ? navigator.getGamepads() : [];
+      for (const p of pads) {
+        const act = (p as (Gamepad & { vibrationActuator?: { playEffect?: (t: string, o: object) => Promise<unknown> } }) | null)?.vibrationActuator;
+        act?.playEffect?.('dual-rumble', { duration: 120, strongMagnitude: 0.6, weakMagnitude: 0.4 })?.catch?.(() => {});
+      }
+    } catch {
+      // нет API вибрации — молча
+    }
   }
 
   /** Тач-оверлей (только на тач-устройствах) */
@@ -296,18 +462,20 @@ export class Game {
     else this.showPauseOverlay();
   }
 
-  /** Геймпад: Start — пауза/старт, View — в хаб, A — старт из меню */
+  /** Геймпад: Start — пауза/старт (в студии Menu ловит меню студии), View — в хаб, A — старт из меню и снятие паузы */
   private setupGamepad(): void {
     this.input.onPadButton = (button) => {
+      if (glintOpen()) return;
       if (button === PAD.VIEW) {
         goToHub();
         return;
       }
       if (!this.state.isRunning) {
-        if (button === PAD.A || button === PAD.START) this.start();
+        if (button === PAD.A || (button === PAD.START && !this.glint)) this.start();
         return;
       }
-      if (button === PAD.START) this.togglePause();
+      if (button === PAD.START && !this.glint) this.togglePause();
+      else if (button === PAD.A && this.state.isPaused) this.hidePauseOverlay();
     };
 
     // В меню игровой цикл стоит — опрашиваем пад отдельно, пока игра не началась
@@ -693,7 +861,9 @@ export class Game {
     // Кнопки модалок
     document.getElementById('btn-settings')?.addEventListener('click', (e) => {
       e.stopPropagation();
-      document.getElementById('modal-settings')?.classList.add('active');
+      // В студии — единое меню Glint вместо своей модалки
+      if (this.glint) this.glint.open();
+      else document.getElementById('modal-settings')?.classList.add('active');
     });
     document.getElementById('btn-help')?.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -732,8 +902,14 @@ export class Game {
       if (e.code === 'KeyF') {
         this.toggleFullscreen();
       }
-      // Любая клавиша снимает паузу
-      if (this.state.isPaused && this.state.isRunning) {
+      if (glintOpen() || this.input.isBlocked) return;
+      // Стартовый экран: Enter — начать (если фокус не на кнопке: её Enter нажмёт сам браузер)
+      if (e.code === 'Enter' && !this.state.isRunning && !(document.activeElement instanceof HTMLButtonElement || document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLSelectElement || document.activeElement instanceof HTMLAnchorElement)) {
+        this.start();
+        return;
+      }
+      // Любая клавиша снимает паузу (Esc в студии открывает меню — его ловит модуль)
+      if (this.state.isPaused && this.state.isRunning && !(this.glint && e.code === 'Escape')) {
         this.hidePauseOverlay();
       }
     });
@@ -744,6 +920,17 @@ export class Game {
     // При потере pointer lock - показываем паузу (на таче захвата нет — пауза только кнопкой)
     document.addEventListener('pointerlockchange', () => {
       if (this.input.usesPointerLock && this.state.isRunning && document.pointerLockElement === null) {
+        if (glintOpen()) return; // курсор отпустило само меню студии
+        if (this.glint && !this.state.isPaused) {
+          // В студии Esc (браузер снимает захват мыши) открывает единое меню; паузу ставит onOpen
+          this.state.isPaused = true;
+          const g = this.glint;
+          window.setTimeout(() => {
+            if (!g.isOpen()) g.open();
+            if (!g.isOpen()) { this.state.isPaused = false; this.showPauseOverlay(); } // меню не открылось — обычная пауза
+          }, 80);
+          return;
+        }
         this.showPauseOverlay();
       }
     });
@@ -759,6 +946,7 @@ export class Game {
     document.addEventListener('mousedown', (e) => {
       const target = e.target as HTMLElement;
       const pauseOverlay = document.getElementById('pause-overlay');
+      if (glintOpen() || this.input.isBlocked) return; // клики меню студии до игры не доходят
       if (pauseOverlay && pauseOverlay.style.display !== 'none') {
         console.log('🎮 Клик по паузе, возобновляем...');
         e.preventDefault();
@@ -780,6 +968,7 @@ export class Game {
   
   /** Скрыть overlay паузы и продолжить */
   public hidePauseOverlay(): void {
+    if (glintOpen() || this.input.isBlocked) return; // меню студии поверх паузы — паузу снимает только его закрытие
     const pauseOverlay = document.getElementById('pause-overlay');
     if (pauseOverlay && pauseOverlay.style.display !== 'none') {
       console.log('🎮 hidePauseOverlay вызван');
@@ -800,9 +989,11 @@ export class Game {
   public startFromWave(wave: number): void {
     if (this.state.isRunning) return;
 
-    // Читаем настройки
-    const volumeSlider = document.getElementById('volume-slider') as HTMLInputElement;
-    const sensSlider = document.getElementById('sens-slider') as HTMLInputElement;
+    if (glintOpen()) return;
+
+    // Читаем настройки своей модалки (в студии звук и чувствительность — из общих настроек)
+    const volumeSlider = this.renderer.studio ? null : document.getElementById('volume-slider') as HTMLInputElement;
+    const sensSlider = this.renderer.studio ? null : document.getElementById('sens-slider') as HTMLInputElement;
     
     if (volumeSlider) {
       this.audio.setVolume(parseInt(volumeSlider.value) / 100);
@@ -820,6 +1011,7 @@ export class Game {
 
     this.input.requestPointerLock();
     this.audio.start();
+    if (this.renderer.studio) this.applyStudioAudio(); // мастер после старта аудио — из общих настроек
     this.gameLoop.start();
     this.state.isRunning = true;
     this.touch?.setMode('play');

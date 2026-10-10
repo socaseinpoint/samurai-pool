@@ -92,6 +92,20 @@ export class Input {
   /** Инверсия вертикали для свайпа и стика (общая настройка студии invertY) */
   public invertPadTouchY = false;
 
+  /** Множитель обзора мышью (общая чувствительность студии lookSens) */
+  public mouseLookScale = 1;
+
+  /** Инверсия вертикали мыши (общая настройка студии invertY) */
+  public invertMouseY = false;
+
+  /**
+   * Ввод заглушён: открыто меню студии. Клавиши, мышь и пад в игру не идут; кнопки пада,
+   * зажатые в момент закрытия меню, не доходят до игры, пока их не отпустят.
+   */
+  private blocked = false;
+  /** Кнопки пада, которые игра не видит до отпускания (нажаты в меню) */
+  private padLatched: boolean[] = [];
+
   /** Геймпад подключён */
   public padConnected = false;
 
@@ -116,16 +130,19 @@ export class Input {
   public readonly virtual = {
     /** Стик: x вправо +, y вперёд +, -1..1 */
     setMove: (x: number, y: number): void => {
+      if (this.blocked) x = y = 0;
       this.virtualMove.x = x || 0;
       this.virtualMove.y = y || 0;
       this.combine();
     },
     /** Свайп обзора в CSS-пикселях */
     addLook: (dx: number, dy: number): void => {
+      if (this.blocked) return;
       this.addLookPixels(dx, this.invertPadTouchY ? -dy : dy, this.touchLookScale);
     },
     /** Зажать / отпустить действие (тап короче кадра не теряется) */
     set: (action: InputAction, pressed: boolean): void => {
+      if (this.blocked && pressed) return;
       if (action === 'throwGrenade') {
         if (pressed) this.state.throwGrenade = true;
         return;
@@ -202,6 +219,41 @@ export class Input {
     this.mouseDelta.y = 0;
   }
 
+  /** Заглушить / вернуть ввод (меню студии поверх игры) */
+  public setBlocked(blocked: boolean): void {
+    if (blocked === this.blocked) return;
+    this.blocked = blocked;
+    // Всё зажатое отпускаем в обе стороны: в меню и сразу после него игра не должна «ехать» или бить
+    this.keys = { forward: false, backward: false, left: false, right: false };
+    this.keyHeld = noActions();
+    this.padHeld = noActions();
+    this.padMove.x = this.padMove.y = 0;
+    this.virtualHeld = noActions();
+    this.virtualPulse = noActions();
+    this.virtualMove.x = this.virtualMove.y = 0;
+    this.state.throwGrenade = false;
+    this.resetMouseDelta();
+    // Кнопки пада, нажатые прямо сейчас (например B или Menu, которыми закрыли меню), игре не отдаём до отпускания
+    this.padLatched = this.readPadButtons();
+    this.combine();
+  }
+
+  /** Ввод заглушён меню */
+  public get isBlocked(): boolean {
+    return this.blocked;
+  }
+
+  /** Нажатые кнопки первого пада сейчас */
+  private readPadButtons(): boolean[] {
+    const pads = typeof navigator.getGamepads === 'function' ? navigator.getGamepads() : [];
+    for (const p of pads) {
+      if (p && p.connected !== false) {
+        return p.buttons.map((b, i) => (i === PAD.LT || i === PAD.RT ? b.value > TRIGGER_THRESHOLD || b.pressed : b.pressed));
+      }
+    }
+    return [];
+  }
+
   /** Есть ли движение (клавиши, стик или тач) */
   public isMoving(): boolean {
     return Math.abs(this.state.moveX) + Math.abs(this.state.moveY) > 0.1;
@@ -243,9 +295,19 @@ export class Input {
     }
 
     // Кнопки и фронты нажатий
-    const now = pad.buttons.map((b, i) =>
+    const raw = pad.buttons.map((b, i) =>
       i === PAD.LT || i === PAD.RT ? b.value > TRIGGER_THRESHOLD || b.pressed : b.pressed
     );
+    if (this.blocked) {
+      // Меню студии ведёт пад само: игре ни кнопок, ни стиков; всё нажатое — в защёлку до отпускания
+      this.padLatched = raw;
+      this.padButtons = raw.map(() => false);
+      this.padHeld = noActions();
+      this.padMove.x = this.padMove.y = 0;
+      return;
+    }
+    for (let i = 0; i < raw.length; i++) if (!raw[i]) this.padLatched[i] = false;
+    const now = raw.map((v, i) => v && !this.padLatched[i]);
     for (let i = 0; i < now.length; i++) {
       if (now[i] && !this.padButtons[i]) {
         if (i === PAD_BINDINGS.throwGrenade[0]) this.state.throwGrenade = true;
@@ -314,6 +376,7 @@ export class Input {
 
   /** Обработка нажатия клавиши */
   private handleKeyDown(e: KeyboardEvent): void {
+    if (this.blocked) return;
     this.updateKeyState(e.code, true);
   }
 
@@ -357,12 +420,14 @@ export class Input {
   private handleMouseMove(e: MouseEvent): void {
     if (!this.isPointerLocked) return;
 
-    // Инверсия осей как в оригинале
-    this.addLookPixels(e.movementX, e.movementY, 1);
+    if (this.blocked) return;
+    // Инверсия осей как в оригинале; общая чувствительность и инверсия студии — поверх
+    this.addLookPixels(e.movementX, this.invertMouseY ? -e.movementY : e.movementY, this.mouseLookScale);
   }
 
   /** Обработка нажатия кнопки мыши */
   private handleMouseDown(e: MouseEvent): void {
+    if (this.blocked) return;
     if (e.button === 0) {
       this.keyHeld.fire = true;
     } else if (e.button === 1) {
@@ -388,7 +453,7 @@ export class Input {
 
   /** Обработка колёсика мыши (бросок гранаты) */
   private handleWheel(e: WheelEvent): void {
-    if (!this.isPointerLocked) return;
+    if (!this.isPointerLocked || this.blocked) return;
     e.preventDefault();
     // Любое движение колёсика - бросок гранаты
     this.state.throwGrenade = true;

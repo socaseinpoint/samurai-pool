@@ -79,6 +79,25 @@ export class TouchControls {
     this.setMode('menu');
   }
 
+  /** Открыто меню студии (там свой скролл — жесты не глушим) */
+  public menuOpen: () => boolean = () => false;
+
+  /** Шестерёнка единого меню студии (SOC-176) — в правый край верхней полосы, пауза остаётся слева от неё */
+  public mountGear(g: { mountGear(container: HTMLElement, opts?: Record<string, unknown>): unknown; isOpen(): boolean }): void {
+    const right = this.root.querySelector('.tc-top-r') as HTMLElement | null;
+    if (!right) return;
+    this.menuOpen = () => {
+      try { return g.isOpen(); } catch { return false; }
+    };
+    try {
+      g.mountGear(right, { label: 'Настройки' });
+      this.root.classList.add('sp-has-gear');
+      document.body.classList.add('sp-has-gear');
+    } catch (e) {
+      console.warn('Шестерёнка студии не встала', e);
+    }
+  }
+
   /** Общие настройки студии: размер и плотность кнопок, левша */
   public applyStudio(c: StudioControls): void {
     this.root.style.setProperty('--tc-scale', String(c.touchSize / 100));
@@ -243,7 +262,7 @@ export class TouchControls {
   /** Без скролла, зума щипком и двойного тапа во время игры */
   private blockBrowserGestures(): void {
     document.addEventListener('touchmove', (e) => {
-      if (this.mode !== 'menu') e.preventDefault();
+      if (this.mode !== 'menu' && !this.menuOpen()) e.preventDefault();
     }, { passive: false });
     // iOS Safari: щипок-зум
     document.addEventListener('gesturestart', (e) => e.preventDefault());
