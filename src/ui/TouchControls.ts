@@ -41,6 +41,9 @@ const badges = (c: TouchControl): string =>
   `<span class="tc-badges"><b class="tc-pad" data-g="${esc(c.pad)}">${esc(c.pad)}</b>` +
   `<b class="tc-key" data-k="${esc(c.key)}">${esc(c.key)}</b></span>`;
 
+/** Через сколько после старта гаснут подсказки на тач-кнопках, мс */
+const HINTS_MS = 4000;
+
 /** Режим оверлея: меню (только «в хаб»), игра, пауза (полоса без стика и кнопок) */
 export type TouchMode = 'menu' | 'play' | 'paused';
 
@@ -53,6 +56,8 @@ export class TouchControls {
   private root: HTMLDivElement;
   private stick!: HTMLElement;
   private mode: TouchMode = 'menu';
+  /** Таймер гашения подсказок (плашка обзора, подпись стика, бейджи клавиш и пада) после первого старта */
+  private hintsTimer: number | null = null;
 
   /** Палец на стике: id, точка касания, радиус хода */
   private stickPointer: number | null = null;
@@ -87,6 +92,10 @@ export class TouchControls {
     this.mode = mode;
     this.root.dataset.mode = mode;
     if (mode !== 'play') this.releaseAll();
+    // Подсказки нужны только в начале: через HINTS_MS игры гаснут и больше не возвращаются
+    if (mode === 'play' && this.hintsTimer === null) {
+      this.hintsTimer = window.setTimeout(() => this.root.classList.add('sp-hints-off'), HINTS_MS);
+    }
   }
 
   /** Отпустить все пальцы (пауза, потеря фокуса) */

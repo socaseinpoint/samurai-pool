@@ -86,7 +86,7 @@ kbd.st-kbd{display:inline-flex;align-items:center;justify-content:center;min-wid
 .st-pad.mn{border-radius:13px}
 .st-pad.st{width:auto;min-width:28px;padding:0 5px;border-radius:13px;font-size:10.5px;color:var(--studio-ink);border-color:var(--studio-edge-2);border-style:dashed}
 
-/* ── кнопка «← в хаб» внутри игры (вставляет модуль studio-controls) ── */
+/* ── кнопка «← в студию» внутри игры (вставляет модуль studio-controls) ── */
 .studio-back{position:fixed;z-index:50;left:calc(12px + var(--studio-sa-l));top:calc(12px + var(--studio-sa-t));
   display:inline-flex;align-items:center;gap:8px;min-height:var(--studio-tap);padding:0 14px 0 10px;border:var(--studio-bw) solid var(--studio-edge-2);border-radius:var(--studio-r-sm);
   background:rgba(9,8,12,.78);backdrop-filter:blur(6px);color:var(--studio-ink);font:500 12px/1 var(--studio-mono);letter-spacing:.14em;text-transform:uppercase;text-decoration:none}

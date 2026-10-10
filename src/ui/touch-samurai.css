@@ -9,7 +9,7 @@
   pointer-events: auto; touch-action: none;
 }
 
-/* меню: только «← в хаб»; пауза: полоса без стика и кнопок */
+/* меню: только «← в студию»; пауза: полоса без стика и кнопок */
 .sp-tc[data-mode="menu"] .sp-stickzone,
 .sp-tc[data-mode="menu"] .tc-stick,
 .sp-tc[data-mode="menu"] .tc-look,
@@ -45,3 +45,11 @@ body.sp-touch #double-jump { bottom: auto !important; top: calc(186px + env(safe
 body.sp-touch.sp-lefty #frags { left: auto; right: calc(15px + env(safe-area-inset-right, 0px)); top: calc(100px + env(safe-area-inset-top, 0px)); }
 body.sp-touch.sp-lefty #health { left: auto; right: calc(15px + env(safe-area-inset-right, 0px)); top: calc(156px + env(safe-area-inset-top, 0px)); }
 body.sp-touch.sp-lefty #double-jump { left: auto !important; right: calc(15px + env(safe-area-inset-right, 0px)) !important; top: calc(222px + env(safe-area-inset-top, 0px)) !important; }
+
+/* подсказки гаснут через 4 с после старта (TouchControls → .sp-hints-off): плашка «Обзор», подпись стика «Ход»,
+   бейджи клавиш и пада под кнопками дуги. Зоны тача, иконки и названия кнопок, «← в студию», пауза и HUD не трогаем */
+.sp-tc .tc-stick .tc-cap, .sp-tc .tc-btn .tc-badges { transition: opacity .8s; }
+.sp-tc .tc-look .tc-cap { transition: opacity .8s; }
+.sp-tc.sp-hints-off .tc-look .tc-cap,
+.sp-tc.sp-hints-off .tc-stick .tc-cap,
+.sp-tc.sp-hints-off .tc-btn .tc-badges { opacity: 0; }
