@@ -1,5 +1,6 @@
 /* === CYBERPUNK UI STYLE === */
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap');
+/* Шрифты локально (без Google Fonts — ноль внешних запросов), SOC-129 */
+@import './ui/samurai-fonts/fonts.css';
 
 :root {
   /* Минималистичные цвета - Cyberpunk стиль */
