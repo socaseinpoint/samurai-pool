@@ -2728,9 +2728,12 @@ void main() {
         glowStrength = 0.5;
       }
       
-      // Матовая поверхность + мягкое свечение по краям
-      float fresnel = pow(1.0 - max(0.0, dot(-rd, n)), 2.5);
-      color = enemyBase + enemyGlow * fresnel * glowStrength;
+      // Читаемость на телефоне (SOC-129 б1): светлее тело, собственное свечение, яркий контур.
+      // Рендер на телефоне ~0,4 CSS px, тёмное тело сливалось с полом — враг должен светиться сам.
+      float fresnel = pow(1.0 - max(0.0, dot(-rd, n)), 2.0);
+      float enemyLit = max(dot(n, keyDir), 0.0) * 0.5 + 0.5; // мягкий объём от луны
+      color = enemyBase * (1.6 + enemyLit) + enemyGlow * (0.22 + 0.18 * enemyLit);
+      color += enemyGlow * fresnel * (glowStrength * 2.5 + 0.6);
       
     } else if (mat == 100) {
       // Placeholder для старого кода (не используется)
@@ -4440,7 +4443,31 @@ void main() {
     float fog = 1.0 - exp(-d * 0.004);
     color = mix(color, fogColor * 1.2, fog * 0.1);
   }
-  
+
+  // === ОРЕОЛ ВРАГОВ (SOC-129 б1) ===
+  // Аналитически, без лишних шагов марша: ближайшее сближение луча с центром врага.
+  // Ширина растёт с дальностью — дальний враг на телефоне остаётся светлым пятном, а не 3 тёмными пикселями.
+  // За стеной ореола нет: враг дальше точки попадания луча — пропускаем.
+  for (int i = 0; i < u_targetCount; i++) {
+    if (i >= 8) break;
+    vec4 tg = u_targets[i];
+    if (tg.w < 0.5 || tg.w >= 100.0) continue; // неактивен или умирает
+    int et = int(tg.w / 2.0);
+    vec3 toT = tg.xyz - ro;
+    float tc = dot(toT, rd);
+    float haloR = et >= 5 ? 1.6 : 0.75;
+    if (tc <= 0.0 || tc - haloR > d) continue;
+    float miss = length(toT - rd * tc);
+    float haloW = haloR * 1.2 + tc * 0.045;
+    float halo = exp(-(miss * miss) / (haloW * haloW));
+    vec3 haloCol = vec3(0.35, 1.0, 0.3);                       // бейнлинг, зелёный босс
+    if (et == 1 || et == 6) haloCol = vec3(0.6, 0.3, 1.0);     // фантом, чёрный босс
+    else if (et == 2) haloCol = vec3(1.0, 0.55, 0.15);         // раннер
+    else if (et == 3 || et == 7) haloCol = vec3(0.3, 0.65, 1.0); // хоппер, синий босс
+    else if (et == 4) haloCol = vec3(1.0, 0.3, 0.15);          // спайкер
+    color += haloCol * halo * (0.5 + 0.1 * sin(u_time * 3.0 + float(i)));
+  }
+
   // Кислотный дождь от зелёного босса (всегда когда есть зоны)
   if (u_acidRainZoneCount > 0) {
     color = renderAcidRain(v_uv, color, u_time, u_cameraPos);
