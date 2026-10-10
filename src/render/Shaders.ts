@@ -1949,28 +1949,43 @@ vec3 renderSky(vec3 rd) {
     }
   }
   
-  // Луна - большая оранжевая
-  vec3 moonDir = normalize(vec3(0.4, 0.5, -0.4));
-  float moonDot = dot(rd, moonDir);
-  
-  // Основной диск луны (больше и объёмнее)
-  float moon = smoothstep(0.96, 0.97, moonDot);
-  
-  // Объёмное затемнение к краям (как у настоящей луны)
-  float moonEdge = smoothstep(0.97, 0.99, moonDot);
-  vec3 moonCore = vec3(1.0, 0.7, 0.3); // Яркий оранжевый центр
-  vec3 moonRim = vec3(0.9, 0.4, 0.1);  // Тёмный оранжевый край
-  vec3 moonColor = mix(moonRim, moonCore, moonEdge);
-  
-  // Текстура кратеров (шум)
-  float moonNoise = noise(rd.xy * 30.0) * 0.15;
-  moonColor *= (0.9 + moonNoise);
-  
-  color += moonColor * moon * 1.5;
-  
-  // Свечение вокруг луны
-  float moonGlow = pow(max(0.0, moonDot), 8.0);
-  color += vec3(0.4, 0.2, 0.05) * moonGlow * 0.6;
+  // Луна (SOC-129): меньше и ниже (под счётчиками HUD справа сверху при обычном взгляде),
+  // чёткий край, объём и моря — читается как луна, а не как размытое оранжевое пятно.
+  // Диск строится в экранных координатах камеры: при широком угле обзора телефона луна
+  // сбоку растягивалась бы в эллипс, а так остаётся круглой. Направление — прежний азимут, ниже над горизонтом.
+  // Основной оранжевый свет (keyDir) и лучи (god rays) остаются как были.
+  vec3 moonDir = normalize(vec3(0.4, 0.17, -0.4));
+  float moon = 0.0;
+  float moonGlow = 0.0;
+  {
+    float mcy = cos(u_cameraYaw), msy = sin(u_cameraYaw);
+    float mcp = cos(u_cameraPitch), msp = sin(u_cameraPitch);
+    vec3 mFwd = vec3(msy * mcp, msp, -mcy * mcp);
+    vec3 mRight = vec3(mcy, 0.0, msy);
+    vec3 mUp = cross(mRight, mFwd);
+    float mDepth = dot(moonDir, mFwd);
+    if (mDepth > 0.05) {
+      // экранные координаты (как uv в main) пикселя и центра луны
+      vec2 pixUV = vec2(dot(rd, mRight), dot(rd, mUp)) / dot(rd, mFwd);
+      vec2 moonUV = vec2(dot(moonDir, mRight), dot(moonDir, mUp)) / mDepth;
+      const float MOON_R = 0.09; // радиус в единицах uv (1 = полвысоты экрана)
+      vec2 mp = (pixUV - moonUV) / MOON_R;
+      float mr = length(mp);
+      moon = 1.0 - smoothstep(1.0 - 0.06, 1.0 + 0.04, mr); // край ~1 пиксель телефонного рендера
+      if (moon > 0.0) {
+        float limb = sqrt(max(0.0, 1.0 - mr * mr)); // шар: центр светлее, край темнее
+        vec3 moonColor = mix(vec3(1.0, 0.62, 0.2), vec3(1.0, 0.9, 0.5), limb); // тёплое золото, без розового
+        float maria = smoothstep(0.55, 0.75, noise(mp * 2.2 + 3.7));       // моря
+        float craters = smoothstep(0.6, 0.9, noise(mp * 7.0 + 11.0));      // кратеры
+        moonColor *= 1.0 - maria * 0.3 - craters * 0.15;
+        color = mix(color, moonColor * 1.3, moon);
+      }
+      // Свечение: узкий ореол у края + слабая широкая дымка
+      float mOut = max(mr - 1.0, 0.0) * MOON_R;
+      moonGlow = exp(-mOut * 25.0) * 0.35 + exp(-mOut * 4.0) * 0.08;
+    }
+  }
+  color += vec3(0.45, 0.24, 0.08) * moonGlow * (1.0 - moon);
   
   return color;
 }
