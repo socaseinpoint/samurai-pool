@@ -842,8 +842,9 @@ html, body {
   border: 1px solid var(--green);
 }
 
-/* FPS на экране (всегда виден) */
+/* FPS на экране: скрыт, виден только с ?fps=1 в адресе (main.ts ставит body.show-fps) */
 #fps-display {
+  display: none;
   position: fixed;
   top: 10px;
   right: 10px;
@@ -854,6 +855,10 @@ html, body {
   padding: 4px 10px;
   border-left: 2px solid var(--green);
   z-index: 1000;
+}
+
+body.show-fps #fps-display {
+  display: block;
 }
 
 #fps-live {

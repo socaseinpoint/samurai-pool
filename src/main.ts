@@ -6,6 +6,11 @@ import './styles.css';
  * Dungeon Synth Shooter
  */
 function main(): void {
+  // FPS на экране — только по ?fps=1 (отладка), игроку не показываем
+  if (new URLSearchParams(location.search).get('fps') === '1') {
+    document.body.classList.add('show-fps');
+  }
+
   // Получаем canvas элементы
   const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
   const weaponCanvas = document.getElementById('weapon-canvas') as HTMLCanvasElement;
