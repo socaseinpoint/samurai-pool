@@ -55,9 +55,14 @@ export function hubUrl(): string {
   return window.location.pathname.startsWith('/games/') ? '/' : '../launch.html';
 }
 
-/** Подпись кнопки возврата: на сайте студии — «в студию», в Midnight — из раскладки («в хаб») */
+/** Подпись кнопки возврата: на сайте студии — имя студии «Glint» (как в Езде, Полёте и Офисе), в Midnight — из раскладки («в хаб») */
 export function hubLabel(fallback: string): string {
-  return window.location.pathname.startsWith('/games/') ? 'в студию' : fallback;
+  return window.location.pathname.startsWith('/games/') ? 'Glint' : fallback;
+}
+
+/** aria-label кнопки возврата: на сайте студии — «Вернуться в студию Glint» */
+export function hubAria(fallback: string): string {
+  return window.location.pathname.startsWith('/games/') ? 'Вернуться в студию Glint' : 'Вернуться: ' + fallback;
 }
 
 /** Вернуться в хаб */

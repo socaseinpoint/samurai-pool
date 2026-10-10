@@ -1,6 +1,6 @@
 import type { InputAction } from '@/types';
 import type { Input } from '@/core/Input';
-import { goToHub, hubLabel, type StudioControls } from '@/core/Platform';
+import { goToHub, hubAria, hubLabel, type StudioControls } from '@/core/Platform';
 import layouts from './hub-touch/layouts.json';
 // Бренд студии (токены --studio-*, локальные Oswald / JetBrains Mono) — копия studio-games/brand
 import './studio-brand/fonts.css';
@@ -119,7 +119,7 @@ export class TouchControls {
 
     return `
       <div class="tc-top">
-        <button class="tc-hub" data-act="hub" aria-label="Вернуться: ${esc(hubLabel(hub.label))}"><i class="tc-plate">${svg(hub.icon ?? 'back')}${esc(hubLabel(hub.label))}</i></button>
+        <button class="tc-hub" data-act="hub" aria-label="${esc(hubAria(hub.label))}"><i class="tc-plate">${svg(hub.icon ?? 'back')}${esc(hubLabel(hub.label))}</i></button>
         <span class="tc-top-r">
           <button class="tc-gear sp-pause" data-act="${pause.id}" aria-label="${esc(pause.label)}"><i class="tc-plate">${svg(pause.icon ?? 'pause')}</i></button>
         </span>
