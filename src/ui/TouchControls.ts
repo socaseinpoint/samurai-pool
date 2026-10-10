@@ -90,7 +90,7 @@ export class TouchControls {
       try { return g.isOpen(); } catch { return false; }
     };
     try {
-      g.mountGear(right, { label: 'Настройки' });
+      g.mountGear(right, { fixed: false, label: 'Settings' });
       this.root.classList.add('sp-has-gear');
       document.body.classList.add('sp-has-gear');
     } catch (e) {

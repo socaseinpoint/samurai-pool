@@ -57,3 +57,5 @@ body.sp-touch.sp-lefty #double-jump { left: auto !important; right: calc(15px + 
 /* SOC-176: в студии отдельной паузы на полосе нет — справа только шестерёнка единого меню (mountGear), она и ставит паузу;
    шестерёнка встаёт на место паузы, поэтому сдвиги правой колонки HUD выше не меняются */
 .sp-tc.sp-has-gear .sp-pause { display: none; }
+/* полоса .tc-top сама пропускает касания — шестерёнке модуля их надо ловить */
+.sp-tc .tc-top-r .glint-gear { pointer-events: auto; display: inline-flex; }

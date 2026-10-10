@@ -2,7 +2,7 @@ import type { GameState, GameConfig, Vec3 } from '@/types';
 import { GameLoop } from './GameLoop';
 import { Input, PAD } from './Input';
 import { goToHub, hubLabel, hubUrl, inStudio, isTouchDevice, normalizeStudioControls, onStudioControlsChange, readStudioControls, type StudioControls } from './Platform';
-import { GLINT_GAME_ID, glintControls, glintOpen, loadGlintSettings, normalizeGameSettings, type GlintButton, type GlintSettingsApi, type SamuraiGameSettings } from './GlintSettings';
+import { GLINT_GAME_ID, glintControls, glintOpen, loadGlintSettings, normalizeGameSettings, type GlintButton, type GlintItem, type GlintSettingsApi, type SamuraiGameSettings } from './GlintSettings';
 import layouts from '@/ui/hub-touch/layouts.json';
 import { TouchControls } from '@/ui/TouchControls';
 import { Player } from '@/player/Player';
@@ -337,6 +337,7 @@ export class Game {
         gameId: GLINT_GAME_ID,
         title: 'Samurai Pool',
         items: [
+          { type: 'group', label: 'Effects' } as unknown as GlintItem,
           // Подписи — по макету меню студии (spec.md п. 2, THIS GAME · Samurai, группа «Effects»)
           { key: 'shadows', label: 'Shadows', type: 'toggle', def: true, hint: 'off on a phone in Auto quality' },
           { key: 'postfx', label: 'Post effects', type: 'toggle', def: true },
@@ -384,13 +385,15 @@ export class Game {
   private controlButtons(): GlintButton[] {
     // Меню студии англоязычное (макет SOC-176) — имена действий по id
     const NAME: Record<string, string> = { move: 'Move', look: 'Look', fire: 'Attack', altFire: 'Wave', jump: 'Jump', throwGrenade: 'Grenade', run: 'Run' };
-    const KEY: Record<string, string> = { 'Мышь': 'Mouse', 'ЛКМ': 'LMB', 'ПКМ': 'RMB', 'Колесо': 'Wheel' };
+    // Токены модуля: через пробел, слова строчными — текст, «or» — разделитель
+    const KEY: Record<string, string> = { WASD: 'W A S D', 'Мышь': 'mouse', 'ЛКМ': 'left click', 'ПКМ': 'right click', 'Колесо': 'wheel or middle click' };
+    const PADK: Record<string, string> = { run: 'LB or B' };
     const touchOf = (c: { id: string; zone?: string }): string =>
       c.zone === 'left-stick' ? 'left stick' : c.zone === 'right-look-swipe' ? 'swipe on the right' : (NAME[c.id] ?? c.id).toLowerCase() + ' button';
     const controls = (layouts.worlds.samurai.controls as Array<{ id: string; zone?: string; label: string; pad: string; key: string }>)
       .filter((c) => NAME[c.id]);
     return [
-      ...controls.map((c) => ({ action: NAME[c.id], pad: c.pad, keys: KEY[c.key] ?? c.key, touch: touchOf(c) })),
+      ...controls.map((c) => ({ action: NAME[c.id], pad: PADK[c.id] ?? c.pad, keys: KEY[c.key] ?? c.key, touch: touchOf(c) })),
       { action: 'Settings and pause', pad: 'Menu', keys: 'Esc', touch: 'gear, top right' },
       { action: 'Quit to Glint', pad: 'View', touch: '‹ Glint, top left' },
       { action: 'Sound on/off', keys: 'M' },
