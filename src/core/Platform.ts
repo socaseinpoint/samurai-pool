@@ -55,6 +55,11 @@ export function hubUrl(): string {
   return window.location.pathname.startsWith('/games/') ? '/' : '../launch.html';
 }
 
+/** Подпись кнопки возврата: на сайте студии — «в студию», в Midnight — из раскладки («в хаб») */
+export function hubLabel(fallback: string): string {
+  return window.location.pathname.startsWith('/games/') ? 'в студию' : fallback;
+}
+
 /** Вернуться в хаб */
 export function goToHub(): void {
   window.location.href = new URL(hubUrl(), window.location.href).href;

@@ -1,7 +1,7 @@
 import type { GameState, GameConfig, Vec3 } from '@/types';
 import { GameLoop } from './GameLoop';
 import { Input, PAD } from './Input';
-import { goToHub, isTouchDevice, onStudioControlsChange, readStudioControls, type StudioControls } from './Platform';
+import { goToHub, hubLabel, hubUrl, isTouchDevice, onStudioControlsChange, readStudioControls, type StudioControls } from './Platform';
 import { TouchControls } from '@/ui/TouchControls';
 import { Player } from '@/player/Player';
 import { Weapon } from '@/weapon/Weapon';
@@ -263,6 +263,16 @@ export class Game {
     // Тач-управление (телефон, планшет)
     if (isTouchDevice()) {
       this.touch = new TouchControls(this.input, () => this.togglePause());
+    } else {
+      // Мышь и пад: «← в студию» в меню и на паузе (в игре курсор захвачен, на паде — View)
+      for (const id of ['click-to-start', 'pause-overlay']) {
+        const back = document.createElement('a');
+        back.className = 'studio-back';
+        back.href = hubUrl();
+        back.textContent = '← ' + hubLabel('в хаб');
+        back.addEventListener('click', (e) => e.stopPropagation());
+        document.getElementById(id)?.appendChild(back);
+      }
     }
 
     // Общие настройки управления студии (studio.controls.v1), живое обновление из другой вкладки
