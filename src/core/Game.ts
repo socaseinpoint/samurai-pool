@@ -373,7 +373,7 @@ export class Game {
     }
     g.on((settings) => this.applyStudio(normalizeStudioControls(settings)));
 
-    // Тач: шестерёнка студии в правом краю верхней полосы, пауза — слева от неё
+    // Тач: шестерёнка студии в правом краю верхней полосы; отдельной кнопки паузы нет — пауза = меню
     if (this.touch) this.touch.mountGear(g);
   }
 
@@ -405,14 +405,26 @@ export class Game {
     ];
   }
 
-  /** Меню студии открылось: игра на паузе, свой ввод заглушён, курсор свободен */
+  /** Меню студии открылось: игра и звук на паузе, свой ввод заглушён, курсор свободен */
   private onMenuOpen(): void {
     this.input.setBlocked(true);
     if (this.state.isRunning) {
       this.state.isPaused = true;
       this.touch?.setMode('paused');
+      this.audio.suspend();
     }
     this.input.exitPointerLock();
+  }
+
+  /** Пауза в студии (SOC-240) — это меню: Start на паде, тач, уход вкладки открывают его, паузу ставит onOpen */
+  private openMenu(via?: 'keys' | 'pad' | 'pointer' | 'touch'): void {
+    const g = this.glint;
+    if (!g || glintOpen()) return;
+    try {
+      g.open(undefined, via ? { via } : undefined);
+    } catch (e) {
+      console.warn('Меню студии не открылось', e);
+    }
   }
 
   /** Меню студии закрылось: после текущего события (клавиша или клик закрытия не уходят в игру) — ввод и игра дальше */
@@ -424,20 +436,12 @@ export class Game {
     }, 0);
   }
 
-  /** Снять паузу после меню; на компьютере без захвата мыши (меню закрыли Esc) — «кликните, чтобы продолжить» */
+  /** Снять паузу после меню (на экране Game Over — ждём перезапуск); захват мыши: сразу, а если браузер отказал (меню закрыли Esc) — первым кликом по игре */
   private resumeAfterMenu(): void {
-    const pauseOverlay = document.getElementById('pause-overlay');
-    if (pauseOverlay) pauseOverlay.style.display = 'none';
-    this.state.isPaused = false;
+    this.state.isPaused = this.gameOverPending;
     this.touch?.setMode('play');
+    this.audio.resume();
     this.input.requestPointerLock();
-    if (this.input.usesPointerLock && !this.input.padConnected) {
-      window.setTimeout(() => {
-        if (this.state.isRunning && !this.state.isPaused && !glintOpen() && document.pointerLockElement === null) {
-          this.showPauseOverlay();
-        }
-      }, 400);
-    }
   }
 
   /** Вибрация при уроне (общая настройка студии vibration): телефон и пад */
@@ -462,9 +466,13 @@ export class Game {
   /** Тач-оверлей (только на тач-устройствах) */
   private touch: TouchControls | null = null;
 
-  /** Пауза кнопкой (тач, Start на паде) */
+  /** Пауза кнопкой (тач, Start на паде); в студии кнопки нет — пауза в меню */
   private togglePause(): void {
     if (!this.state.isRunning) return;
+    if (this.glint) {
+      this.openMenu();
+      return;
+    }
     if (this.state.isPaused) this.hidePauseOverlay();
     else this.showPauseOverlay();
   }
@@ -915,8 +923,8 @@ export class Game {
         this.start();
         return;
       }
-      // Любая клавиша снимает паузу (Esc в студии открывает меню — его ловит модуль)
-      if (this.state.isPaused && this.state.isRunning && !(this.glint && e.code === 'Escape')) {
+      // Любая клавиша снимает паузу (в студии отдельной паузы нет — её снимает закрытие меню)
+      if (this.state.isPaused && this.state.isRunning && !this.glint) {
         this.hidePauseOverlay();
       }
     });
@@ -936,7 +944,7 @@ export class Game {
             // Esc съел браузер (снял захват) — для модуля это открытие с клавиатуры: фокус сразу на первой строке.
             // Второй аргумент — предложение к модулю (open(tab, {via})); текущий модуль его игнорирует
             if (!g.isOpen()) g.open(undefined, { via: 'keys' });
-            if (!g.isOpen()) { this.state.isPaused = false; this.showPauseOverlay(); } // меню не открылось — обычная пауза
+            if (!g.isOpen()) this.state.isPaused = false; // меню не открылось — игра идёт, захват вернёт первый клик
           }, 80);
           return;
         }
@@ -944,7 +952,7 @@ export class Game {
       }
     });
     
-    // При сворачивании окна
+    // При сворачивании окна (в студии — открываем меню, оно и пауза)
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && this.state.isRunning) {
         this.showPauseOverlay();
@@ -956,6 +964,11 @@ export class Game {
       const target = e.target as HTMLElement;
       const pauseOverlay = document.getElementById('pause-overlay');
       if (glintOpen() || this.input.isBlocked) return; // клики меню студии до игры не доходят
+      // В студии без захвата мыши (меню закрыли Esc) игра идёт — первый клик по игре берёт захват
+      if (this.glint && !target.closest?.('a, button, input, select') && this.state.isRunning && !this.state.isPaused && this.input.usesPointerLock && document.pointerLockElement === null) {
+        this.input.requestPointerLock();
+        return;
+      }
       if (pauseOverlay && pauseOverlay.style.display !== 'none') {
         console.log('🎮 Клик по паузе, возобновляем...');
         e.preventDefault();
@@ -965,8 +978,12 @@ export class Game {
     });
   }
   
-  /** Показать overlay паузы */
+  /** Показать overlay паузы; в студии своего экрана паузы нет — открываем меню (SOC-240) */
   private showPauseOverlay(): void {
+    if (this.glint) {
+      if (this.state.isRunning) this.openMenu();
+      return;
+    }
     const pauseOverlay = document.getElementById('pause-overlay');
     if (pauseOverlay && this.state.isRunning) {
       pauseOverlay.style.display = 'flex';
@@ -1326,9 +1343,13 @@ export class Game {
     this.audio.playSFX('katana_swing');
   }
 
+  /** Экран Game Over, перезапуск ещё не прошёл */
+  private gameOverPending = false;
+
   /** Game Over */
   private gameOver(): void {
     this.state.isPaused = true;
+    this.gameOverPending = true;
     this.hud.showGameOver(this.state.frags, this.targetManager.wave);
     
     // Перезапуск через 3 секунды
@@ -1344,9 +1365,10 @@ export class Game {
     this.player.state.health = 100;
     this.player.state.maxHealth = 100;
     
-    // Сброс состояния игры
+    // Сброс состояния игры (меню студии открыто — пауза остаётся до его закрытия)
     this.state.frags = 0;
-    this.state.isPaused = false;
+    this.gameOverPending = false;
+    this.state.isPaused = glintOpen();
     
     // Сброс режимов
     this.isInVoid = false;

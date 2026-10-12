@@ -82,7 +82,7 @@ export class TouchControls {
   /** Открыто меню студии (там свой скролл — жесты не глушим) */
   public menuOpen: () => boolean = () => false;
 
-  /** Шестерёнка единого меню студии (SOC-176) — в правый край верхней полосы, пауза остаётся слева от неё */
+  /** Шестерёнка единого меню студии (SOC-176) — в правый край верхней полосы вместо кнопки паузы */
   public mountGear(g: { mountGear(container: HTMLElement, opts?: Record<string, unknown>): unknown; isOpen(): boolean }): void {
     const right = this.root.querySelector('.tc-top-r') as HTMLElement | null;
     if (!right) return;
@@ -91,6 +91,8 @@ export class TouchControls {
     };
     try {
       g.mountGear(right, { fixed: false, label: 'Settings' });
+      // Пауза в студии = меню (SOC-240): своей кнопки паузы на полосе нет, только шестерёнка
+      this.root.querySelector('.sp-pause')?.remove();
       this.root.classList.add('sp-has-gear');
       document.body.classList.add('sp-has-gear');
     } catch (e) {

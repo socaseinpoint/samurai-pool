@@ -173,6 +173,42 @@ export class AudioManager {
     this.applyMix();
   }
 
+  /** Звук на паузе (меню студии): AudioContext стоит, ноты музыки не копятся — после resume играет с того же места */
+  private paused = false;
+
+  /** Пауза звука: AudioContext.suspend */
+  public suspend(): void {
+    this.paused = true;
+    if (this.ctx && this.ctx.state === 'running') this.ctx.suspend().catch(() => {});
+  }
+
+  /** Снять паузу звука: AudioContext.resume */
+  public resume(): void {
+    this.paused = false;
+    if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
+  }
+
+  /** Состояние AudioContext (для проверок): нет контекста — null */
+  public get contextState(): AudioContextState | null {
+    return this.ctx ? this.ctx.state : null;
+  }
+
+  /** Шаг музыки по setInterval: на паузе пропускаем (время контекста стоит — иначе ноты легли бы в одну точку) */
+  private unlessPaused(fn: () => void): () => void {
+    return () => {
+      if (!this.paused) fn();
+    };
+  }
+
+  /** Шаг музыки по цепочке setTimeout: на паузе ждём resume, цепочка не рвётся */
+  private whenResumed(fn: () => void): () => void {
+    const run = () => {
+      if (this.paused) window.setTimeout(run, 100);
+      else fn();
+    };
+    return run;
+  }
+
   /** Текущие уровни узлов (для проверок): мастер, музыка, эффекты */
   public getLevels(): { master: number; music: number; effects: number; started: boolean } {
     return {
@@ -2687,7 +2723,7 @@ export class AudioManager {
     if (!this.ctx || !this.masterGain) return;
 
     const playThunder = () => {
-      if (!this.ctx || !this.masterGain || !this.isRainPlaying) return;
+      if (!this.ctx || !this.masterGain || !this.isRainPlaying || this.paused) return;
 
       const now = this.ctx.currentTime;
 
@@ -2750,7 +2786,7 @@ export class AudioManager {
     };
 
     // Первый гром через 2-4 секунды
-    setTimeout(playThunder, 2000 + Math.random() * 2000);
+    setTimeout(this.whenResumed(playThunder), 2000 + Math.random() * 2000);
 
     // Периодические раскаты каждые 3-6 секунд
     this.thunderInterval = setInterval(() => {
@@ -2865,7 +2901,7 @@ export class AudioManager {
 
     // Запускаем дрон каждые 8 секунд (с перекрытием)
     playDrone();
-    this.musicIntervals.push(setInterval(playDrone, 8000) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playDrone), 8000) as unknown as number);
 
     // Атмосферный pad - меняющиеся аккорды
     const padNotes = [
@@ -2914,8 +2950,8 @@ export class AudioManager {
     };
 
     // Pad каждые 5 секунд
-    setTimeout(() => playPad(), 2000);
-    this.musicIntervals.push(setInterval(playPad, 5000) as unknown as number);
+    setTimeout(this.whenResumed(() => playPad()), 2000);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playPad), 5000) as unknown as number);
 
     // Редкие высокие "звёзды" - мерцающие ноты
     const playShimmer = () => {
@@ -2947,9 +2983,9 @@ export class AudioManager {
       if (this.currentMusicMode !== 'normal' || this.currentEra !== 1) return;
       playShimmer();
       const nextDelay = 3000 + Math.random() * 5000; // 3-8 секунд
-      this.musicIntervals.push(setTimeout(shimmerLoop, nextDelay) as unknown as number);
+      this.musicIntervals.push(setTimeout(this.whenResumed(shimmerLoop), nextDelay) as unknown as number);
     };
-    setTimeout(shimmerLoop, 4000);
+    setTimeout(this.whenResumed(shimmerLoop), 4000);
   }
 
   /** ЭПОХА 2: Чёрная дыра (волны 6-10) */
@@ -3002,7 +3038,7 @@ export class AudioManager {
     };
 
     playDrone();
-    this.musicIntervals.push(setInterval(playDrone, 4000) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playDrone), 4000) as unknown as number);
 
     // Медленный тяжёлый бит
     let beat = 0;
@@ -3033,7 +3069,7 @@ export class AudioManager {
       beat++;
     };
 
-    this.musicIntervals.push(setInterval(playBeat, 600) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playBeat), 600) as unknown as number);
 
     // Жуткие высокие тона
     const playEerie = () => {
@@ -3060,7 +3096,7 @@ export class AudioManager {
       osc.stop(now + 2);
     };
 
-    this.musicIntervals.push(setInterval(playEerie, 3000 + Math.random() * 2000) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playEerie), 3000 + Math.random() * 2000) as unknown as number);
 
     // Гравитационный шум
     const playGravity = () => {
@@ -3095,7 +3131,7 @@ export class AudioManager {
       noise.stop(now + 0.5);
     };
 
-    this.musicIntervals.push(setInterval(playGravity, 1500) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playGravity), 1500) as unknown as number);
   }
 
   /** ЭПОХА 3: Космическая технологическая (волны 11-15) */
@@ -3134,7 +3170,7 @@ export class AudioManager {
       noteIndex = (noteIndex + 1) % bassNotes.length;
     };
 
-    this.musicIntervals.push(setInterval(playBass, 200) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playBass), 200) as unknown as number);
 
     // Космическое арпеджио (высокое)
     const arpNotes = [880, 1046, 1318, 1760, 1318, 1046, 880, 659];
@@ -3170,7 +3206,7 @@ export class AudioManager {
       arpIndex = (arpIndex + 1) % arpNotes.length;
     };
 
-    this.musicIntervals.push(setInterval(playArp, 100) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playArp), 100) as unknown as number);
 
     // Техно кик
     const playKick = () => {
@@ -3194,7 +3230,7 @@ export class AudioManager {
       osc.stop(now + 0.12);
     };
 
-    this.musicIntervals.push(setInterval(playKick, 400) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playKick), 400) as unknown as number);
 
     // Космический пэд
     const playPad = () => {
@@ -3224,7 +3260,7 @@ export class AudioManager {
     };
 
     playPad();
-    this.musicIntervals.push(setInterval(playPad, 4000) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playPad), 4000) as unknown as number);
 
     // Электрические разряды
     const playZap = () => {
@@ -3249,7 +3285,7 @@ export class AudioManager {
       osc.stop(now + 0.1);
     };
 
-    this.musicIntervals.push(setInterval(playZap, 800 + Math.random() * 600) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playZap), 800 + Math.random() * 600) as unknown as number);
   }
 
   /** Включить/выключить режим низкого HP */
@@ -3320,7 +3356,7 @@ export class AudioManager {
       }
     };
 
-    this.musicIntervals.push(setInterval(playHeartbeat, 800) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playHeartbeat), 800) as unknown as number);
 
     // === ТРЕВОЖНЫЙ ДРОН ===
     const playDrone = () => {
@@ -3360,7 +3396,7 @@ export class AudioManager {
     };
 
     playDrone();
-    this.musicIntervals.push(setInterval(playDrone, 2500) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playDrone), 2500) as unknown as number);
 
     // === ИСКРЫ ===
     const playSpark = () => {
@@ -3399,7 +3435,7 @@ export class AudioManager {
       }
     };
 
-    this.musicIntervals.push(setInterval(playSpark, 500 + Math.random() * 500) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playSpark), 500 + Math.random() * 500) as unknown as number);
 
     // === ТРЕВОЖНЫЕ НОТЫ ===
     const playWarning = () => {
@@ -3428,7 +3464,7 @@ export class AudioManager {
       osc.stop(now + 0.5);
     };
 
-    this.musicIntervals.push(setInterval(playWarning, 1500 + Math.random() * 1000) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playWarning), 1500 + Math.random() * 1000) as unknown as number);
 
     // === СТАТИЧЕСКИЕ ПОМЕХИ ===
     const playStatic = () => {
@@ -3465,7 +3501,7 @@ export class AudioManager {
       noise.stop(now + 0.1);
     };
 
-    this.musicIntervals.push(setInterval(playStatic, 300 + Math.random() * 400) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playStatic), 300 + Math.random() * 400) as unknown as number);
   }
 
   /** Фаза Зелёного Босса */
@@ -3554,7 +3590,7 @@ export class AudioManager {
     };
 
     // Тяжёлая бочка на каждую восьмую - агрессивнее! 160 BPM
-    this.musicIntervals.push(setInterval(playHeavyKick, 187) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playHeavyKick), 187) as unknown as number);
 
     // === ЗЛОЙ СИНТ ===
     const playEvilSynth = () => {
@@ -3599,7 +3635,7 @@ export class AudioManager {
     };
 
     // Злой синт на оффбитах
-    this.musicIntervals.push(setInterval(playEvilSynth, 93) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playEvilSynth), 93) as unknown as number);
 
     // === СИРЕНА ТРЕВОГИ ===
     const playAlarm = () => {
@@ -3627,7 +3663,7 @@ export class AudioManager {
     };
 
     // Сирена каждые 1.5 секунды - чаще!
-    this.musicIntervals.push(setInterval(playAlarm, 1500) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playAlarm), 1500) as unknown as number);
   }
 
   /** Звук вихря чёрного босса */
@@ -3778,7 +3814,7 @@ export class AudioManager {
     };
 
     // Рейзер каждые 2 секунды
-    this.musicIntervals.push(setInterval(playRiser, 2000) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playRiser), 2000) as unknown as number);
     playRiser();
 
     // === STORM: ТЯЖЁЛЫЙ SUB DROP ===
@@ -3804,7 +3840,7 @@ export class AudioManager {
     };
 
     // Sub drop каждые 500ms
-    this.musicIntervals.push(setInterval(playSubDrop, 500) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playSubDrop), 500) as unknown as number);
 
     // === STORM: ШУМОВОЙ SWEEP ===
     const playNoiseSweep = () => {
@@ -3842,7 +3878,7 @@ export class AudioManager {
       noise.stop(now + 1.1);
     };
 
-    this.musicIntervals.push(setInterval(playNoiseSweep, 1000) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playNoiseSweep), 1000) as unknown as number);
     playNoiseSweep();
 
     // === STORM: БЫСТРЫЕ ХАЙХЭТЫ ===
@@ -3877,7 +3913,7 @@ export class AudioManager {
     };
 
     // 16th notes (очень быстро)
-    this.musicIntervals.push(setInterval(playFastHihat, 119) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playFastHihat), 119) as unknown as number);
   }
 
   /** Деактивация storm режима */
@@ -3953,7 +3989,7 @@ export class AudioManager {
     };
 
     // 150 BPM 16-е ноты
-    this.musicIntervals.push(setInterval(playAcidBass, 100) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playAcidBass), 100) as unknown as number);
 
     // === ЖЁСТКИЙ КИК ===
     const playKick = () => {
@@ -3991,7 +4027,7 @@ export class AudioManager {
       click.stop(now + 0.03);
     };
 
-    this.musicIntervals.push(setInterval(playKick, 400) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playKick), 400) as unknown as number);
 
     // === ХАЙХЭТ ===
     let hihatStep = 0;
@@ -4019,7 +4055,7 @@ export class AudioManager {
     };
 
     // Хайхэт на каждую восьмую
-    this.musicIntervals.push(setInterval(playHihat, 207) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playHihat), 207) as unknown as number);
 
     // === КИСЛОТНЫЙ СКРИМ (acid scream) ===
     const playAcidScream = () => {
@@ -4053,7 +4089,7 @@ export class AudioManager {
     };
 
     // Скрим каждые 2 такта
-    this.musicIntervals.push(setInterval(playAcidScream, 1656) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playAcidScream), 1656) as unknown as number);
   }
 
   /** Музыка Чёрного Босса - DUB TECHNO с жёсткой бочкой */
@@ -4106,7 +4142,7 @@ export class AudioManager {
     };
 
     // 130 BPM = ~461ms
-    this.musicIntervals.push(setInterval(playKick, 461) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playKick), 461) as unknown as number);
 
     // === ДАБОВЫЙ БАС С ДИЛЭЕМ ===
     const bassNotes = [36.7, 36.7, 32.7, 36.7, 41.2, 36.7, 32.7, 29.1]; // D минор
@@ -4169,7 +4205,7 @@ export class AudioManager {
       bassIndex = (bassIndex + 1) % bassNotes.length;
     };
 
-    this.musicIntervals.push(setInterval(playDubBass, 461) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playDubBass), 461) as unknown as number);
 
     // === БРЕЙКБИТ (Amen-style паттерн) ===
     // Классический брейк: kick-snare-kick-kick-snare с вариациями
@@ -4295,7 +4331,7 @@ export class AudioManager {
     };
 
     // 16th notes при 130 BPM
-    this.musicIntervals.push(setInterval(playBreakHit, 115) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playBreakHit), 115) as unknown as number);
 
     // Снэйр и хайхэты уже в брейкбите!
 
@@ -4354,7 +4390,7 @@ export class AudioManager {
       }
     };
 
-    this.musicIntervals.push(setInterval(playDubChord, 1844) as unknown as number); // Каждые 4 такта
+    this.musicIntervals.push(setInterval(this.unlessPaused(playDubChord), 1844) as unknown as number); // Каждые 4 такта
 
     // === ГЛУБОКИЙ SUB DRONE ===
     const playSubDrone = () => {
@@ -4392,7 +4428,7 @@ export class AudioManager {
     };
 
     playSubDrone();
-    this.musicIntervals.push(setInterval(playSubDrone, 3688) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playSubDrone), 3688) as unknown as number);
 
     // === FX: РЕЙЗЕР/ПАДЕНИЕ (каждые 8 тактов) ===
     const playFx = () => {
@@ -4431,7 +4467,7 @@ export class AudioManager {
       osc.stop(now + 1.6);
     };
 
-    this.musicIntervals.push(setInterval(playFx, 3688) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playFx), 3688) as unknown as number);
   }
 
   /** Райзер перед вихрем */
@@ -4562,7 +4598,7 @@ export class AudioManager {
       noteIndex = (noteIndex + 1) % bassNotes.length;
     };
 
-    this.musicIntervals.push(setInterval(playBass, 250) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playBass), 250) as unknown as number);
 
     // Быстрое арпеджио
     const arpNotes = [880, 1046, 1318, 1567, 1318, 1046];
@@ -4591,7 +4627,7 @@ export class AudioManager {
       arpIndex = (arpIndex + 1) % arpNotes.length;
     };
 
-    this.musicIntervals.push(setInterval(playArp, 125) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playArp), 125) as unknown as number);
 
     // Электрические разряды
     const playZap = () => {
@@ -4616,7 +4652,7 @@ export class AudioManager {
       osc.stop(now + 0.15);
     };
 
-    this.musicIntervals.push(setInterval(playZap, 500 + Math.random() * 300) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playZap), 500 + Math.random() * 300) as unknown as number);
 
     // Быстрые удары
     const playKick = () => {
@@ -4641,7 +4677,7 @@ export class AudioManager {
       osc.stop(now + 0.15);
     };
 
-    this.musicIntervals.push(setInterval(playKick, 500) as unknown as number);
+    this.musicIntervals.push(setInterval(this.unlessPaused(playKick), 500) as unknown as number);
   }
 
   /** Бас-линия */
@@ -4688,7 +4724,7 @@ export class AudioManager {
 
       noteIndex = (noteIndex + 1) % bassNotes.length;
 
-      setTimeout(playBassNote, 1000);
+      setTimeout(this.whenResumed(playBassNote), 1000);
     };
 
     playBassNote();
@@ -4742,10 +4778,10 @@ export class AudioManager {
 
       noteIndex = (noteIndex + 1) % arpNotes.length;
 
-      setTimeout(playArpNote, 125); // 16th notes at 120 BPM
+      setTimeout(this.whenResumed(playArpNote), 125); // 16th notes at 120 BPM
     };
 
-    setTimeout(playArpNote, 2000);
+    setTimeout(this.whenResumed(playArpNote), 2000);
   }
 
   /** Атмосферный пэд */
@@ -4803,10 +4839,10 @@ export class AudioManager {
 
       chordIndex = (chordIndex + 1) % padChords.length;
 
-      setTimeout(playPadChord, 4000);
+      setTimeout(this.whenResumed(playPadChord), 4000);
     };
 
-    setTimeout(playPadChord, 500);
+    setTimeout(this.whenResumed(playPadChord), 500);
   }
 
   /** Драм-машина */
@@ -4890,10 +4926,10 @@ export class AudioManager {
 
       beat = (beat + 1) % 16;
 
-      setTimeout(playBeat, 250); // 120 BPM
+      setTimeout(this.whenResumed(playBeat), 250); // 120 BPM
     };
 
-    setTimeout(playBeat, 1000);
+    setTimeout(this.whenResumed(playBeat), 1000);
   }
 
   /** Остановить аудио */
