@@ -432,6 +432,8 @@ export class Input {
   /** Обработка нажатия кнопки мыши */
   private handleMouseDown(e: MouseEvent): void {
     if (this.blocked) return;
+    // Клик без захвата мыши только берёт захват (как в Drive) — ударом не считается
+    if (this.usesPointerLock && !this.isPointerLocked) return;
     if (e.button === 0) {
       this.keyHeld.fire = true;
     } else if (e.button === 1) {
